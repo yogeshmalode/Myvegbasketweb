@@ -5,9 +5,12 @@
 
 // ---- Database settings (edit these for your server) ----
 define('DB_HOST', 'localhost');
-define('DB_NAME', 'u437666696_Vegbasket');
-define('DB_USER', 'u437666696_yogesh');
-define('DB_PASS', 'Python@9753');
+//define('DB_NAME', 'u437666696_Vegbasket');
+//define('DB_USER', 'u437666696_yogesh');
+//define('DB_PASS', 'Python@9753');
+define('DB_NAME', 'vegbasket');
+define('DB_USER', 'root');
+define('DB_PASS', '');
 
 // ---- Razorpay settings (Test Mode) ----
 // Get your test keys from https://dashboard.razorpay.com/app/keys
@@ -635,20 +638,21 @@ function veg_emoji($name) {
     return $map[$key] ?? '🥗';
 }
 
-// Renders the product thumbnail: a real photo if one exists on disk for
-// this product, otherwise the emoji fallback.
-//
-// To add a real photo for a product, just save an image file named after
-// the product (lowercase, spaces/punctuation removed) into assets/images/
-// — e.g. a photo for "Green Peas" should be saved as greenpeas.jpg. Any of
-// .jpg / .jpeg / .png / .webp work. No code or database change needed —
-// it starts showing automatically the moment the file exists.
+// Renders the product thumbnail: a local image from the /img directory when
+// available, otherwise a curated fallback, then the emoji fallback.
 function veg_thumb_html($veg) {
     $slug = strtolower(preg_replace('/[^a-z0-9]/i', '', $veg['name']));
 
-    // Curated Wikimedia Commons photographs. These are real photographs and
-    // are used instead of the original SVG illustrations. The source/licence
-    // page for every photograph is recorded in photo_credits.php.
+    static $localAliasMap = [
+        'greenpeas' => 'peas',
+        'greenchilli' => 'chilli',
+        'sweetcorn' => 'corn',
+        'greenbeans' => 'greenbeans',
+        'bottlegourd' => 'bottlegourd',
+        'bittergourd' => 'bittergourd',
+        'curryleaves' => 'curryleaves',
+    ];
+
     static $photoMap = [
         'tomato' => 'Tomato (1).jpg',
         'potato' => 'A Potato.jpg',
@@ -692,7 +696,18 @@ function veg_thumb_html($veg) {
         'lettuce' => 'Raw lettuce.jpg',
     ];
 
-    // Local merchant photos always override the curated remote defaults.
+    $candidates = array_values(array_unique(array_filter([$slug, $localAliasMap[$slug] ?? null])));
+
+    foreach (['jpg', 'jpeg', 'png', 'webp'] as $ext) {
+        foreach ($candidates as $fileName) {
+            $relative = "/img/$fileName.$ext";
+            if (file_exists(__DIR__ . $relative)) {
+                return '<img src="' . BASE_URL . $relative . '" alt="' . h($veg['name']) . '" loading="lazy" decoding="async" '
+                     . 'style="width:100%; height:100%; object-fit:cover; display:block; border-radius:10px;">';
+            }
+        }
+    }
+
     foreach (['jpg', 'jpeg', 'png', 'webp'] as $ext) {
         $relative = "/assets/images/$slug.$ext";
         if (file_exists(__DIR__ . $relative)) {
