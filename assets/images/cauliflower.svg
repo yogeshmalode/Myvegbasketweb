@@ -1,0 +1,21 @@
+<svg viewBox="0 0 200 200" xmlns="http://www.w3.org/2000/svg">
+  <g fill="#F1EFE0">
+    <circle cx="100" cy="110" r="42"/>
+    <circle cx="72" cy="98" r="18"/>
+    <circle cx="128" cy="98" r="18"/>
+    <circle cx="80" cy="132" r="16"/>
+    <circle cx="120" cy="132" r="16"/>
+    <circle cx="100" cy="78" r="18"/>
+  </g>
+  <g fill="#E4E0CC">
+    <circle cx="90" cy="100" r="6"/>
+    <circle cx="112" cy="104" r="6"/>
+    <circle cx="100" cy="122" r="6"/>
+    <circle cx="78" cy="118" r="5"/>
+    <circle cx="122" cy="116" r="5"/>
+  </g>
+  <g fill="#4FA85C">
+    <path d="M70 88 C56 80 54 62 66 52 C64 68 70 80 78 86 Z"/>
+    <path d="M130 88 C144 80 146 62 134 52 C136 68 130 80 122 86 Z"/>
+  </g>
+</svg>

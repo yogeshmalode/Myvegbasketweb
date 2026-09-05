@@ -1,0 +1,11 @@
+User-agent: *
+Allow: /
+Disallow: /admin/
+Disallow: /ajax/
+Disallow: /cart.php
+Disallow: /checkout.php
+Disallow: /my_account.php
+Disallow: /reorder.php
+Disallow: /track_order.php
+
+Sitemap: https://myvegbasket.com/sitemap.php
