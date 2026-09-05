@@ -5,12 +5,12 @@
 
 // ---- Database settings (edit these for your server) ----
 define('DB_HOST', 'localhost');
-//define('DB_NAME', 'u437666696_Vegbasket');
-//define('DB_USER', 'u437666696_yogesh');
-//define('DB_PASS', 'Python@9753');
-define('DB_NAME', 'vegbasket');
-define('DB_USER', 'root');
-define('DB_PASS', '');
+define('DB_NAME', 'u437666696_Vegbasket');
+define('DB_USER', 'u437666696_yogesh');
+define('DB_PASS', 'Python@9753');
+//define('DB_NAME', 'vegbasket');
+//define('DB_USER', 'root');
+//define('DB_PASS', '');
 
 // ---- Razorpay settings (Test Mode) ----
 // Get your test keys from https://dashboard.razorpay.com/app/keys
