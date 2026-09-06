@@ -2,6 +2,26 @@
 require_once __DIR__ . '/includes/auth.php';
 $page_title = 'Manage Vegetables';
 
+// One-click recalc: rescale size-option prices for one product to match its base price
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['recalc_variants']) && isset($_POST['veg_id'])) {
+    require_csrf();
+    $vegId = (int)$_POST['veg_id'];
+    try {
+        $row = $pdo->prepare("SELECT price, unit FROM vegetables WHERE id = ?");
+        $row->execute([$vegId]);
+        $v = $row->fetch();
+        if ($v) {
+            $res = recalculate_variant_prices($pdo, $vegId, (float)$v['price'], $v['unit']);
+            $_SESSION['flash'] = ['type' => 'success', 'message' => "Rescaled {$res['updated']} variant(s) for product #{$vegId}. {$res['skipped']} skipped."];
+        } else {
+            $_SESSION['flash'] = ['type' => 'error', 'message' => 'Product not found.'];
+        }
+    } catch (Throwable $e) {
+        $_SESSION['flash'] = ['type' => 'error', 'message' => 'Failed to recalculate: ' . $e->getMessage()];
+    }
+    redirect('vegetables.php');
+}
+
 $vegetables = $pdo->query("SELECT * FROM vegetables ORDER BY id DESC")->fetchAll();
 
 $flash = $_SESSION['flash'] ?? null;
@@ -56,7 +76,12 @@ include __DIR__ . '/includes/admin_header.php';
           <td>
             <a href="edit_vegetable.php?id=<?= $veg['id'] ?>" class="action-link edit">Edit</a>
             <a href="delete_vegetable.php?id=<?= $veg['id'] ?>" class="action-link delete" onclick="return confirm('Delete <?= h($veg['name']) ?>? This cannot be undone.');">Delete</a>
-          </td>
+                      <form method="post" style="display:inline; margin-left:8px">
+                        <input type="hidden" name="csrf_token" value="<?= h(csrf_token()) ?>">
+                        <input type="hidden" name="veg_id" value="<?= $veg['id'] ?>">
+                        <button type="submit" name="recalc_variants" value="1" class="action-link" style="background:none;border:none;padding:0;color:#2a7ae2;cursor:pointer;font-size:0.9rem;">🔄 Rescale sizes</button>
+                      </form>
+                    </td>
         </tr>
       <?php endforeach; ?>
       <?php if (empty($vegetables)): ?>

@@ -37,12 +37,14 @@ function read_xlsx_simple($filepath) {
     $rows = [];
     foreach ($sheet->sheetData->row as $row) {
         $rowData = [];
+        $maxCol = -1;
         foreach ($row->c as $cell) {
             $ref = (string)$cell['r'];
             preg_match('/([A-Z]+)(\d+)/', $ref, $m);
             $colIndex = 0;
             foreach (str_split($m[1] ?? 'A') as $ch) { $colIndex = $colIndex * 26 + (ord($ch) - 64); }
             $colIndex--;
+            if ($colIndex > $maxCol) $maxCol = $colIndex;
 
             $type = (string)$cell['t'];
             if ($type === 's') {
@@ -54,8 +56,16 @@ function read_xlsx_simple($filepath) {
             }
             $rowData[$colIndex] = $value;
         }
-        ksort($rowData);
-        $rows[] = array_values($rowData);
+        // Ensure missing cells are represented as empty strings so columns don't shift.
+        if ($maxCol >= 0) {
+            for ($i = 0; $i <= $maxCol; $i++) {
+                if (!array_key_exists($i, $rowData)) $rowData[$i] = '';
+            }
+            ksort($rowData);
+            $rows[] = array_values($rowData);
+        } else {
+            $rows[] = [];
+        }
     }
     return $rows;
 }
