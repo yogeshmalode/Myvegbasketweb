@@ -57,11 +57,25 @@ if (isset($_SESSION['cart'][$key])) {
     ];
 }
 
-// Don't let cart quantity exceed available stock (tracked per base
-// product, not per size — a 250 g pack and a 1 kg pack both draw from
-// the same stock count).
-if ($_SESSION['cart'][$key]['qty'] > $veg['stock']) {
-    $_SESSION['cart'][$key]['qty'] = (int)$veg['stock'];
+// Don't let cart quantity exceed available stock (tracked per base product)
+if ($variant) {
+    // compute fraction (e.g. 250 g => 0.25 of base unit)
+    $fraction = null;
+    try { $fraction = size_fraction_of_base_unit($variant['label'], $veg['unit']); } catch (Throwable $e) { $fraction = null; }
+    if ($fraction !== null && $fraction > 0) {
+        $maxPacks = (int)floor(((float)$veg['stock']) / $fraction);
+        if ($_SESSION['cart'][$key]['qty'] > $maxPacks) {
+            $_SESSION['cart'][$key]['qty'] = $maxPacks;
+        }
+    } else {
+        if ($_SESSION['cart'][$key]['qty'] > (int)$veg['stock']) {
+            $_SESSION['cart'][$key]['qty'] = (int)$veg['stock'];
+        }
+    }
+} else {
+    if ($_SESSION['cart'][$key]['qty'] > (int)$veg['stock']) {
+        $_SESSION['cart'][$key]['qty'] = (int)$veg['stock'];
+    }
 }
 
 echo json_encode([

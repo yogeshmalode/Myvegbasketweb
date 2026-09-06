@@ -17,10 +17,28 @@ if ($qty <= 0) {
 } else {
     // clamp to available stock (tracked at the base product level)
     $vegId = $_SESSION['cart'][$key]['id'];
-    $stmt = $pdo->prepare("SELECT stock FROM vegetables WHERE id = ?");
+        $stmt = $pdo->prepare("SELECT stock, unit FROM vegetables WHERE id = ?");
     $stmt->execute([$vegId]);
-    $stock = (int)($stmt->fetchColumn() ?: $qty);
-    $_SESSION['cart'][$key]['qty'] = min($qty, $stock);
+        $row = $stmt->fetch();
+        $stock = $row ? (float)$row['stock'] : 0;
+        $max = $stock;
+        if (!empty($_SESSION['cart'][$key]['variant_id'])) {
+            $variantId = (int)$_SESSION['cart'][$key]['variant_id'];
+            try {
+                $vstmt = $pdo->prepare("SELECT label FROM vegetable_variants WHERE id = ? AND vegetable_id = ?");
+                $vstmt->execute([$variantId, $vegId]);
+                $vrow = $vstmt->fetch();
+                if ($vrow) {
+                    $fraction = size_fraction_of_base_unit($vrow['label'], $row['unit']);
+                    if ($fraction !== null && $fraction > 0) {
+                        $max = (int)floor($stock / $fraction);
+                    }
+                }
+            } catch (Throwable $e) { /* ignore */ }
+        } else {
+            $max = (int)$stock;
+        }
+        $_SESSION['cart'][$key]['qty'] = min($qty, max(0, (int)$max));
 }
 
 echo json_encode([
