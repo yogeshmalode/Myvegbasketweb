@@ -4,54 +4,124 @@ require_role(['admin','staff']);
 $page_title='Billing'; $order=null; $items=[];
 function bill_icon($name){$n=strtolower($name);if(strpos($n,'tomato')!==false)return '🍅';if(strpos($n,'potato')!==false)return '🥔';if(strpos($n,'onion')!==false)return '🧅';if(strpos($n,'carrot')!==false)return '🥕';if(strpos($n,'cucumber')!==false)return '🥒';if(strpos($n,'capsicum')!==false)return '🫑';return '🥬';}
 if(isset($_GET['receipt'])){ $rid=(int)$_GET['receipt'];$st=$pdo->prepare("SELECT * FROM orders WHERE id=?");$st->execute([$rid]);$ro=$st->fetch();if(!$ro)exit('Receipt not found.');$it=$pdo->prepare("SELECT * FROM order_items WHERE order_id=?");$it->execute([$rid]);$ri=$it->fetchAll();$sub=array_sum(array_column($ri,'subtotal'));$discount=(float)$ro['discount_amount'];?><!doctype html><html><head><meta charset="utf-8"><title>Receipt #<?=$rid?></title><link rel="stylesheet" href="../assets/css/style.css"><link rel="stylesheet" href="admin.css"><style>@media print{.no-print{display:none!important}}body{padding:30px;background:#f7f9f8}.receipt{max-width:620px;margin:auto;background:#fff;padding:28px;border:1px solid #e3e9e5;border-radius:14px}.receipt-header{display:flex;align-items:center;gap:14px;padding-bottom:12px;margin-bottom:8px;border-bottom:1px solid #edf0ee}.receipt-logo{width:74px;height:74px;object-fit:contain;border-radius:12px;background:#f3f8f4;padding:10px}.receipt-brand h2{margin:0;font-size:28px;line-height:1.1;color:#183329}.receipt-brand small{display:block;color:#5d6963;margin-top:4px}.receipt table{width:100%;border-collapse:collapse}.receipt th,.receipt td{padding:10px;border-bottom:1px solid #edf0ee;text-align:left}.receipt-summary{margin-top:8px}.receipt-summary p{margin:4px 0}.receipt-meta{margin:14px 0 10px;color:#42524d}.receipt-meta strong{display:block;color:#17231f}.receipt-total{font-size:18px;color:#103328}</style></head><body><div class="receipt"><div class="receipt-header"><img class="receipt-logo" src="../assets/images/logo-icon.png" alt="<?=h(SITE_NAME)?> logo"><div class="receipt-brand"><h2><?=h(SITE_NAME)?></h2><small>Fresh groceries &amp; daily delivery</small></div></div><div class="receipt-meta"><strong>Bill #<?=$rid?></strong><span><?=h(format_ist($ro['created_at']))?></span></div><p><?=h($ro['customer_name'])?><br><?=h($ro['phone'])?></p><table><tr><th>Item</th><th>Qty</th><th>Total</th></tr><?php foreach($ri as $r):?><tr><td><?=h($r['name'])?></td><td><?=$r['quantity']?></td><td>₹<?=number_format($r['subtotal'],2)?></td></tr><?php endforeach;?></table><div class="receipt-summary"><p>Subtotal: ₹<?=number_format($sub,2)?></p><p>Discount (<?=number_format($sub>0?$discount/$sub*100:0,2)?>%): -₹<?=number_format($discount,2)?></p><p class="receipt-total"><strong>Total: ₹<?=number_format($ro['total_amount'],2)?></strong></p></div><button class="admin-btn admin-btn-primary no-print" onclick="window.print()">Print Receipt</button> <a class="admin-btn no-print" href="billing.php">New Bill</a></div></body></html><?php exit; }
-if($_SERVER['REQUEST_METHOD']==='POST' && isset($_POST['checkout'])){require_csrf();$name=trim($_POST['customer_name']??'Walk-in Customer');$email=trim($_POST['email']??'walkin@local');$phone=trim($_POST['phone']??'0000000000');$address=trim($_POST['address']??'Store counter');$discountPct=max(0,min(100,(float)($_POST['discount_percent']??0)));$payment=in_array($_POST['payment_method']??'', ['cash','upi_qr'], true)?$_POST['payment_method']:'cash';$cart=$_SESSION['billing_cart']??[];if(!$cart)$_SESSION['flash']=['type'=>'error','message'=>'Add at least one item.'];else{try{$pdo->beginTransaction();$subtotal=0;$locked=[];$sel=$pdo->prepare("SELECT id,name,unit,price,sale_price,cost_price,stock FROM vegetables WHERE id=? FOR UPDATE");foreach($cart as $key=>$entry){
-        if(is_array($entry)){
-            $vid=(int)$entry['id'];
-            $qty=(int)$entry['qty'];
-            if($qty<1) continue;
-            $sel->execute([$vid]);
-            $v=$sel->fetch();
-            if(!$v) throw new Exception('Invalid product');
+if($_SERVER['REQUEST_METHOD']==='POST' && isset($_POST['checkout'])){
+    require_csrf();
+    $name=trim($_POST['customer_name']??'Walk-in Customer');
+    $email=trim($_POST['email']??'walkin@local');
+    $phone=trim($_POST['phone']??'0000000000');
+    $address=trim($_POST['address']??'Store counter');
+    $discountPct=max(0,min(100,(float)($_POST['discount_percent']??0)));
+    $payment=in_array($_POST['payment_method']??'', ['cash','upi_qr'], true)?$_POST['payment_method']:'cash';
+    $cart=$_SESSION['billing_cart']??[];
 
-            // compute how much base-unit quantity this line consumes
-            $fraction = null;
-            try { $fraction = size_fraction_of_base_unit($entry['unit'] ?? '', $v['unit']); } catch (Throwable $e) { $fraction = null; }
-            $baseQty = ($fraction !== null && $fraction > 0) ? round($qty * $fraction, 3) : $qty;
+    if(!$cart){
+        $_SESSION['flash']=['type'=>'error','message'=>'Add at least one item.'];
+    } else {
+        try {
+            $pdo->beginTransaction();
+            $subtotal=0;
+            $locked=[];
+            $stockRequiredByProduct=[];
+            $sel=$pdo->prepare("SELECT id,name,unit,price,sale_price,cost_price,stock FROM vegetables WHERE id=? FOR UPDATE");
 
-            if ($v['stock'] < $baseQty) throw new Exception('Insufficient stock for '.($v['name']??'item'));
+            foreach($cart as $key=>$entry){
+                if(is_array($entry)){
+                    $vid=(int)$entry['id'];
+                    $qty=(int)$entry['qty'];
+                    if($qty<1) continue;
 
-            $price=(float)$entry['price'];
-            $subtotal+=round($price*$qty,2);
-            $locked[]=['v'=>$v,'qty'=>$qty,'price'=>$price,'variant_id'=>($entry['variant_id']??null),'variant_label'=>($entry['unit']??null),'base_qty'=>$baseQty];
-        } else {
-            $vid=(int)$key;
-            $qty=(int)$entry;
-            if($qty<1) continue;
-            $sel->execute([$vid]);
-            $v=$sel->fetch();
-            if(!$v) throw new Exception('Invalid product');
+                    $sel->execute([$vid]);
+                    $v=$sel->fetch();
+                    if(!$v) throw new Exception('Invalid product');
 
-            $use=($v['sale_price']!==null&&$v['sale_price']<$v['price'])?(float)$v['sale_price']:(float)$v['price'];
-            $baseQty = $qty;
-            if ($v['stock'] < $baseQty) throw new Exception('Insufficient stock for '.($v['name']??'item'));
-            $subtotal+=round($use*$qty,2);
-            $locked[]=['v'=>$v,'qty'=>$qty,'price'=>$use,'variant_id'=>null,'variant_label'=>null,'base_qty'=>$baseQty];
+                    $fraction = null;
+                    try { $fraction = size_fraction_of_base_unit($entry['unit'] ?? '', $v['unit']); } catch (Throwable $e) { $fraction = null; }
+                    $baseQty = ($fraction !== null && $fraction > 0) ? round($qty * $fraction, 3) : $qty;
+                    $stockRequiredByProduct[$vid] = ($stockRequiredByProduct[$vid] ?? 0) + $baseQty;
+
+                    $price=(float)$entry['price'];
+                    $subtotal+=round($price*$qty,2);
+                    $locked[]=['v'=>$v,'qty'=>$qty,'price'=>$price,'variant_id'=>($entry['variant_id']??null),'variant_label'=>($entry['unit']??null),'base_qty'=>$baseQty];
+                } else {
+                    $vid=(int)$key;
+                    $qty=(int)$entry;
+                    if($qty<1) continue;
+
+                    $sel->execute([$vid]);
+                    $v=$sel->fetch();
+                    if(!$v) throw new Exception('Invalid product');
+
+                    $use=($v['sale_price']!==null&&$v['sale_price']<$v['price'])?(float)$v['sale_price']:(float)$v['price'];
+                    $baseQty = $qty;
+                    $stockRequiredByProduct[$vid] = ($stockRequiredByProduct[$vid] ?? 0) + $baseQty;
+                    $subtotal+=round($use*$qty,2);
+                    $locked[]=['v'=>$v,'qty'=>$qty,'price'=>$use,'variant_id'=>null,'variant_label'=>null,'base_qty'=>$baseQty];
+                }
+            }
+
+            foreach($stockRequiredByProduct as $vegId => $requiredQty){
+                $sel->execute([$vegId]);
+                $v=$sel->fetch();
+                if(!$v) throw new Exception('Invalid product');
+                if((float)$v['stock'] < (float)$requiredQty) throw new Exception('Insufficient stock for '.($v['name']??'item'));
+            }
+
+            $discount=round($subtotal*$discountPct/100,2);
+            $total=$subtotal-$discount;
+            $st=$pdo->prepare("INSERT INTO orders (customer_name,email,phone,address,total_amount,payment_method,payment_status,order_status,discount_amount) VALUES (?,?,?,?,?,?, 'paid','placed',?)");
+            $st->execute([$name,$email,$phone,$address,$total,$payment,$discount]);
+            $oid=$pdo->lastInsertId();
+
+            $hasVariantCols=false;
+            try {
+                $c=$pdo->prepare("SELECT COUNT(*) FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = ? AND TABLE_NAME = 'order_items' AND COLUMN_NAME = 'vegetable_variant_id'");
+                $c->execute([DB_NAME]);
+                $hasVariantCols=$c->fetchColumn()>0;
+            } catch (PDOException $e) {
+                $hasVariantCols=false;
+            }
+
+            if($hasVariantCols){
+                $it=$pdo->prepare("INSERT INTO order_items (order_id,vegetable_id,vegetable_variant_id,variant_label,name,price,quantity,subtotal,cost_price) VALUES (?,?,?,?,?,?,?,?,?)");
+            } else {
+                $it=$pdo->prepare("INSERT INTO order_items (order_id,vegetable_id,name,price,quantity,subtotal,cost_price) VALUES (?,?,?,?,?,?,?)");
+            }
+
+            $up=$pdo->prepare("UPDATE vegetables SET stock=stock-? WHERE id=? AND stock>=?");
+            $mv=$pdo->prepare("INSERT INTO inventory_movements (vegetable_id,movement_type,quantity,reference_id,notes,created_by) VALUES (?,'sale',?,?,?,?)");
+            $movementTotals=[];
+
+            foreach($locked as $x){
+                $v=$x['v'];
+                $q=$x['qty'];
+                $baseQty = $x['base_qty'] ?? $q;
+                $line=round($x['price']*$q,2);
+
+                if($hasVariantCols){
+                    $it->execute([$oid,$v['id'],$x['variant_id'],$x['variant_label'],$v['name'],$x['price'],$q,$line,$v['cost_price']]);
+                } else {
+                    $it->execute([$oid,$v['id'],$v['name'],$x['price'],$q,$line,$v['cost_price']]);
+                }
+
+                $movementTotals[$v['id']] = ($movementTotals[$v['id']] ?? 0) + $baseQty;
+            }
+
+            foreach($movementTotals as $vegId => $deductQty){
+                $up->execute([$deductQty,$vegId,$deductQty]);
+                if($up->rowCount()!==1) throw new Exception('Stock changed during checkout. Please retry.');
+                $mv->execute([$vegId,-$deductQty,$oid,'Billing sale',$_SESSION['admin_id']]);
+            }
+
+            $pdo->commit();
+            unset($_SESSION['billing_cart']);
+            $order=$oid;
+            $_SESSION['flash']=['type'=>'success','message'=>"Bill #$oid created."];
+        } catch (Throwable $e) {
+            if($pdo->inTransaction()) $pdo->rollBack();
+            $_SESSION['flash']=['type'=>'error','message'=>'Checkout failed: '.$e->getMessage()];
         }
-    $discount=round($subtotal*$discountPct/100,2);$total=$subtotal-$discount;$st=$pdo->prepare("INSERT INTO orders (customer_name,email,phone,address,total_amount,payment_method,payment_status,order_status,discount_amount) VALUES (?,?,?,?,?,?, 'paid','placed',?)");$st->execute([$name,$email,$phone,$address,$total,$payment,$discount]);$oid=$pdo->lastInsertId();$hasVariantCols=false;try{$c=$pdo->prepare("SELECT COUNT(*) FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = ? AND TABLE_NAME = 'order_items' AND COLUMN_NAME = 'vegetable_variant_id'");$c->execute([DB_NAME]);$hasVariantCols=$c->fetchColumn()>0;}catch(PDOException $e){$hasVariantCols=false;}if($hasVariantCols){$it=$pdo->prepare("INSERT INTO order_items (order_id,vegetable_id,vegetable_variant_id,variant_label,name,price,quantity,subtotal,cost_price) VALUES (?,?,?,?,?,?,?,?,?)");}else{$it=$pdo->prepare("INSERT INTO order_items (order_id,vegetable_id,name,price,quantity,subtotal,cost_price) VALUES (?,?,?,?,?,?,?)");}$up=$pdo->prepare("UPDATE vegetables SET stock=stock-? WHERE id=? AND stock>=?");$mv=$pdo->prepare("INSERT INTO inventory_movements (vegetable_id,movement_type,quantity,reference_id,notes,created_by) VALUES (?,'sale',?,?,?,?)");foreach($locked as $x){
-        $v=$x['v'];
-        $q=$x['qty'];
-        $baseQty = $x['base_qty'] ?? $q;
-        $line=round($x['price']*$q,2);
-        if($hasVariantCols){
-            $it->execute([$oid,$v['id'],$x['variant_id'],$x['variant_label'],$v['name'],$x['price'],$q,$line,$v['cost_price']]);
-        }else{
-            $it->execute([$oid,$v['id'],$v['name'],$x['price'],$q,$line,$v['cost_price']]);
-        }
-        // subtract base-unit quantity from stock (stock is now decimal-capable)
-        $up->execute([$baseQty,$v['id'],$baseQty]);
-        if($up->rowCount()!==1) throw new Exception('Stock changed during checkout. Please retry.');
-        $mv->execute([$v['id'],-$baseQty,$oid,'Billing sale',$_SESSION['admin_id']]);
-    }$pdo->commit();unset($_SESSION['billing_cart']);$order=$oid;$_SESSION['flash']=['type'=>'success','message'=>"Bill #$oid created."]; }}catch(Throwable $e){if($pdo->inTransaction())$pdo->rollBack();$_SESSION['flash']=['type'=>'error','message'=>'Checkout failed: '.$e->getMessage()];}}}
+    }
+}
 if($_SERVER['REQUEST_METHOD']==='POST' && isset($_POST['add_item'])){require_csrf();$id=(int)$_POST['vegetable_id'];$q=max(1,(int)$_POST['quantity']);$variantId=(int)($_POST['variant_id']??0);$st=$pdo->prepare("SELECT * FROM vegetables WHERE id=?");$st->execute([$id]);$v=$st->fetch();$variant=null;if($variantId){try{$vStmt=$pdo->prepare("SELECT * FROM vegetable_variants WHERE id=? AND vegetable_id=?");$vStmt->execute([$variantId,$id]);$variant=$vStmt->fetch();}catch(PDOException $e){$variant=null;}}if($v){
     // compute max allowed packs if variant
     $maxAllow = (int)$v['stock'];
