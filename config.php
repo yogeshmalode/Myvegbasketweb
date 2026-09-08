@@ -859,11 +859,16 @@ function starts_with($haystack, $needle) {
 }
 
 function size_fraction_of_base_unit($label, $baseUnit) {
-    if (!preg_match('/^([\d.]+)\s*(kilogram|kilograms|kg|gram|grams|g|litre|litres|liter|liters|l|millilitre|millilitres|ml)\b/i', trim((string)$label), $m)) {
+    $baseUnit = strtolower(trim((string)$baseUnit));
+    if ($baseUnit === 'grams') $baseUnit = 'gram';
+    if ($baseUnit === 'kilograms' || $baseUnit === 'kgs' || $baseUnit === 'kilo') $baseUnit = 'kg';
+    if ($baseUnit === 'liters' || $baseUnit === 'litres') $baseUnit = 'litre';
+    if (!preg_match('/^([\d.]+)\s*(kilogram|kilograms|kgs|kg|gram|grams|gm|g|litre|litres|liter|liters|l|millilitre|millilitres|ml)\b/i', trim((string)$label), $m)) {
         return null;
     }
     $value = (float)$m[1];
     $unit = strtolower($m[2]);
+    if ($unit === 'gm') $unit = 'g';
 
     $grams = null;
     $ml = null;
