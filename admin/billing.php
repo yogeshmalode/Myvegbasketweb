@@ -107,8 +107,23 @@ if($_SERVER['REQUEST_METHOD']==='POST' && isset($_POST['checkout'])){
             }
 
             foreach($movementTotals as $vegId => $deductQty){
+                $stockBefore = $pdo->prepare("SELECT stock FROM vegetables WHERE id = ? FOR UPDATE");
+                $stockBefore->execute([$vegId]);
+                $beforeRow = $stockBefore->fetch();
+                $beforeStock = (float)($beforeRow['stock'] ?? 0);
+                if ($beforeStock < (float)$deductQty) {
+                    throw new Exception('Insufficient stock for item.');
+                }
+
                 $up->execute([$deductQty,$vegId,$deductQty]);
-                if($up->rowCount()!==1) throw new Exception('Stock changed during checkout. Please retry.');
+                $afterCheck = $pdo->prepare("SELECT stock FROM vegetables WHERE id = ?");
+                $afterCheck->execute([$vegId]);
+                $afterStock = (float)($afterCheck->fetchColumn() ?? 0);
+                $expectedAfter = $beforeStock - (float)$deductQty;
+                if (abs($afterStock - $expectedAfter) > 0.0001) {
+                    throw new Exception('Stock changed during checkout. Please retry.');
+                }
+
                 $mv->execute([$vegId,-$deductQty,$oid,'Billing sale',$_SESSION['admin_id']]);
             }
 
