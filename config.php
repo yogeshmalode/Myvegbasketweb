@@ -508,6 +508,44 @@ function ensure_management_schema($pdo) {
             FOREIGN KEY (vehicle_id) REFERENCES vehicles(id) ON DELETE RESTRICT
         ) ENGINE=InnoDB");
 
+        if (!$hasTable('riders')) {
+            $pdo->exec("CREATE TABLE IF NOT EXISTS riders (
+                id INT AUTO_INCREMENT PRIMARY KEY,
+                name VARCHAR(200) NOT NULL,
+                phone VARCHAR(40) DEFAULT NULL,
+                vehicle VARCHAR(120) DEFAULT NULL,
+                is_active TINYINT(1) NOT NULL DEFAULT 1,
+                password_hash VARCHAR(255) DEFAULT NULL,
+                pin_code VARCHAR(20) DEFAULT NULL,
+                last_login_at TIMESTAMP NULL DEFAULT NULL,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4");
+        }
+
+        if (!$hasTable('delivery_manifests')) {
+            $pdo->exec("CREATE TABLE IF NOT EXISTS delivery_manifests (
+                id INT AUTO_INCREMENT PRIMARY KEY,
+                rider_id INT DEFAULT NULL,
+                created_by INT DEFAULT NULL,
+                total_orders INT NOT NULL DEFAULT 0,
+                total_km DECIMAL(8,2) NOT NULL DEFAULT 0,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4");
+        }
+
+        if (!$hasTable('delivery_confirmations')) {
+            $pdo->exec("CREATE TABLE IF NOT EXISTS delivery_confirmations (
+                id INT AUTO_INCREMENT PRIMARY KEY,
+                order_id INT NOT NULL,
+                manifest_id INT DEFAULT NULL,
+                rider_id INT DEFAULT NULL,
+                confirmed_by VARCHAR(120) DEFAULT NULL,
+                method VARCHAR(40) DEFAULT 'manual',
+                note TEXT DEFAULT NULL,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4");
+        }
+
         if ($hasTable('riders')) {
             if (!$hasColumn('riders', 'password_hash')) $pdo->exec("ALTER TABLE riders ADD COLUMN password_hash VARCHAR(255) DEFAULT NULL");
             if (!$hasColumn('riders', 'pin_code')) $pdo->exec("ALTER TABLE riders ADD COLUMN pin_code VARCHAR(20) DEFAULT NULL");
