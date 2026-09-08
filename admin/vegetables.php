@@ -41,9 +41,11 @@ include __DIR__ . '/includes/admin_header.php';
 <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:18px;">
   <p style="color:#5B6656;"><?= count($vegetables) ?> item(s) in catalog</p>
   <div style="display:flex; gap:10px;">
-    <a href="bulk_update_prices.php" class="btn" style="background:#fff; border:1px solid #E4E9DD;">💰 Update all prices</a>
-    <a href="inventory.php" class="btn">Inventory</a><a href="billing.php" class="btn">Billing</a><a href="add_vegetable.php" class="btn btn-primary">+ Add Vegetable</a>
-  </div>
+  <a href="catalog_pricing.php" class="btn" title="Live per-item pricing">⚡ Catalog & Live Pricing</a>
+  <a href="inventory.php" class="btn">Inventory</a>
+  <a href="billing.php" class="btn">Billing</a>
+  <a href="add_vegetable.php" class="btn btn-primary">+ Add Vegetable</a>
+</div>
 </div>
 
 <div class="table-wrap">

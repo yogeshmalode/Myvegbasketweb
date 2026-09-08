@@ -16,11 +16,31 @@ $lat = isset($_POST['lat']) ? (float)$_POST['lat'] : null;
 $lng = isset($_POST['lng']) ? (float)$_POST['lng'] : null;
 
 if (!$orderId || $lat === null || $lng === null || $lat < -90 || $lat > 90 || $lng < -180 || $lng > 180) {
-    echo json_encode(['success' => false, 'message' => 'Invalid data.']);
+    echo json_encode(['success' => false, 'message' => 'Invalid coordinates.']);
     exit;
 }
+
+$stmt = $pdo->prepare('SELECT id, order_status, rider_id FROM orders WHERE id = ?');
+$stmt->execute([$orderId]);
+$order = $stmt->fetch();
+if (!$order) {
+    echo json_encode(['success' => false, 'message' => 'Order not found.']);
+    exit;
+}
+if (($order['order_status'] ?? '') === 'delivered') {
+    echo json_encode(['success' => false, 'message' => 'Delivery already completed.']);
+    exit;
+}
+
+$throttleKey = 'delivery_location_' . $orderId;
+$now = time();
+if (!empty($_SESSION[$throttleKey]) && ($now - (int)$_SESSION[$throttleKey] < 8)) {
+    echo json_encode(['success' => false, 'message' => 'Too many updates.']);
+    exit;
+}
+$_SESSION[$throttleKey] = $now;
 
 $stmt = $pdo->prepare("UPDATE orders SET delivery_lat = ?, delivery_lng = ?, location_updated_at = NOW() WHERE id = ?");
 $stmt->execute([$lat, $lng, $orderId]);
 
-echo json_encode(['success' => true]);
+echo json_encode(['success' => true, 'updated_at' => date('c')]);

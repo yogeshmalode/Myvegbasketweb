@@ -56,6 +56,16 @@ define('SITE_NAME', 'MyVegBasket');
 define('SITE_CURRENCY', '₹');
 define('BASE_URL', ''); // change if hosted in a sub-folder
 
+$myvegbasket_maps = require __DIR__ . '/config/maps.php';
+define('MAP_PROVIDER', $myvegbasket_maps['provider'] ?? 'leaflet');
+define('GOOGLE_MAPS_JS_API_KEY', $myvegbasket_maps['google_maps_js_api_key'] ?? '');
+define('GOOGLE_ROUTES_API_KEY', $myvegbasket_maps['google_routes_api_key'] ?? '');
+
+define('STORE_LAT', (float)($myvegbasket_maps['default_store']['lat'] ?? 18.5011));
+define('STORE_LNG', (float)($myvegbasket_maps['default_store']['lng'] ?? 73.9268));
+
+define('STORE_NAME', $myvegbasket_maps['default_store']['name'] ?? 'Hadapsar Store');
+
 // Used for SEO meta tags (canonical URLs, Open Graph, sitemap, robots.txt).
 // Change this if the domain ever changes.
 define('SITE_URL', 'https://myvegbasket.com');
@@ -97,7 +107,10 @@ function csrf_token() {
 function verify_csrf($token) {
     return is_string($token) && !empty($_SESSION['csrf_token']) && hash_equals($_SESSION['csrf_token'], $token);
 }
-function require_csrf() {
+function require_csrf($token = null) {
+    if ($token !== null) {
+        $_POST['csrf_token'] = $token;
+    }
     if (!verify_csrf($_POST['csrf_token'] ?? '')) {
         http_response_code(419);
         exit('Invalid security token. Please go back and try again.');
@@ -222,6 +235,71 @@ function format_ist($mysqlDatetime, $format = 'd M Y, h:i A') {
     }
 }
 
+function get_order_status_options() {
+    return [
+        'pending'                    => 'Pending',
+        'placed'                     => 'Order Placed',
+        'processing'                 => 'Preparing',
+        'ready_for_pickup'          => 'Ready for Pickup',
+        'delivery_partner_assigned' => 'Delivery Partner Assigned',
+        'out_for_delivery'          => 'Out for Delivery',
+        'arriving_soon'             => 'Arriving Soon',
+        'delivered'                 => 'Delivered',
+        'cancelled'                 => 'Cancelled',
+    ];
+}
+
+function get_delivery_status_steps() {
+    return [
+        'placed'                     => 'Order Placed',
+        'processing'                 => 'Preparing',
+        'ready_for_pickup'          => 'Ready for Pickup',
+        'delivery_partner_assigned' => 'Delivery Partner Assigned',
+        'out_for_delivery'          => 'Out for Delivery',
+        'arriving_soon'             => 'Arriving Soon',
+        'delivered'                 => 'Delivered',
+    ];
+}
+
+function normalize_order_status($status) {
+    $status = strtolower(trim((string) $status));
+    $aliases = [
+        'packing'                  => 'processing',
+        'preparing'                => 'processing',
+        'ready_to_dispatch'        => 'ready_for_pickup',
+        'dispatched'               => 'out_for_delivery',
+        'picked_up'                => 'out_for_delivery',
+        'on_the_way'               => 'out_for_delivery',
+        'driver_assigned'          => 'delivery_partner_assigned',
+        'delivery_partner_assigned' => 'delivery_partner_assigned',
+        'arriving'                 => 'arriving_soon',
+        'completed'                => 'delivered',
+    ];
+
+    if (isset($aliases[$status])) {
+        return $aliases[$status];
+    }
+
+    return array_key_exists($status, get_order_status_options()) ? $status : 'placed';
+}
+
+function haversine_km($lat1, $lng1, $lat2, $lng2) {
+    $lat1 = (float)$lat1;
+    $lng1 = (float)$lng1;
+    $lat2 = (float)$lat2;
+    $lng2 = (float)$lng2;
+    $radius = 6371;
+    $dLat = deg2rad($lat2 - $lat1);
+    $dLng = deg2rad($lng2 - $lng1);
+    $a = sin($dLat / 2) * sin($dLat / 2) + cos(deg2rad($lat1)) * cos(deg2rad($lat2)) * sin($dLng / 2) * sin($dLng / 2);
+    return $radius * 2 * atan2(sqrt($a), sqrt(1 - $a));
+}
+
+function estimate_eta_minutes($distanceKm) {
+    $distanceKm = max((float)$distanceKm, 0.1);
+    return (int)max(4, round(($distanceKm / 24) * 60));
+}
+
 // Sends an OTP to an Indian mobile number via 2Factor.in. Returns the
 // session_id needed to verify it later, or null on failure. 2Factor
 // generates and tracks the actual OTP code themselves — we never see or
@@ -302,11 +380,21 @@ function ensure_management_schema($pdo) {
             if (!$hasColumn('vegetables', 'supplier_name')) $pdo->exec("ALTER TABLE vegetables ADD COLUMN supplier_name VARCHAR(120) DEFAULT NULL");
             if (!$hasColumn('vegetables', 'cost_price')) $pdo->exec("ALTER TABLE vegetables ADD COLUMN cost_price DECIMAL(10,2) NOT NULL DEFAULT 0");
         }
-        if ($hasTable('order_items') && !$hasColumn('order_items', 'cost_price')) {
-            $pdo->exec("ALTER TABLE order_items ADD COLUMN cost_price DECIMAL(10,2) NOT NULL DEFAULT 0");
+        if ($hasTable('order_items')) {
+            if (!$hasColumn('order_items', 'cost_price')) $pdo->exec("ALTER TABLE order_items ADD COLUMN cost_price DECIMAL(10,2) NOT NULL DEFAULT 0");
+            if (!$hasColumn('order_items', 'updated_at')) $pdo->exec("ALTER TABLE order_items ADD COLUMN updated_at TIMESTAMP NULL DEFAULT NULL");
+            if (!$hasColumn('order_items', 'measured_quantity')) $pdo->exec("ALTER TABLE order_items ADD COLUMN measured_quantity DECIMAL(10,3) DEFAULT NULL");
         }
-        if ($hasTable('orders') && !$hasColumn('orders', 'discount_amount')) {
-            $pdo->exec("ALTER TABLE orders ADD COLUMN discount_amount DECIMAL(10,2) NOT NULL DEFAULT 0");
+        if ($hasTable('orders')) {
+            if (!$hasColumn('orders', 'discount_amount')) $pdo->exec("ALTER TABLE orders ADD COLUMN discount_amount DECIMAL(10,2) NOT NULL DEFAULT 0");
+            if (!$hasColumn('orders', 'updated_at')) $pdo->exec("ALTER TABLE orders ADD COLUMN updated_at TIMESTAMP NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP");
+            if (!$hasColumn('orders', 'assigned_picker_id')) $pdo->exec("ALTER TABLE orders ADD COLUMN assigned_picker_id INT DEFAULT NULL");
+            if (!$hasColumn('orders', 'rider_id')) $pdo->exec("ALTER TABLE orders ADD COLUMN rider_id INT DEFAULT NULL");
+            if (!$hasColumn('orders', 'manifest_id')) $pdo->exec("ALTER TABLE orders ADD COLUMN manifest_id INT DEFAULT NULL");
+            if (!$hasColumn('orders', 'delivery_lat')) $pdo->exec("ALTER TABLE orders ADD COLUMN delivery_lat DECIMAL(10,7) DEFAULT NULL");
+            if (!$hasColumn('orders', 'delivery_lng')) $pdo->exec("ALTER TABLE orders ADD COLUMN delivery_lng DECIMAL(10,7) DEFAULT NULL");
+            if (!$hasColumn('orders', 'location_updated_at')) $pdo->exec("ALTER TABLE orders ADD COLUMN location_updated_at TIMESTAMP NULL DEFAULT NULL");
+            if (!$hasColumn('orders', 'delivered_at')) $pdo->exec("ALTER TABLE orders ADD COLUMN delivered_at TIMESTAMP NULL DEFAULT NULL");
         }
 
         $pdo->exec("CREATE TABLE IF NOT EXISTS wastage (
@@ -332,9 +420,139 @@ function ensure_management_schema($pdo) {
             FOREIGN KEY (vegetable_id) REFERENCES vegetables(id) ON DELETE CASCADE,
             FOREIGN KEY (created_by) REFERENCES admins(id) ON DELETE SET NULL
         ) ENGINE=InnoDB");
+
+        $pdo->exec("CREATE TABLE IF NOT EXISTS vendors (
+            id INT AUTO_INCREMENT PRIMARY KEY,
+            name VARCHAR(150) NOT NULL,
+            type ENUM('farmer','vendor','aggregator') NOT NULL DEFAULT 'vendor',
+            phone VARCHAR(20) DEFAULT NULL,
+            address VARCHAR(255) DEFAULT NULL,
+            gst_no VARCHAR(50) DEFAULT NULL,
+            payment_terms VARCHAR(50) DEFAULT NULL,
+            status ENUM('active','inactive') NOT NULL DEFAULT 'active',
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        ) ENGINE=InnoDB");
+
+        $pdo->exec("CREATE TABLE IF NOT EXISTS farmers (
+            id INT AUTO_INCREMENT PRIMARY KEY,
+            name VARCHAR(150) NOT NULL,
+            phone VARCHAR(20) DEFAULT NULL,
+            village VARCHAR(150) DEFAULT NULL,
+            address VARCHAR(255) DEFAULT NULL,
+            payment_terms VARCHAR(50) DEFAULT NULL,
+            status ENUM('active','inactive') NOT NULL DEFAULT 'active',
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        ) ENGINE=InnoDB");
+
+        $pdo->exec("CREATE TABLE IF NOT EXISTS purchase_entries (
+            id INT AUTO_INCREMENT PRIMARY KEY,
+            vendor_id INT DEFAULT NULL,
+            farmer_id INT DEFAULT NULL,
+            source_type ENUM('mandi','farm','direct') NOT NULL DEFAULT 'mandi',
+            market_name VARCHAR(120) DEFAULT NULL,
+            purchase_date DATE NOT NULL,
+            item_name VARCHAR(150) NOT NULL,
+            quantity_kg DECIMAL(10,2) NOT NULL DEFAULT 0,
+            rate_per_kg DECIMAL(10,2) NOT NULL DEFAULT 0,
+            total_amount DECIMAL(12,2) NOT NULL DEFAULT 0,
+            agent_commission DECIMAL(10,2) NOT NULL DEFAULT 0,
+            market_fee DECIMAL(10,2) NOT NULL DEFAULT 0,
+            transport_cost DECIMAL(10,2) NOT NULL DEFAULT 0,
+            payment_terms VARCHAR(50) DEFAULT NULL,
+            notes TEXT DEFAULT NULL,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY (vendor_id) REFERENCES vendors(id) ON DELETE SET NULL,
+            FOREIGN KEY (farmer_id) REFERENCES farmers(id) ON DELETE SET NULL
+        ) ENGINE=InnoDB");
+
+        $pdo->exec("CREATE TABLE IF NOT EXISTS inward_goods (
+            id INT AUTO_INCREMENT PRIMARY KEY,
+            purchase_id INT NOT NULL,
+            received_date DATE NOT NULL,
+            gross_weight_kg DECIMAL(10,2) NOT NULL DEFAULT 0,
+            tare_weight_kg DECIMAL(10,2) NOT NULL DEFAULT 0,
+            net_weight_kg DECIMAL(10,2) NOT NULL DEFAULT 0,
+            quality_grade ENUM('A','B','C') NOT NULL DEFAULT 'A',
+            wastage_kg DECIMAL(10,2) NOT NULL DEFAULT 0,
+            status ENUM('received','qc_pending','rejected') NOT NULL DEFAULT 'received',
+            notes TEXT DEFAULT NULL,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY (purchase_id) REFERENCES purchase_entries(id) ON DELETE CASCADE
+        ) ENGINE=InnoDB");
+
+        $pdo->exec("CREATE TABLE IF NOT EXISTS vehicles (
+            id INT AUTO_INCREMENT PRIMARY KEY,
+            vehicle_no VARCHAR(50) NOT NULL,
+            type VARCHAR(50) NOT NULL,
+            max_capacity_kg DECIMAL(10,2) NOT NULL DEFAULT 0,
+            driver_name VARCHAR(100) DEFAULT NULL,
+            status ENUM('active','inactive') NOT NULL DEFAULT 'active',
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        ) ENGINE=InnoDB");
+
+        $pdo->exec("CREATE TABLE IF NOT EXISTS dispatch_trips (
+            id INT AUTO_INCREMENT PRIMARY KEY,
+            vehicle_id INT NOT NULL,
+            route_name VARCHAR(150) DEFAULT NULL,
+            dispatch_date DATE NOT NULL,
+            order_weight_kg DECIMAL(10,2) NOT NULL DEFAULT 0,
+            usable_weight_kg DECIMAL(10,2) NOT NULL DEFAULT 0,
+            capacity_kg DECIMAL(10,2) NOT NULL DEFAULT 0,
+            fuel_cost DECIMAL(10,2) NOT NULL DEFAULT 0,
+            toll_cost DECIMAL(10,2) NOT NULL DEFAULT 0,
+            driver_name VARCHAR(100) DEFAULT NULL,
+            status ENUM('planned','dispatched','completed','blocked') NOT NULL DEFAULT 'planned',
+            trip_cost_per_kg DECIMAL(10,2) NOT NULL DEFAULT 0,
+            notes TEXT DEFAULT NULL,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY (vehicle_id) REFERENCES vehicles(id) ON DELETE RESTRICT
+        ) ENGINE=InnoDB");
+
+        if ($hasTable('riders')) {
+            if (!$hasColumn('riders', 'password_hash')) $pdo->exec("ALTER TABLE riders ADD COLUMN password_hash VARCHAR(255) DEFAULT NULL");
+            if (!$hasColumn('riders', 'pin_code')) $pdo->exec("ALTER TABLE riders ADD COLUMN pin_code VARCHAR(20) DEFAULT NULL");
+            if (!$hasColumn('riders', 'last_login_at')) $pdo->exec("ALTER TABLE riders ADD COLUMN last_login_at TIMESTAMP NULL DEFAULT NULL");
+            $riderCount = (int)$pdo->query("SELECT COUNT(*) FROM riders")->fetchColumn();
+            if ($riderCount === 0) {
+                $pdo->exec("INSERT INTO riders (name, phone, vehicle, is_active, password_hash, pin_code) VALUES ('Default Rider', '0000000000', 'Bike', 1, NULL, '1234')");
+            }
+        }
+
         if ($hasTable('vegetables')) {
+            if (!$hasColumn('vegetables', 'min_buffer_stock')) $pdo->exec("ALTER TABLE vegetables ADD COLUMN min_buffer_stock DECIMAL(10,2) NOT NULL DEFAULT 0");
+            if (!$hasColumn('vegetables', 'sale_price')) $pdo->exec("ALTER TABLE vegetables ADD COLUMN sale_price DECIMAL(10,2) DEFAULT NULL");
             $pdo->exec("UPDATE vegetables SET cost_price = ROUND(price / 1.45, 2) WHERE cost_price = 0 AND price > 0");
         }
+
+        $pdo->exec("CREATE TABLE IF NOT EXISTS procurement_inward (
+            id INT AUTO_INCREMENT PRIMARY KEY,
+            vegetable_id INT NOT NULL,
+            source_type ENUM('mandi','farmer','direct') NOT NULL DEFAULT 'mandi',
+            source_name VARCHAR(150) DEFAULT NULL,
+            purchase_date DATE NOT NULL,
+            raw_weight_kg DECIMAL(10,2) NOT NULL DEFAULT 0,
+            usable_weight_kg DECIMAL(10,2) NOT NULL DEFAULT 0,
+            wastage_kg DECIMAL(10,2) NOT NULL DEFAULT 0,
+            mandi_rate_per_kg DECIMAL(10,2) NOT NULL DEFAULT 0,
+            total_cost DECIMAL(12,2) NOT NULL DEFAULT 0,
+            notes TEXT DEFAULT NULL,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            KEY idx_procurement_inward_date (purchase_date),
+            KEY idx_procurement_inward_veg (vegetable_id),
+            CONSTRAINT fk_procurement_inward_veg FOREIGN KEY (vegetable_id) REFERENCES vegetables(id) ON DELETE CASCADE
+        ) ENGINE=InnoDB");
+
+        $pdo->exec("CREATE TABLE IF NOT EXISTS dynamic_prices (
+            id INT AUTO_INCREMENT PRIMARY KEY,
+            vegetable_id INT NOT NULL,
+            selling_price DECIMAL(10,2) NOT NULL,
+            effective_date DATE NOT NULL,
+            is_current TINYINT(1) NOT NULL DEFAULT 1,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+            KEY idx_dynamic_prices_veg_current (vegetable_id, is_current),
+            CONSTRAINT fk_dynamic_prices_veg FOREIGN KEY (vegetable_id) REFERENCES vegetables(id) ON DELETE CASCADE
+        ) ENGINE=InnoDB");
         return true;
     } catch (Throwable $e) {
         return false;
@@ -431,6 +649,62 @@ function current_customer() {
     return $customer;
 }
 
+function is_rider_logged_in() {
+    return !empty($_SESSION['rider_id']);
+}
+
+function current_rider() {
+    static $rider = null;
+    static $loaded = false;
+    if ($loaded) return $rider;
+    $loaded = true;
+
+    if (empty($_SESSION['rider_id'])) return null;
+
+    global $pdo;
+    $stmt = $pdo->prepare("SELECT * FROM riders WHERE id = ? AND is_active = 1 LIMIT 1");
+    $stmt->execute([$_SESSION['rider_id']]);
+    $rider = $stmt->fetch() ?: null;
+    return $rider;
+}
+
+function rider_login($pdo, $phone, $pin) {
+    $phone = preg_replace('/\D+/', '', trim((string)$phone));
+    $pin = trim((string)$pin);
+    if ($phone === '' || $pin === '') {
+        return false;
+    }
+
+    $stmt = $pdo->prepare('SELECT * FROM riders WHERE phone = ? AND is_active = 1 LIMIT 1');
+    $stmt->execute([$phone]);
+    $rider = $stmt->fetch();
+    if (!$rider) {
+        return false;
+    }
+
+    $hash = $rider['password_hash'] ?? '';
+    $legacyCode = (string)($rider['pin_code'] ?? '');
+    if ($hash !== '' && password_verify($pin, $hash)) {
+        $_SESSION['rider_id'] = (int)$rider['id'];
+        $_SESSION['rider_name'] = $rider['name'];
+        $pdo->prepare('UPDATE riders SET last_login_at = NOW() WHERE id = ?')->execute([$rider['id']]);
+        return true;
+    }
+    if ($legacyCode !== '' && hash_equals($legacyCode, $pin)) {
+        $_SESSION['rider_id'] = (int)$rider['id'];
+        $_SESSION['rider_name'] = $rider['name'];
+        $pdo->prepare('UPDATE riders SET last_login_at = NOW() WHERE id = ?')->execute([$rider['id']]);
+        return true;
+    }
+    return false;
+}
+
+function require_rider_login() {
+    if (!is_rider_logged_in()) {
+        redirect('login.php');
+    }
+}
+
 function redirect($url) {
     header("Location: $url");
     exit;
@@ -460,7 +734,39 @@ function send_order_alert($subject, $lines) {
 // table so we don't call it again. Nominatim's usage policy allows light,
 // non-bulk use like this; don't call it in a loop over many orders at once.
 function geocode_address($address) {
-    if (!function_exists('curl_init')) return null;
+    $address = trim((string) $address);
+    if ($address === '') {
+        return ['lat' => 18.5011, 'lng' => 73.9268];
+    }
+    $fallback = function ($addr) {
+        $cityHints = [
+            'hadapsar' => [18.5011, 73.9268],
+            'pune' => [18.5204, 73.8567],
+            'wakad' => [18.5998, 73.7423],
+            'kharadi' => [18.5512, 73.9370],
+            'hinjewadi' => [18.5913, 73.7376],
+            'baner' => [18.5595, 73.7796],
+            'chinchwad' => [18.6315, 73.7998],
+            'mumbai' => [19.0760, 72.8777],
+            'nashik' => [20.5937, 78.9629],
+            'aurangabad' => [19.8762, 75.3433],
+            'solapur' => [17.6599, 75.9064],
+            'satara' => [17.6809, 74.0183],
+        ];
+
+        $lower = strtolower($addr);
+        foreach ($cityHints as $token => [$lat, $lng]) {
+            if (strpos($lower, $token) !== false) {
+                return ['lat' => (float)$lat, 'lng' => (float)$lng];
+            }
+        }
+
+        return ['lat' => 18.5011, 'lng' => 73.9268];
+    };
+
+    if (!function_exists('curl_init')) {
+        return $fallback($address);
+    }
 
     $url = 'https://nominatim.openstreetmap.org/search?format=json&limit=1&q=' . urlencode($address);
     $ch = curl_init($url);
@@ -472,12 +778,12 @@ function geocode_address($address) {
     $result = curl_exec($ch);
     curl_close($ch);
 
-    if (!$result) return null;
+    if (!$result) return $fallback($address);
     $data = json_decode($result, true);
     if (!empty($data[0]['lat']) && !empty($data[0]['lon'])) {
         return ['lat' => (float)$data[0]['lat'], 'lng' => (float)$data[0]['lon']];
     }
-    return null;
+    return $fallback($address);
 }
 
 // Fetches an order's row and makes sure its delivery address has a cached

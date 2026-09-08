@@ -56,6 +56,6 @@ include __DIR__ . '/includes/admin_header.php';
 
 <div class="admin-dashboard-bottom">
   <section class="admin-panel sales-overview"><div class="admin-panel-head"><h2>Sales Overview <small>(Last 7 Days)</small></h2></div><div class="sales-big">₹<?= number_format($weekSales,2) ?></div><div class="sales-bar"><span style="width:<?= min(100,max(4,$weekSales>0?72:4)) ?>%"></span></div><div class="sales-axis"><span>7 days ago</span><span>Today</span></div></section>
-  <section class="admin-panel quick-links"><div class="admin-panel-head"><h2>Quick Actions</h2></div><a href="billing.php">＋ New Billing</a><a href="inventory.php">▣ Update Inventory</a><a href="wastage.php">♜ Record Wastage</a><a href="reports.php">▥ View P&amp;L Reports</a></section>
+  <section class="admin-panel quick-links"><div class="admin-panel-head"><h2>Quick Actions</h2></div><a href="billing.php">＋ New Billing</a><a href="inventory.php">▣ Update Inventory</a><a href="wastage.php">♜ Record Wastage</a><a href="reports.php">▥ View P&amp;L Reports</a><a href="catalog_pricing.php">⚡ Catalog &amp; Live Pricing</a><a href="fulfillment.php">📦 Fulfillment Center</a></section>
 </div>
 <?php include __DIR__ . '/includes/admin_footer.php'; ?>

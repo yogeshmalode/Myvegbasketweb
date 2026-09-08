@@ -46,10 +46,30 @@ include __DIR__ . '/includes/admin_header.php';
 
   <div id="map" style="width:100%; height:360px; border-radius:12px; border:1px solid #D9E0CD; margin-bottom:16px;"></div>
 
+  <div style="display:grid; grid-template-columns:repeat(auto-fit,minmax(150px,1fr)); gap:12px; margin-bottom:16px;">
+    <div class="form-card" style="padding:12px; margin:0; background:#F7FAF4;">
+      <div style="font-size:0.72rem; letter-spacing:0.08em; text-transform:uppercase; color:#6D7A67;">Current lat</div>
+      <div id="liveLat" style="font-weight:700; font-size:1.1rem; margin-top:6px;">—</div>
+    </div>
+    <div class="form-card" style="padding:12px; margin:0; background:#F7FAF4;">
+      <div style="font-size:0.72rem; letter-spacing:0.08em; text-transform:uppercase; color:#6D7A67;">Current lng</div>
+      <div id="liveLng" style="font-weight:700; font-size:1.1rem; margin-top:6px;">—</div>
+    </div>
+    <div class="form-card" style="padding:12px; margin:0; background:#F7FAF4;">
+      <div style="font-size:0.72rem; letter-spacing:0.08em; text-transform:uppercase; color:#6D7A67;">Distance</div>
+      <div id="distanceKm" style="font-weight:700; font-size:1.1rem; margin-top:6px;">—</div>
+    </div>
+    <div class="form-card" style="padding:12px; margin:0; background:#F7FAF4;">
+      <div style="font-size:0.72rem; letter-spacing:0.08em; text-transform:uppercase; color:#6D7A67;">ETA</div>
+      <div id="etaDisplay" style="font-weight:700; font-size:1.1rem; margin-top:6px;">—</div>
+    </div>
+  </div>
+
   <div id="shareStatus" style="margin-bottom:12px; font-size:0.9rem; color:#5B6656;">Location sharing is off.</div>
 
   <button type="button" id="startShareBtn" class="btn btn-primary" style="margin-right:8px;">📍 Start sharing my location</button>
   <button type="button" id="stopShareBtn" class="btn" style="background:#fff; border:1px solid #E4E9DD; display:none;">Stop sharing</button>
+  <a id="navLink" class="btn" href="#" target="_blank" rel="noopener" style="display:none; margin-top:10px;">🧭 Open navigation</a>
 
   <p style="color:#5B6656; font-size:0.82rem; margin-top:14px;">
     Keep this page open in your phone's browser while you deliver. Your location updates every few seconds
@@ -80,6 +100,26 @@ if (startLat && startLng) {
   meMarker = L.marker([startLat, startLng]).addTo(map).bindPopup('You');
 }
 
+function toRad(value) { return value * Math.PI / 180; }
+function haversineKm(lat1, lng1, lat2, lng2) {
+  const R = 6371;
+  const dLat = toRad(lat2 - lat1);
+  const dLng = toRad(lng2 - lng1);
+  const a = Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+    Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) * Math.sin(dLng / 2) * Math.sin(dLng / 2);
+  return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+}
+
+function updateDistanceLabel(lat, lng) {
+  if (!addressLat || !addressLng) return;
+  const distance = haversineKm(lat, lng, addressLat, addressLng);
+  document.getElementById('distanceKm').textContent = distance.toFixed(1) + ' km';
+  const eta = Math.max(4, Math.round((distance / 24) * 60));
+  document.getElementById('etaDisplay').textContent = eta + ' min';
+  document.getElementById('navLink').style.display = 'inline-block';
+  document.getElementById('navLink').href = 'https://www.google.com/maps/dir/?api=1&destination=' + encodeURIComponent(addressLat + ',' + addressLng) + '&travelmode=driving';
+}
+
 let watchId = null;
 let lastSent = 0;
 
@@ -94,6 +134,9 @@ function sendLocation(lat, lng) {
 function onPosition(pos) {
   const lat = pos.coords.latitude;
   const lng = pos.coords.longitude;
+  document.getElementById('liveLat').textContent = lat.toFixed(5);
+  document.getElementById('liveLng').textContent = lng.toFixed(5);
+  updateDistanceLabel(lat, lng);
 
   if (!meMarker) {
     meMarker = L.marker([lat, lng]).addTo(map).bindPopup('You');
@@ -102,7 +145,6 @@ function onPosition(pos) {
   }
   map.panTo([lat, lng]);
 
-  // Throttle network calls to roughly once every 8 seconds
   const now = Date.now();
   if (now - lastSent > 8000) {
     lastSent = now;
@@ -111,12 +153,19 @@ function onPosition(pos) {
 }
 
 function onError(err) {
-  document.getElementById('shareStatus').textContent = 'Could not get your location: ' + err.message;
+  document.getElementById('shareStatus').textContent = 'Location permission is required to provide live delivery tracking.';
+  if (err && err.code === 1) {
+    document.getElementById('shareStatus').textContent = 'Location permission is required to provide live delivery tracking.';
+  } else if (err && err.code === 3) {
+    document.getElementById('shareStatus').textContent = 'GPS accuracy is poor. Please move to a clearer area and retry.';
+  } else {
+    document.getElementById('shareStatus').textContent = 'Could not get your location: ' + (err ? err.message : 'Unknown GPS error');
+  }
 }
 
 document.getElementById('startShareBtn').addEventListener('click', function () {
   if (!navigator.geolocation) {
-    document.getElementById('shareStatus').textContent = 'Your browser does not support location sharing.';
+    document.getElementById('shareStatus').textContent = 'Your browser does not support GPS tracking.';
     return;
   }
   watchId = navigator.geolocation.watchPosition(onPosition, onError, {

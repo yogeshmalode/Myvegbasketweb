@@ -6,7 +6,7 @@ $type  = $_GET['type'] ?? '';
 $value = $_GET['value'] ?? '';
 
 $allowedPaymentValues = ['pending', 'awaiting_verification', 'paid', 'failed'];
-$allowedOrderValues   = ['pending', 'placed', 'processing', 'out_for_delivery', 'delivered', 'cancelled'];
+$allowedOrderValues   = array_keys(get_order_status_options());
 
 $ok = false;
 
@@ -16,9 +16,10 @@ if ($id && $type === 'payment' && in_array($value, $allowedPaymentValues, true))
     $_SESSION['flash'] = ['type' => 'success', 'message' => "Order #$id payment status set to " . str_replace('_', ' ', $value) . "."];
     $ok = true;
 } elseif ($id && $type === 'order' && in_array($value, $allowedOrderValues, true)) {
+    $normalized = normalize_order_status($value);
     $stmt = $pdo->prepare("UPDATE orders SET order_status = ? WHERE id = ?");
-    $stmt->execute([$value, $id]);
-    $_SESSION['flash'] = ['type' => 'success', 'message' => "Order #$id status set to " . str_replace('_', ' ', $value) . "."];
+    $stmt->execute([$normalized, $id]);
+    $_SESSION['flash'] = ['type' => 'success', 'message' => "Order #$id status set to " . str_replace('_', ' ', $normalized) . "."];
     $ok = true;
 }
 

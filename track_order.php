@@ -46,14 +46,197 @@ include __DIR__ . '/includes/header.php';
 <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css">
 <script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
 
-<div class="container" style="padding:50px 24px; max-width:720px;">
-  <div class="section-head" style="margin-top:0;">
+<style>
+  body { background: #f7faf8; }
+  .tracking-shell {
+    max-width: 880px;
+    margin: 0 auto;
+    padding: 42px 18px 56px;
+  }
+  .tracking-header {
+    margin-bottom: 22px;
+  }
+  .tracking-header h2 {
+    margin: 0 0 8px;
+    font-size: clamp(2rem, 3vw, 3rem);
+    letter-spacing: -0.06em;
+    color: #11231d;
+    font-weight: 900;
+  }
+  .tracking-header p {
+    margin: 0;
+    color: #69756f;
+    font-size: 0.9rem;
+  }
+  .tracking-card {
+    background: #fff;
+    border: 1px solid #e1e9e3;
+    border-radius: 20px;
+    box-shadow: 0 10px 30px rgba(16, 40, 32, 0.05);
+    padding: 18px;
+  }
+  .tracking-status-card {
+    background: linear-gradient(135deg, #f8fdf8 0%, #eefaf3 100%);
+  }
+  .tracking-topline {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 16px;
+    flex-wrap: wrap;
+    margin-bottom: 18px;
+  }
+  .tracking-order-id {
+    font-size: 1.2rem;
+    font-weight: 900;
+    color: #10251f;
+  }
+  .tracking-total {
+    font-size: 1.05rem;
+    font-weight: 800;
+    color: #185b42;
+  }
+  .tracking-metrics {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(170px, 1fr));
+    gap: 14px;
+  }
+  .tracking-metric {
+    background: #f8fbf9;
+    border: 1px solid #edf1ee;
+    border-radius: 12px;
+    padding: 12px 14px;
+  }
+  .tracking-metric .label {
+    display: block;
+    font-size: 0.7rem;
+    color: #69756f;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    font-weight: 800;
+  }
+  .tracking-metric .value {
+    display: block;
+    margin-top: 7px;
+    font-weight: 800;
+    font-size: 1.05rem;
+    color: #152923;
+  }
+  .call-btn-wrap {
+    margin-top: 18px;
+  }
+  .delivery-map-wrap {
+    margin-top: 22px;
+  }
+  .delivery-map-wrap h3 {
+    margin: 0 0 12px;
+    color: #162b26;
+    font-size: 1.3rem;
+    letter-spacing: -0.03em;
+  }
+  #map {
+    width: 100%;
+    height: 380px;
+    border-radius: 14px;
+    border: 1px solid #dfe7e1;
+    margin-bottom: 12px;
+  }
+  .map-meta {
+    display: flex;
+    justify-content: space-between;
+    gap: 12px;
+    flex-wrap: wrap;
+    color: #5b6656;
+    font-size: 0.85rem;
+    padding: 0 2px;
+  }
+  .tracking-lookup {
+    max-width: 460px;
+    margin: 0 auto;
+  }
+  .tracking-stepper {
+    display: flex;
+    justify-content: space-between;
+    margin-bottom: 28px;
+    position: relative;
+    gap: 10px;
+  }
+  .tracking-stepper::before {
+    content: "";
+    position: absolute;
+    top: 13px;
+    left: 5%;
+    right: 5%;
+    height: 3px;
+    background: #e4e9dd;
+    z-index: 0;
+    border-radius: 999px;
+  }
+  .tracking-stepper::after {
+    content: "";
+    position: absolute;
+    top: 13px;
+    left: 5%;
+    width: var(--progress, 0%);
+    height: 3px;
+    background: #3f8b52;
+    z-index: 1;
+    border-radius: 999px;
+  }
+  .tracking-step {
+    position: relative;
+    z-index: 2;
+    text-align: center;
+    flex: 1;
+    min-width: 0;
+  }
+  .tracking-step-dot {
+    width: 28px;
+    height: 28px;
+    border-radius: 50%;
+    margin: 0 auto 8px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-weight: 800;
+    font-size: 0.8rem;
+    background: #e4e9dd;
+    color: #5b6656;
+  }
+  .tracking-step.active .tracking-step-dot {
+    background: #3f8b52;
+    color: #fff;
+  }
+  .tracking-step.complete .tracking-step-dot {
+    background: #3f8b52;
+    color: #fff;
+  }
+  .tracking-step-label {
+    font-size: 0.72rem;
+    font-weight: 700;
+    color: #5b6656;
+    line-height: 1.3;
+  }
+  .tracking-step.active .tracking-step-label,
+  .tracking-step.complete .tracking-step-label {
+    color: #1f4d36;
+  }
+  @media (max-width: 640px) {
+    .tracking-shell { padding-top: 24px; }
+    .tracking-stepper { gap: 6px; }
+    .tracking-step-label { font-size: 0.62rem; }
+    .tracking-card { padding: 14px; }
+  }
+</style>
+
+<div class="tracking-shell">
+  <div class="tracking-header">
     <h2>Track your order</h2>
     <p>See your order's status and live delivery location.</p>
   </div>
 
   <?php if (!$allowed): ?>
-    <div class="form-card" style="max-width:420px; margin:0 auto;">
+    <div class="tracking-card tracking-lookup">
       <?php if ($lookupError): ?><div class="alert alert-error"><?= h($lookupError) ?></div><?php endif; ?>
       <form method="get">
         <div class="form-group">
@@ -75,64 +258,132 @@ include __DIR__ . '/includes/header.php';
 
   <?php else: ?>
 
-    <!-- Status timeline -->
+    <?php
+    $trackedStatusKeys = array_keys(get_delivery_status_steps());
+    $orderStatus = normalize_order_status($order['order_status'] ?? 'placed');
+    $currentStatusIndex = array_search($orderStatus, $trackedStatusKeys, true);
+    if ($currentStatusIndex === false) { $currentStatusIndex = 0; }
+
+    $driver = null;
+    if (!empty($order['rider_id'])) {
+        $driverStmt = $pdo->prepare('SELECT * FROM riders WHERE id = ?');
+        $driverStmt->execute([(int)$order['rider_id']]);
+        $driver = $driverStmt->fetch();
+    }
+
+    $customerLat = !empty($order['address_lat']) ? (float)$order['address_lat'] : null;
+    $customerLng = !empty($order['address_lng']) ? (float)$order['address_lng'] : null;
+    $driverLat = !empty($order['delivery_lat']) ? (float)$order['delivery_lat'] : null;
+    $driverLng = !empty($order['delivery_lng']) ? (float)$order['delivery_lng'] : null;
+    $distanceKm = null;
+    if ($driverLat !== null && $driverLng !== null && $customerLat !== null && $customerLng !== null) {
+        $distanceKm = haversine_km($driverLat, $driverLng, $customerLat, $customerLng);
+    }
+    $etaMinutes = $distanceKm !== null ? estimate_eta_minutes($distanceKm) : null;
+    ?>
+
     <?php if ($order['order_status'] === 'cancelled'): ?>
       <div class="alert alert-error" style="margin-bottom:24px;">This order was cancelled.</div>
     <?php else: ?>
-      <div style="display:flex; justify-content:space-between; margin-bottom:32px; position:relative;">
-        <div style="position:absolute; top:13px; left:5%; right:5%; height:3px; background:#E4E9DD; z-index:0;"></div>
-        <div style="position:absolute; top:13px; left:5%; width:<?= min(100, $currentIndex / (count($steps)-1) * 90) ?>%; height:3px; background:#3F8B52; z-index:1;"></div>
-        <?php foreach ($stepKeys as $i => $key): ?>
-          <div style="position:relative; z-index:2; text-align:center; flex:1;">
-            <div style="width:28px; height:28px; border-radius:50%; margin:0 auto 8px; display:flex; align-items:center; justify-content:center; font-weight:700; font-size:0.8rem;
-              background:<?= $i <= $currentIndex ? '#3F8B52' : '#E4E9DD' ?>; color:<?= $i <= $currentIndex ? '#fff' : '#5B6656' ?>;">
-              <?= $i < $currentIndex ? '✓' : $i + 1 ?>
-            </div>
-            <div style="font-size:0.78rem; font-weight:600; color:<?= $i <= $currentIndex ? '#1F4D36' : '#5B6656' ?>;"><?= $steps[$key] ?></div>
+      <div class="tracking-stepper" style="--progress: <?= min(100, (($currentStatusIndex + 1) / count($trackedStatusKeys)) * 100) ?>%;">
+        <?php foreach ($trackedStatusKeys as $i => $key): ?>
+          <div class="tracking-step <?= $i < $currentStatusIndex ? 'complete' : ($i === $currentStatusIndex ? 'active' : '') ?>">
+            <div class="tracking-step-dot"><?= $i < $currentStatusIndex ? '✓' : $i + 1 ?></div>
+            <div class="tracking-step-label"><?= get_delivery_status_steps()[$key] ?></div>
           </div>
         <?php endforeach; ?>
       </div>
     <?php endif; ?>
 
-    <div class="form-card" style="margin-bottom:20px;">
-      <div style="display:flex; justify-content:space-between; flex-wrap:wrap; gap:10px;">
+    <div class="tracking-card" style="margin-bottom:20px;">
+      <div class="tracking-topline">
         <div>
-          <strong>Order #<?= $order['id'] ?></strong>
-          <div style="color:#5B6656; font-size:0.85rem;"><?= format_ist($order['created_at']) ?></div>
+          <div class="tracking-order-id">Order #<?= $order['id'] ?></div>
+          <div style="color:#5B6656; font-size:0.85rem; margin-top:4px;">
+            <?= format_ist($order['created_at']) ?>
+          </div>
         </div>
-        <div style="font-weight:700; color:var(--leaf-dark);"><?= SITE_CURRENCY ?><?= number_format($order['total_amount'],2) ?></div>
+        <div class="tracking-total"><?= SITE_CURRENCY ?><?= number_format($order['total_amount'],2) ?></div>
       </div>
     </div>
 
-    <?php if ($order['order_status'] === 'out_for_delivery'): ?>
-      <div class="form-card">
-        <h3 style="margin-top:0;">🚴 Live location</h3>
-        <div id="map" style="width:100%; height:360px; border-radius:12px; border:1px solid #D9E0CD; margin-bottom:10px;"></div>
-        <p id="locStatus" style="color:#5B6656; font-size:0.85rem;">Waiting for the delivery location to update...</p>
+    <div class="tracking-card tracking-status-card" style="margin-bottom:20px;">
+      <div class="tracking-metrics">
+        <div class="tracking-metric">
+          <span class="label">Delivery partner</span>
+          <span class="value"><?= $driver ? h($driver['name']) : 'Awaiting assignment' ?></span>
+        </div>
+        <div class="tracking-metric">
+          <span class="label">Estimated arrival</span>
+          <span class="value"><?= $etaMinutes !== null ? $etaMinutes . ' min' : 'Waiting for route' ?></span>
+        </div>
+        <div class="tracking-metric">
+          <span class="label">Distance remaining</span>
+          <span class="value"><?= $distanceKm !== null ? number_format($distanceKm, 1) . ' km' : '—' ?></span>
+        </div>
+        <div class="tracking-metric">
+          <span class="label">Status</span>
+          <span class="value"><?= h(get_order_status_options()[$orderStatus] ?? 'In progress') ?></span>
+        </div>
+      </div>
+      <?php if ($driver && !empty($driver['phone'])): ?>
+        <div class="call-btn-wrap">
+          <a href="tel:<?= h($driver['phone']) ?>" class="btn btn-primary">Call delivery partner</a>
+        </div>
+      <?php endif; ?>
+    </div>
+
+    <?php if (in_array($orderStatus, ['delivery_partner_assigned', 'out_for_delivery', 'arriving_soon'], true) || $order['order_status'] === 'out_for_delivery'): ?>
+      <div class="tracking-card delivery-map-wrap">
+        <h3>🚴 Live delivery map</h3>
+        <div id="map"></div>
+        <div class="map-meta">
+          <span id="locStatus">Waiting for the delivery partner's location...</span>
+          <span id="etaLabel"><?= $etaMinutes !== null ? 'ETA: ' . $etaMinutes . ' minutes' : 'ETA: pending' ?></span>
+        </div>
       </div>
 
       <script>
         const orderId = <?= (int)$order['id'] ?>;
         const trackPhone = <?= json_encode($phone) ?>;
-        const addressLat = <?= $order['address_lat'] !== null ? (float)$order['address_lat'] : 'null' ?>;
-        const addressLng = <?= $order['address_lng'] !== null ? (float)$order['address_lng'] : 'null' ?>;
+        const customerLat = <?= $customerLat !== null ? (float)$customerLat : 'null' ?>;
+        const customerLng = <?= $customerLng !== null ? (float)$customerLng : 'null' ?>;
+        const mapCenter = customerLat && customerLng ? [customerLat, customerLng] : [18.5011, 73.9268];
 
-        const map = L.map('map').setView([addressLat || 20.5937, addressLng || 78.9629], addressLat ? 13 : 5);
+        const map = L.map('map').setView(mapCenter, customerLat ? 13 : 10);
         L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
           attribution: '&copy; OpenStreetMap contributors',
           maxZoom: 19
         }).addTo(map);
 
-        let addressMarker = null;
-        if (addressLat && addressLng) {
-          addressMarker = L.marker([addressLat, addressLng]).addTo(map).bindPopup('Delivery address');
-        }
+        let customerMarker = null;
         let riderMarker = null;
+        let routeLine = null;
+
+        if (customerLat && customerLng) {
+          customerMarker = L.marker([customerLat, customerLng]).addTo(map).bindPopup('Delivery address');
+        }
 
         function fmtAgo(seconds) {
           if (seconds < 60) return 'just now';
           if (seconds < 3600) return Math.floor(seconds / 60) + ' min ago';
           return Math.floor(seconds / 3600) + ' hr ago';
+        }
+
+        function updateRoute(lat, lng) {
+          const riderPoint = [lat, lng];
+          if (customerLat && customerLng) {
+            if (routeLine) { routeLine.remove(); }
+            routeLine = L.polyline([riderPoint, [customerLat, customerLng]], { color: '#1f9d6b', weight: 4, opacity: 0.8 }).addTo(map);
+          }
+          if (!riderMarker) {
+            riderMarker = L.marker(riderPoint).addTo(map).bindPopup('Delivery partner').openPopup();
+          } else {
+            riderMarker.setLatLng(riderPoint);
+          }
+          if (customerMarker) {
+            map.fitBounds(L.latLngBounds([riderPoint, [customerLat, customerLng]]), { padding: [40, 40] });
+          }
         }
 
         function poll() {
@@ -141,26 +392,14 @@ include __DIR__ . '/includes/header.php';
             if (!res.success) return;
 
             if (res.delivery_lat && res.delivery_lng) {
-              const pos = [res.delivery_lat, res.delivery_lng];
-              if (!riderMarker) {
-                riderMarker = L.marker(pos).addTo(map).bindPopup('Your delivery').openPopup();
-                map.setView(pos, 14);
-              } else {
-                riderMarker.setLatLng(pos);
-              }
+              updateRoute(res.delivery_lat, res.delivery_lng);
               if (res.location_updated_at) {
-                // The server stores/returns this in UTC; append 'Z' so the
-                // browser's Date object treats it as UTC too, instead of
-                // misreading it as if it were already in the visitor's
-                // local timezone (which would double up the offset).
                 const updated = new Date(res.location_updated_at.replace(' ', 'T') + 'Z');
                 const seconds = Math.floor((Date.now() - updated.getTime()) / 1000);
                 document.getElementById('locStatus').textContent = 'Last updated ' + fmtAgo(seconds);
               }
             }
 
-            // Reload the whole page if the order status has moved on
-            // (e.g. delivered), so the timeline/map update accordingly.
             if (res.order_status !== '<?= $order['order_status'] ?>') {
               location.reload();
             }
@@ -168,7 +407,7 @@ include __DIR__ . '/includes/header.php';
         }
 
         poll();
-        setInterval(poll, 8000);
+        setInterval(poll, 10000);
       </script>
 
     <?php elseif ($order['order_status'] === 'delivered'): ?>
@@ -178,14 +417,10 @@ include __DIR__ . '/includes/header.php';
       </div>
     <?php else: ?>
       <div class="form-card" style="text-align:center;">
-        <p style="color:#5B6656;">Live tracking will appear here once your order is out for delivery.</p>
+        <p style="color:#5B6656;">Live tracking will appear here once your delivery partner is assigned and on the way.</p>
       </div>
 
       <script>
-        // The order wasn't "out for delivery" when this page loaded, so
-        // there's no live-location script running yet. Poll just the
-        // status every few seconds and reload the page the moment it
-        // changes, so the customer doesn't have to refresh manually.
         (function () {
           const orderId = <?= (int)$order['id'] ?>;
           const trackPhone = <?= json_encode($phone) ?>;
@@ -200,7 +435,7 @@ include __DIR__ . '/includes/header.php';
             });
           }
 
-          setInterval(poll, 8000);
+          setInterval(poll, 10000);
         })();
       </script>
     <?php endif; ?>
