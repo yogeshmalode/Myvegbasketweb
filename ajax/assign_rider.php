@@ -24,9 +24,9 @@ if ($riderId !== null) {
 }
 
 try {
-    $st = $pdo->prepare('UPDATE orders SET rider_id = ?, updated_at = NOW() WHERE id = ?');
+    $st = $pdo->prepare("UPDATE orders SET rider_id = ?, order_status = CASE WHEN order_status IN ('placed','processing','ready_for_pickup','out_for_delivery','arriving_soon','delivery_partner_assigned') THEN 'delivery_partner_assigned' ELSE order_status END, updated_at = NOW() WHERE id = ?");
     $st->execute([$riderId, $orderId]);
-    echo json_encode(['success'=>true, 'rider_id' => $riderId]);
+    echo json_encode(['success'=>true, 'rider_id' => $riderId, 'status' => 'delivery_partner_assigned']);
 } catch (Exception $e) {
     echo json_encode(['success'=>false,'error'=>'Database update failed: ' . $e->getMessage()]);
 }
