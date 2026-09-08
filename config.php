@@ -816,6 +816,10 @@ function get_order_with_geocoded_address($pdo, $orderId) {
 // Returns null if the label can't be understood or doesn't match that
 // unit's family (e.g. a "piece"-style label). Mirrors the JS version used
 // in the Add/Edit Vegetable pages so both produce identical results.
+function starts_with($haystack, $needle) {
+    return $needle === '' || strpos($haystack, $needle) === 0;
+}
+
 function size_fraction_of_base_unit($label, $baseUnit) {
     if (!preg_match('/^([\d.]+)\s*(kilogram|kilograms|kg|gram|grams|g|litre|litres|liter|liters|l|millilitre|millilitres|ml)\b/i', trim((string)$label), $m)) {
         return null;
@@ -825,13 +829,13 @@ function size_fraction_of_base_unit($label, $baseUnit) {
 
     $grams = null;
     $ml = null;
-    if ($unit === 'kg' || str_starts_with($unit, 'kilogram')) {
+    if ($unit === 'kg' || starts_with($unit, 'kilogram')) {
         $grams = $value * 1000;
-    } elseif ($unit === 'g' || str_starts_with($unit, 'gram')) {
+    } elseif ($unit === 'g' || starts_with($unit, 'gram')) {
         $grams = $value;
-    } elseif ($unit === 'l' || str_starts_with($unit, 'litre') || str_starts_with($unit, 'liter')) {
+    } elseif ($unit === 'l' || starts_with($unit, 'litre') || starts_with($unit, 'liter')) {
         $ml = $value * 1000;
-    } elseif ($unit === 'ml' || str_starts_with($unit, 'millilitre')) {
+    } elseif ($unit === 'ml' || starts_with($unit, 'millilitre')) {
         $ml = $value;
     }
 
@@ -849,24 +853,34 @@ function recalculate_variant_prices($pdo, $vegId, $basePrice, $baseUnit) {
     if (!in_array($baseUnit, ['kg', 'gram', 'litre'], true) || $basePrice <= 0) {
         return ['updated' => 0, 'skipped' => 0];
     }
-    $stmt = $pdo->prepare("SELECT id, label FROM vegetable_variants WHERE vegetable_id = ?");
-    $stmt->execute([$vegId]);
-    $variants = $stmt->fetchAll();
+
+    try {
+        $stmt = $pdo->prepare("SELECT id, label FROM vegetable_variants WHERE vegetable_id = ?");
+        $stmt->execute([$vegId]);
+        $variants = $stmt->fetchAll();
+    } catch (Throwable $e) {
+        return ['updated' => 0, 'skipped' => 0];
+    }
+
     if (!$variants) return ['updated' => 0, 'skipped' => 0];
 
-    $update = $pdo->prepare("UPDATE vegetable_variants SET price = ? WHERE id = ?");
-    $updated = 0;
-    $skipped = 0;
-    foreach ($variants as $v) {
-        $fraction = size_fraction_of_base_unit($v['label'], $baseUnit);
-        if ($fraction === null) {
-            $skipped++;
-            continue;
+    try {
+        $update = $pdo->prepare("UPDATE vegetable_variants SET price = ? WHERE id = ?");
+        $updated = 0;
+        $skipped = 0;
+        foreach ($variants as $v) {
+            $fraction = size_fraction_of_base_unit($v['label'], $baseUnit);
+            if ($fraction === null) {
+                $skipped++;
+                continue;
+            }
+            $update->execute([round($basePrice * $fraction, 2), $v['id']]);
+            $updated++;
         }
-        $update->execute([round($basePrice * $fraction, 2), $v['id']]);
-        $updated++;
+        return ['updated' => $updated, 'skipped' => $skipped];
+    } catch (Throwable $e) {
+        return ['updated' => 0, 'skipped' => 0];
     }
-    return ['updated' => $updated, 'skipped' => $skipped];
 }
 
 // Runs recalculate_variant_prices() across every product that currently
