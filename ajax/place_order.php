@@ -66,9 +66,22 @@ try {
     foreach ($cart as $item) {
         $lockStmt->execute([(int)$item['id']]);
         $product = $lockStmt->fetch();
+        if (!$product) {
+            throw new RuntimeException('Insufficient stock for ' . ($item['name'] ?? 'an item') . '.');
+        }
+
+        $baseQty = (float)($item['qty'] ?? 0);
+        $unitLabel = trim((string)($item['unit'] ?? ''));
+        $unitFraction = null;
+        if ($unitLabel !== '') {
+            try { $unitFraction = size_fraction_of_base_unit($unitLabel, $product['unit'] ?? 'kg'); } catch (Throwable $e) { $unitFraction = null; }
+        }
+        if ($unitFraction !== null && $unitFraction > 0) {
+            $baseQty = round((float)$item['qty'] * $unitFraction, 4);
+        }
+
         $beforeStock = (float)($product['stock'] ?? 0);
-        $qtyToReduce = (float)($item['qty'] ?? 0);
-        if (!$product || $beforeStock < $qtyToReduce) {
+        if ($beforeStock < $baseQty) {
             throw new RuntimeException('Insufficient stock for ' . ($item['name'] ?? 'an item') . '.');
         }
 
@@ -86,16 +99,16 @@ try {
             $product['cost_price'],
         ]);
 
-        $stockStmt->execute([$qtyToReduce, $item['id'], $qtyToReduce]);
+        $stockStmt->execute([$baseQty, $item['id'], $baseQty]);
         $verifyStmt = $pdo->prepare("SELECT stock FROM vegetables WHERE id = ?");
         $verifyStmt->execute([(int)$item['id']]);
         $afterStock = (float)($verifyStmt->fetchColumn() ?? 0);
-        $expectedAfter = $beforeStock - $qtyToReduce;
-        if (abs($afterStock - $expectedAfter) > 0.01) {
+        $expectedAfter = $beforeStock - $baseQty;
+        if ($afterStock < 0 || abs($afterStock - $expectedAfter) > 0.01) {
             throw new RuntimeException('Stock changed while placing the order. Please try again.');
         }
 
-        $movementStmt->execute([(int)$item['id'], -(float)$qtyToReduce, $orderId, 'Online checkout']);
+        $movementStmt->execute([(int)$item['id'], -(float)$baseQty, $orderId, 'Online checkout']);
         $unitSuffix = $variantId ? '' : ' ' . $item['unit'];
         $itemLines[] = "  - {$item['name']} x {$item['qty']}{$unitSuffix} = " . SITE_CURRENCY . number_format($lineSubtotal, 2);
     }

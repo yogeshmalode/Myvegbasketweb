@@ -57,22 +57,36 @@ try {
     foreach ($cart as $item) {
         $lockStmt->execute([(int)$item['id']]);
         $product = $lockStmt->fetch();
-        $beforeStock = (float)($product['stock'] ?? 0);
-        $qtyToReduce = (float)($item['qty'] ?? 0);
-        if (!$product || $beforeStock < $qtyToReduce) {
+        if (!$product) {
             throw new RuntimeException('Insufficient stock for ' . ($item['name'] ?? 'an item') . '.');
         }
+
+        $baseQty = (float)($item['qty'] ?? 0);
+        $unitLabel = trim((string)($item['unit'] ?? ''));
+        $unitFraction = null;
+        if ($unitLabel !== '') {
+            try { $unitFraction = size_fraction_of_base_unit($unitLabel, $product['unit'] ?? 'kg'); } catch (Throwable $e) { $unitFraction = null; }
+        }
+        if ($unitFraction !== null && $unitFraction > 0) {
+            $baseQty = round((float)$item['qty'] * $unitFraction, 4);
+        }
+
+        $beforeStock = (float)($product['stock'] ?? 0);
+        if ($beforeStock < $baseQty) {
+            throw new RuntimeException('Insufficient stock for ' . ($item['name'] ?? 'an item') . '.');
+        }
+
         $subtotal = $item['price'] * $item['qty'];
         $itemStmt->execute([$orderId, $item['id'], $item['name'], $item['price'], $item['qty'], $subtotal, $product['cost_price']]);
-        $stockStmt->execute([$qtyToReduce, $item['id'], $qtyToReduce]);
+        $stockStmt->execute([$baseQty, $item['id'], $baseQty]);
         $verifyStmt = $pdo->prepare("SELECT stock FROM vegetables WHERE id = ?");
         $verifyStmt->execute([(int)$item['id']]);
         $afterStock = (float)($verifyStmt->fetchColumn() ?? 0);
-        $expectedAfter = $beforeStock - $qtyToReduce;
-        if (abs($afterStock - $expectedAfter) > 0.01) {
+        $expectedAfter = $beforeStock - $baseQty;
+        if ($afterStock < 0 || abs($afterStock - $expectedAfter) > 0.01) {
             throw new RuntimeException('Stock changed while placing the order. Please retry.');
         }
-        $movementStmt->execute([(int)$item['id'], -(float)$qtyToReduce, $orderId, 'Razorpay checkout']);
+        $movementStmt->execute([(int)$item['id'], -(float)$baseQty, $orderId, 'Razorpay checkout']);
     }
 
     $pdo->commit();

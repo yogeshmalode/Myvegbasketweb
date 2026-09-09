@@ -120,7 +120,7 @@ if($_SERVER['REQUEST_METHOD']==='POST' && isset($_POST['checkout'])){
                 $afterCheck->execute([$vegId]);
                 $afterStock = (float)($afterCheck->fetchColumn() ?? 0);
                 $expectedAfter = $beforeStock - (float)$deductQty;
-                if (abs($afterStock - $expectedAfter) > 0.01) {
+                if ($afterStock < 0 || abs($afterStock - $expectedAfter) > 0.01) {
                     throw new Exception('Stock changed during checkout. Please retry.');
                 }
 
