@@ -59,6 +59,11 @@ if($_SERVER['REQUEST_METHOD']==='POST' && isset($_POST['checkout'])){
                     }
                 }
 
+                $isWeightUnit = stripos((string)$product['unit'], 'kg') !== false || stripos((string)$product['unit'], 'gram') !== false || stripos((string)$product['unit'], 'g') !== false;
+                if($isWeightUnit && $qty > 0 && $baseQty <= 0){
+                    $baseQty = round($qty / 1000, 4);
+                }
+
                 if((float)$product['stock'] < (float)$baseQty) {
                     throw new Exception('Insufficient stock for '.($entry['name'] ?? $product['name']).'.');
                 }
@@ -164,7 +169,7 @@ if($_SERVER['REQUEST_METHOD']==='POST' && isset($_POST['add_item'])){require_csr
     }
     if($maxAllow < 0.01){ $_SESSION['flash']=['type'=>'error','message'=>'Insufficient stock.']; header('Location: billing.php'); exit; }
 
-    $stockLimit = ($v['unit'] === 'kg' || stripos((string)$v['unit'], 'kg') !== false) ? $maxAllow * 1000 : $maxAllow;
+    $stockLimit = ($v['unit'] === 'kg' || stripos((string)$v['unit'], 'kg') !== false || stripos((string)$v['unit'], 'gram') !== false || stripos((string)$v['unit'], 'g') !== false) ? $maxAllow * 1000 : $maxAllow;
     if($q > $stockLimit) $q = $stockLimit;
 
     if(!isset($_SESSION['billing_cart'])) $_SESSION['billing_cart']=[];
