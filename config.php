@@ -379,6 +379,29 @@ function ensure_management_schema($pdo) {
         if ($hasTable('vegetables')) {
             if (!$hasColumn('vegetables', 'supplier_name')) $pdo->exec("ALTER TABLE vegetables ADD COLUMN supplier_name VARCHAR(120) DEFAULT NULL");
             if (!$hasColumn('vegetables', 'cost_price')) $pdo->exec("ALTER TABLE vegetables ADD COLUMN cost_price DECIMAL(10,2) NOT NULL DEFAULT 0");
+
+            // Critical fix: older installs created `stock` as INT, which
+            // silently rounds fractional weight-based deductions (e.g. 0.25 kg
+            // for a 250 g sale) to the nearest whole number. That mismatch
+            // between the intended and stored value is exactly what caused
+            // "Stock changed during checkout" to fire on every weighed sale.
+            // Widen it to DECIMAL so fractional kg/litre amounts persist exactly.
+            $stockTypeQ = $pdo->prepare("SELECT DATA_TYPE FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = ? AND TABLE_NAME = 'vegetables' AND COLUMN_NAME = 'stock'");
+            $stockTypeQ->execute([$db]);
+            $stockType = strtolower((string)$stockTypeQ->fetchColumn());
+            if (in_array($stockType, ['int', 'tinyint', 'smallint', 'mediumint', 'bigint'], true)) {
+                $pdo->exec("ALTER TABLE vegetables MODIFY COLUMN stock DECIMAL(10,3) NOT NULL DEFAULT 0");
+            }
+        }
+        if ($hasTable('inventory_movements')) {
+            // Same rounding problem as vegetables.stock above: older installs
+            // created this as INT, which truncates fractional kg movements.
+            $movTypeQ = $pdo->prepare("SELECT DATA_TYPE FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = ? AND TABLE_NAME = 'inventory_movements' AND COLUMN_NAME = 'quantity'");
+            $movTypeQ->execute([$db]);
+            $movType = strtolower((string)$movTypeQ->fetchColumn());
+            if (in_array($movType, ['int', 'tinyint', 'smallint', 'mediumint', 'bigint'], true)) {
+                $pdo->exec("ALTER TABLE inventory_movements MODIFY COLUMN quantity DECIMAL(10,3) NOT NULL DEFAULT 0");
+            }
         }
         if ($hasTable('order_items')) {
             if (!$hasColumn('order_items', 'cost_price')) $pdo->exec("ALTER TABLE order_items ADD COLUMN cost_price DECIMAL(10,2) NOT NULL DEFAULT 0");
@@ -412,7 +435,7 @@ function ensure_management_schema($pdo) {
             id INT AUTO_INCREMENT PRIMARY KEY,
             vegetable_id INT NOT NULL,
             movement_type ENUM('purchase','adjustment','sale','wastage') NOT NULL,
-            quantity INT NOT NULL,
+            quantity DECIMAL(10,3) NOT NULL,
             reference_id INT DEFAULT NULL,
             notes VARCHAR(255) DEFAULT NULL,
             created_by INT DEFAULT NULL,
