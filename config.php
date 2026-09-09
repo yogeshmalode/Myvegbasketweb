@@ -122,7 +122,42 @@ function admin_role() {
 function is_admin_role() {
     return admin_role() === 'admin';
 }
-function can_manage_inventory() {
+
+// Pages every logged-in admin user can always reach, regardless of role,
+// so nobody gets locked out of their own dashboard or the logout link.
+function rbac_always_allowed_pages() {
+    return ['dashboard.php', 'logout.php', 'index.php'];
+}
+
+// Returns the list of admin/*.php page filenames a given role is allowed
+// to open. Admins always get null (meaning "all pages", checked separately).
+function get_role_allowed_pages($pdo, $role) {
+    if ($role === 'admin') return null;
+    try {
+        $st = $pdo->prepare('SELECT page FROM role_page_permissions WHERE role = ? ORDER BY page');
+        $st->execute([$role]);
+        return $st->fetchAll(PDO::FETCH_COLUMN);
+    } catch (Throwable $e) {
+        return [];
+    }
+}
+
+// Central RBAC gate: call this after confirming the user is logged in.
+// Admin passes through untouched. Staff/Delivery are redirected to their
+// dashboard (with a flash message) if the current page isn't in their
+// role's allowed list.
+function require_page_access($pdo, $currentPage) {
+    $role = admin_role();
+    if ($role === 'admin' || $role === null) return;
+    if (in_array($currentPage, rbac_always_allowed_pages(), true)) return;
+
+    $allowed = get_role_allowed_pages($pdo, $role);
+    if (in_array($currentPage, $allowed, true)) return;
+
+    $_SESSION['flash'] = ['type' => 'error', 'message' => 'You do not have permission to access that page.'];
+    header('Location: dashboard.php');
+    exit;
+}function can_manage_inventory() {
     return in_array(admin_role(), ['admin','staff'], true);
 }
 function auto_sale_price($cost) {
@@ -502,8 +537,54 @@ function ensure_management_schema($pdo) {
         };
 
         if ($hasTable('admins') && !$hasColumn('admins', 'role')) {
-            $pdo->exec("ALTER TABLE admins ADD COLUMN role ENUM('admin','staff') NOT NULL DEFAULT 'admin'");
+            $pdo->exec("ALTER TABLE admins ADD COLUMN role ENUM('admin','staff','delivery') NOT NULL DEFAULT 'admin'");
         }
+        if ($hasTable('admins') && $hasColumn('admins', 'role')) {
+            // Widen the enum to add the 'delivery' role for older installs
+            // that only had admin/staff.
+            $roleTypeQ = $pdo->prepare("SELECT COLUMN_TYPE FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = ? AND TABLE_NAME = 'admins' AND COLUMN_NAME = 'role'");
+            $roleTypeQ->execute([$db]);
+            $roleType = (string)$roleTypeQ->fetchColumn();
+            if (strpos($roleType, "'delivery'") === false) {
+                $pdo->exec("ALTER TABLE admins MODIFY COLUMN role ENUM('admin','staff','delivery') NOT NULL DEFAULT 'admin'");
+            }
+        }
+
+        // ---- Role-Based Access Control: which admin/*.php pages each
+        // non-admin role is allowed to open. Admin always has full access
+        // and is never checked against this table.
+        $pdo->exec("CREATE TABLE IF NOT EXISTS role_page_permissions (
+            id INT AUTO_INCREMENT PRIMARY KEY,
+            role ENUM('staff','delivery') NOT NULL,
+            page VARCHAR(100) NOT NULL,
+            UNIQUE KEY uniq_role_page (role, page)
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4");
+        $permCount = (int)$pdo->query("SELECT COUNT(*) FROM role_page_permissions")->fetchColumn();
+        if ($permCount === 0) {
+            // Sensible first-run defaults: Staff get day-to-day operational
+            // pages; Delivery gets strictly delivery tracking/management
+            // pages. The admin can adjust these anytime from Role Permissions.
+            $defaultPerms = [
+                'staff' => [
+                    'dashboard.php', 'billing.php', 'vegetables.php', 'inventory.php',
+                    'orders.php', 'wastage.php', 'offers.php', 'subscriptions.php',
+                    'catalog_pricing.php', 'procurement.php', 'daily_procurement_dashboard.php',
+                    'fulfillment.php',
+                ],
+                'delivery' => [
+                    'dashboard.php', 'delivery.php', 'deliveries.php', 'riders.php',
+                    'dark_stores.php', 'scan_delivery.php', 'manifest.php',
+                    'picking_sheet.php', 'route_sheet.php',
+                ],
+            ];
+            $insPerm = $pdo->prepare("INSERT IGNORE INTO role_page_permissions (role, page) VALUES (?, ?)");
+            foreach ($defaultPerms as $role => $pages) {
+                foreach ($pages as $page) {
+                    $insPerm->execute([$role, $page]);
+                }
+            }
+        }
+
         if ($hasTable('vegetables')) {
             if (!$hasColumn('vegetables', 'supplier_name')) $pdo->exec("ALTER TABLE vegetables ADD COLUMN supplier_name VARCHAR(120) DEFAULT NULL");
             if (!$hasColumn('vegetables', 'cost_price')) $pdo->exec("ALTER TABLE vegetables ADD COLUMN cost_price DECIMAL(10,2) NOT NULL DEFAULT 0");

@@ -54,9 +54,12 @@ $current_page = basename($_SERVER['PHP_SELF']);
       ['orders.php','▱','Orders'],
       ['offers.php','🎁','Offers'],
       ['users.php','♙','Users'],
+      ['role_permissions.php','🔐','Role Permissions'],
     ];
+    $roleAllowedPages = is_admin_role() ? null : get_role_allowed_pages($pdo, admin_role());
     foreach($nav as $item):
-      if (($item[0]==='users.php' || $item[0]==='management_check.php') && !is_admin_role()) continue;
+      if (($item[0]==='users.php' || $item[0]==='management_check.php' || $item[0]==='role_permissions.php') && !is_admin_role()) continue;
+      if ($roleAllowedPages !== null && !in_array($item[0], rbac_always_allowed_pages(), true) && !in_array($item[0], $roleAllowedPages, true)) continue;
       $active = $current_page === $item[0] || ($item[0]==='dashboard.php' && $current_page==='index.php');
     ?>
       <a class="admin-side-link <?= $active ? 'active' : '' ?>" href="<?= h($item[0]) ?>"><span class="admin-side-icon"><?= $item[1] ?></span><span class="admin-side-text"><?= h($item[2]) ?></span></a>
