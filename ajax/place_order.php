@@ -66,9 +66,12 @@ try {
     foreach ($cart as $item) {
         $lockStmt->execute([(int)$item['id']]);
         $product = $lockStmt->fetch();
-        if (!$product || (int)$product['stock'] < (int)$item['qty']) {
+        $beforeStock = (float)($product['stock'] ?? 0);
+        $qtyToReduce = (float)($item['qty'] ?? 0);
+        if (!$product || $beforeStock < $qtyToReduce) {
             throw new RuntimeException('Insufficient stock for ' . ($item['name'] ?? 'an item') . '.');
         }
+
         $lineSubtotal = $item['price'] * $item['qty'];
         $variantId = $item['variant_id'] ?? null;
         $itemStmt->execute([
@@ -82,9 +85,17 @@ try {
             $lineSubtotal,
             $product['cost_price'],
         ]);
-        $stockStmt->execute([$item['qty'], $item['id'], $item['qty']]);
-        if ($stockStmt->rowCount() !== 1) throw new RuntimeException('Stock changed while placing the order. Please try again.');
-        $movementStmt->execute([(int)$item['id'], -(int)$item['qty'], $orderId, 'Online checkout']);
+
+        $stockStmt->execute([$qtyToReduce, $item['id'], $qtyToReduce]);
+        $verifyStmt = $pdo->prepare("SELECT stock FROM vegetables WHERE id = ?");
+        $verifyStmt->execute([(int)$item['id']]);
+        $afterStock = (float)($verifyStmt->fetchColumn() ?? 0);
+        $expectedAfter = $beforeStock - $qtyToReduce;
+        if (abs($afterStock - $expectedAfter) > 0.01) {
+            throw new RuntimeException('Stock changed while placing the order. Please try again.');
+        }
+
+        $movementStmt->execute([(int)$item['id'], -(float)$qtyToReduce, $orderId, 'Online checkout']);
         $unitSuffix = $variantId ? '' : ' ' . $item['unit'];
         $itemLines[] = "  - {$item['name']} x {$item['qty']}{$unitSuffix} = " . SITE_CURRENCY . number_format($lineSubtotal, 2);
     }

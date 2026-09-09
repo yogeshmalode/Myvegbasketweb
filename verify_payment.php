@@ -57,14 +57,22 @@ try {
     foreach ($cart as $item) {
         $lockStmt->execute([(int)$item['id']]);
         $product = $lockStmt->fetch();
-        if (!$product || (int)$product['stock'] < (int)$item['qty']) {
+        $beforeStock = (float)($product['stock'] ?? 0);
+        $qtyToReduce = (float)($item['qty'] ?? 0);
+        if (!$product || $beforeStock < $qtyToReduce) {
             throw new RuntimeException('Insufficient stock for ' . ($item['name'] ?? 'an item') . '.');
         }
         $subtotal = $item['price'] * $item['qty'];
         $itemStmt->execute([$orderId, $item['id'], $item['name'], $item['price'], $item['qty'], $subtotal, $product['cost_price']]);
-        $stockStmt->execute([$item['qty'], $item['id'], $item['qty']]);
-        if ($stockStmt->rowCount() !== 1) throw new RuntimeException('Stock changed while placing the order. Please retry.');
-        $movementStmt->execute([(int)$item['id'], -(int)$item['qty'], $orderId, 'Razorpay checkout']);
+        $stockStmt->execute([$qtyToReduce, $item['id'], $qtyToReduce]);
+        $verifyStmt = $pdo->prepare("SELECT stock FROM vegetables WHERE id = ?");
+        $verifyStmt->execute([(int)$item['id']]);
+        $afterStock = (float)($verifyStmt->fetchColumn() ?? 0);
+        $expectedAfter = $beforeStock - $qtyToReduce;
+        if (abs($afterStock - $expectedAfter) > 0.01) {
+            throw new RuntimeException('Stock changed while placing the order. Please retry.');
+        }
+        $movementStmt->execute([(int)$item['id'], -(float)$qtyToReduce, $orderId, 'Razorpay checkout']);
     }
 
     $pdo->commit();
