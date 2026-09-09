@@ -183,6 +183,12 @@ include __DIR__ . '/includes/admin_header.php';
   .proc-stat .label { display:block; color:#69756f; font-size:0.7rem; letter-spacing:0.08em; text-transform:uppercase; font-weight:800; }
   .proc-stat strong { display:block; margin-top:10px; font-size:1.8rem; color:#122a24; }
   .proc-grid { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:18px; margin-bottom:18px; }
+  .proc-tabs { display:flex; flex-wrap:wrap; gap:6px; margin-bottom:16px; background:#fff; border:1px solid #e3eae4; border-radius:14px; padding:6px; box-shadow:0 8px 22px rgba(17,48,37,0.04); }
+  .proc-tab-btn { border:none; background:transparent; padding:10px 16px; border-radius:10px; font-size:0.8rem; font-weight:700; color:#55615d; cursor:pointer; transition:background .15s,color .15s; }
+  .proc-tab-btn:hover { background:#f2f6f3; }
+  .proc-tab-btn.active { background:#0d7a59; color:#fff; }
+  .proc-tab-panel { display:none; }
+  .proc-tab-panel.active { display:block; }
   .proc-panel { background:#fff; border:1px solid #e3eae4; border-radius:16px; overflow:hidden; box-shadow:0 8px 22px rgba(17,48,37,0.04); }
   .proc-panel-head { padding:16px 18px; border-bottom:1px solid #edf0ee; background:#f7faf8; }
   .proc-panel-head h3 { margin:0; font-size:1.05rem; color:#17231f; }
@@ -229,7 +235,16 @@ include __DIR__ . '/includes/admin_header.php';
     <div class="proc-stat"><span class="label">Inward</span><strong><?= number_format($inwardCount) ?></strong></div>
   </div>
 
-  <div class="proc-grid">
+  <div class="proc-tabs" role="tablist" aria-label="Procurement forms">
+    <button type="button" class="proc-tab-btn active" data-tab="vendor">Supplier / Vendor</button>
+    <button type="button" class="proc-tab-btn" data-tab="farmer">Farmer</button>
+    <button type="button" class="proc-tab-btn" data-tab="vehicle">Vehicle</button>
+    <button type="button" class="proc-tab-btn" data-tab="purchase">Purchase Entry</button>
+    <button type="button" class="proc-tab-btn" data-tab="inward">QC / GRN Inward</button>
+    <button type="button" class="proc-tab-btn" data-tab="dispatch">Dispatch Capability</button>
+  </div>
+
+  <div class="proc-tab-panel active" id="tab-vendor">
     <section class="proc-panel">
       <div class="proc-panel-head"><h3>Add Supplier / Vendor</h3></div>
       <div class="proc-form">
@@ -247,7 +262,9 @@ include __DIR__ . '/includes/admin_header.php';
         </form>
       </div>
     </section>
+  </div>
 
+  <div class="proc-tab-panel" id="tab-farmer">
     <section class="proc-panel">
       <div class="proc-panel-head"><h3>Add Farmer</h3></div>
       <div class="proc-form">
@@ -265,7 +282,9 @@ include __DIR__ . '/includes/admin_header.php';
         </form>
       </div>
     </section>
+  </div>
 
+  <div class="proc-tab-panel" id="tab-vehicle">
     <section class="proc-panel">
       <div class="proc-panel-head"><h3>Add Vehicle</h3></div>
       <div class="proc-form">
@@ -282,7 +301,9 @@ include __DIR__ . '/includes/admin_header.php';
         </form>
       </div>
     </section>
+  </div>
 
+  <div class="proc-tab-panel" id="tab-purchase">
     <section class="proc-panel">
       <div class="proc-panel-head"><h3>Purchase Entry / Mandi Ledger</h3></div>
       <div class="proc-form">
@@ -308,7 +329,9 @@ include __DIR__ . '/includes/admin_header.php';
         </form>
       </div>
     </section>
+  </div>
 
+  <div class="proc-tab-panel" id="tab-inward">
     <section class="proc-panel">
       <div class="proc-panel-head"><h3>QC / GRN Inward</h3></div>
       <div class="proc-form">
@@ -329,7 +352,9 @@ include __DIR__ . '/includes/admin_header.php';
         </form>
       </div>
     </section>
+  </div>
 
+  <div class="proc-tab-panel" id="tab-dispatch">
     <section class="proc-panel">
       <div class="proc-panel-head"><h3>Dispatch Capability / Load Sheet</h3></div>
       <div class="proc-form">
@@ -354,6 +379,20 @@ include __DIR__ . '/includes/admin_header.php';
       </div>
     </section>
   </div>
+
+  <script>
+    (function(){
+      var buttons = document.querySelectorAll('.proc-tab-btn');
+      buttons.forEach(function(btn){
+        btn.addEventListener('click', function(){
+          buttons.forEach(function(b){ b.classList.remove('active'); });
+          document.querySelectorAll('.proc-tab-panel').forEach(function(p){ p.classList.remove('active'); });
+          btn.classList.add('active');
+          document.getElementById('tab-' + btn.dataset.tab).classList.add('active');
+        });
+      });
+    })();
+  </script>
 
   <section class="proc-panel" style="margin-bottom:18px;">
     <div class="proc-panel-head"><h3>Purchases</h3></div>
