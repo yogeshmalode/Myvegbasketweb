@@ -12,11 +12,14 @@ if (!$orderId && !empty($input['order_id_raw'])){
 if (!$orderId){ echo json_encode(['success'=>false,'error'=>'Bad order id']); exit; }
 try{
     $pdo->beginTransaction();
-    $st = $pdo->prepare('SELECT id, order_status, manifest_id FROM orders WHERE id = ? FOR UPDATE');
+    $st = $pdo->prepare('SELECT id, order_status, manifest_id, rider_id FROM orders WHERE id = ? FOR UPDATE');
     $st->execute([$orderId]); $ord = $st->fetch(); if(!$ord){ $pdo->rollBack(); echo json_encode(['success'=>false,'error'=>'Order not found']); exit; }
     if ($ord['order_status'] === 'delivered'){ $pdo->rollBack(); echo json_encode(['success'=>false,'error'=>'Already delivered']); exit; }
     $upd = $pdo->prepare('UPDATE orders SET order_status = ?, updated_at = NOW(), delivered_at = NOW() WHERE id = ?');
     $upd->execute(['delivered', $orderId]);
+    if ($ord['rider_id']) {
+        $pdo->prepare("UPDATE riders SET availability_status = 'available' WHERE id = ?")->execute([$ord['rider_id']]);
+    }
     $ins = $pdo->prepare('INSERT INTO delivery_confirmations (order_id, manifest_id, rider_id, confirmed_by, method, note) VALUES (?, ?, ?, ?, ?, ?)');
     $ins->execute([$orderId, $ord['manifest_id'] ?: null, $_SESSION['admin_id'] ?? null, $_SESSION['admin_id'] ?? null, 'scan', $input['note'] ?? null]);
     $pdo->commit();

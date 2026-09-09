@@ -120,6 +120,9 @@ try {
     exit;
 }
 
+// Best-effort dark-store routing + ETA (never blocks checkout on failure).
+dispatch_order_to_dark_store($pdo, $orderId);
+
 // The coupon (if any) has now been spent on this order — clear it so it
 // doesn't silently carry over onto whatever the person orders next.
 unset($_SESSION['applied_coupon_code']);

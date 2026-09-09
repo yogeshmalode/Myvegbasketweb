@@ -12,6 +12,16 @@ if ($id<=0 || !in_array($status, $allowed, true)) { echo json_encode(['success'=
 try {
     $st = $pdo->prepare('UPDATE orders SET order_status = ?, updated_at = NOW() WHERE id = ?');
     $st->execute([$status, $id]);
+    // Free the assigned rider once the order reaches a terminal state, so
+    // they become eligible again for smart auto-allocation.
+    if (in_array($status, ['delivered', 'cancelled'], true)) {
+        $riderRow = $pdo->prepare('SELECT rider_id FROM orders WHERE id = ?');
+        $riderRow->execute([$id]);
+        $riderId = $riderRow->fetchColumn();
+        if ($riderId) {
+            $pdo->prepare("UPDATE riders SET availability_status = 'available' WHERE id = ?")->execute([$riderId]);
+        }
+    }
     // Alert admin for important transitions.
     if (in_array($status, ['processing', 'out_for_delivery'], true)) {
         send_order_alert("Order #$id status: $status", ["Order #$id changed to $status by admin."]);

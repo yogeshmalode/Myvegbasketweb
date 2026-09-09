@@ -96,6 +96,9 @@ try {
     exit;
 }
 
+// Best-effort dark-store routing + ETA (never blocks checkout on failure).
+dispatch_order_to_dark_store($pdo, $orderId);
+
 // Clear the cart now that the order is placed
 unset($_SESSION['cart'], $_SESSION['pending_razorpay_order_id']);
 

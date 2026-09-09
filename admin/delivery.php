@@ -3,7 +3,7 @@ require_once __DIR__ . '/includes/auth.php';
 $page_title = 'Delivery & Route Planner';
 
 // Fetch pending orders with geocoded addresses and any assigned rider
-$orders = $pdo->query("SELECT o.id, o.customer_name, o.phone, o.address, o.address_lat, o.address_lng, o.total_amount, o.order_status, o.rider_id, r.name AS rider_name FROM orders o LEFT JOIN riders r ON r.id = o.rider_id WHERE o.order_status IN ('placed','processing','ready_for_pickup','delivery_partner_assigned','out_for_delivery') ORDER BY o.created_at ASC")->fetchAll();
+$orders = $pdo->query("SELECT o.id, o.customer_name, o.phone, o.address, o.address_lat, o.address_lng, o.total_amount, o.order_status, o.rider_id, o.dark_store_id, o.eta_minutes, r.name AS rider_name, ds.name AS dark_store_name FROM orders o LEFT JOIN riders r ON r.id = o.rider_id LEFT JOIN dark_stores ds ON ds.id = o.dark_store_id WHERE o.order_status IN ('placed','processing','ready_for_pickup','delivery_partner_assigned','out_for_delivery') ORDER BY o.created_at ASC")->fetchAll();
 $riders = $pdo->query('SELECT id, name FROM riders WHERE is_active=1 ORDER BY name')->fetchAll();
 include __DIR__ . '/includes/admin_header.php';
 ?>
@@ -169,7 +169,7 @@ include __DIR__ . '/includes/admin_header.php';
   <div class="delivery-table-wrap">
    <table class="delivery-table">
      <thead>
-       <tr><th></th><th>Order</th><th>Customer</th><th>Phone</th><th>Address</th><th>Lat,Lng</th><th>Status</th><th>Assigned Rider</th></tr>
+       <tr><th></th><th>Order</th><th>Customer</th><th>Phone</th><th>Address</th><th>Lat,Lng</th><th>Dark Store</th><th>ETA</th><th>Status</th><th>Assigned Rider</th></tr>
      </thead>
      <tbody>
        <?php foreach($orders as $o): ?>
@@ -180,6 +180,8 @@ include __DIR__ . '/includes/admin_header.php';
            <td><?= h($o['phone']) ?></td>
            <td><?= h($o['address']) ?></td>
            <td><?= $o['address_lat'] && $o['address_lng'] ? h($o['address_lat'] . ',' . $o['address_lng']) : '<span class="needs-geocode">needs geocode</span>' ?></td>
+           <td><?= $o['dark_store_name'] ? h($o['dark_store_name']) : '<span class="needs-geocode">unassigned</span>' ?></td>
+           <td><?= $o['eta_minutes'] !== null ? h(round($o['eta_minutes'])) . ' min' : '—' ?></td>
            <td><span class="delivery-status"><?= h($o['order_status']) ?></span></td>
            <td>
              <div class="assignment-box">
@@ -190,10 +192,11 @@ include __DIR__ . '/includes/admin_header.php';
                  <?php endforeach; ?>
                </select>
                <button class="btn" onclick="assignRider(<?= $o['id'] ?>)">Assign</button>
+               <button class="btn" onclick="autoAssignRider(<?= $o['id'] ?>)" title="Assign nearest available rider automatically">⚡ Auto</button>
              </div>
            </td>
          </tr>
-       <?php endforeach; if(empty($orders)) echo '<tr><td colspan="8" style="text-align:center;color:#5B6656;">No orders to deliver.</td></tr>'; ?>
+       <?php endforeach; if(empty($orders)) echo '<tr><td colspan="10" style="text-align:center;color:#5B6656;">No orders to deliver.</td></tr>'; ?>
      </tbody>
    </table>
   </div>
@@ -224,6 +227,26 @@ function assignRider(orderId) {
      }
    } catch (e) {
      alert('Failed to assign rider: ' + text.slice(0, 200));
+   }
+  }).catch(()=>alert('Network error'));
+}
+
+function autoAssignRider(orderId) {
+  fetch('<?= BASE_URL ?>/ajax/assign_rider.php', {
+   method: 'POST',
+   headers: {'Content-Type':'application/json'},
+   body: JSON.stringify({ order_id: orderId, auto: true, csrf_token: '<?= h(csrf_token()) ?>' })
+  }).then(async (r) => {
+   const text = await r.text();
+   try {
+     const data = JSON.parse(text);
+     if (data.success) {
+       location.reload();
+     } else {
+       alert('Auto-assign failed: ' + (data.error || 'Unknown error'));
+     }
+   } catch (e) {
+     alert('Auto-assign failed: ' + text.slice(0, 200));
    }
   }).catch(()=>alert('Network error'));
 }

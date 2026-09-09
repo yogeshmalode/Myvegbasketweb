@@ -300,6 +300,134 @@ function estimate_eta_minutes($distanceKm) {
     return (int)max(4, round(($distanceKm / 24) * 60));
 }
 
+// =========================================================================
+// Quick-commerce dispatch: Dark Store geofencing, rider allocation, ETA
+// =========================================================================
+
+// Finds the dark store hub nearest to a given lat/lng. Always returns the
+// closest ACTIVE store (never blocks an order just because geofencing
+// missed), but flags whether it's actually within that store's own
+// service_radius_km via 'in_range' so callers can warn/handle accordingly.
+// Returns null only if there are no active dark stores at all yet.
+function find_nearest_dark_store($pdo, $lat, $lng) {
+    if ($lat === null || $lng === null || $lat === '' || $lng === '') return null;
+    try {
+        $stores = $pdo->query("SELECT * FROM dark_stores WHERE is_active = 1")->fetchAll();
+    } catch (PDOException $e) {
+        return null;
+    }
+    if (!$stores) return null;
+
+    $best = null;
+    $bestDistanceKm = null;
+    foreach ($stores as $store) {
+        $distanceKm = haversine_km($store['lat'], $store['lng'], $lat, $lng);
+        if ($best === null || $distanceKm < $bestDistanceKm) {
+            $best = $store;
+            $bestDistanceKm = $distanceKm;
+        }
+    }
+
+    $best['distance_km'] = round($bestDistanceKm, 3);
+    $best['in_range'] = $bestDistanceKm <= (float)$best['service_radius_km'];
+    return $best;
+}
+
+// Best-effort estimate of where a rider currently is, in priority order:
+// 1) the live GPS ping from any order they're actively delivering right now,
+// 2) a manually-set base_lat/base_lng on their own rider profile,
+// 3) the dark store hub they're stationed at,
+// 4) the site's single default store location, as a last resort.
+function get_rider_current_location($pdo, array $rider) {
+    try {
+        $st = $pdo->prepare("SELECT delivery_lat, delivery_lng FROM orders
+            WHERE rider_id = ? AND order_status IN ('delivery_partner_assigned','out_for_delivery','arriving_soon')
+            AND delivery_lat IS NOT NULL AND delivery_lng IS NOT NULL
+            ORDER BY location_updated_at DESC LIMIT 1");
+        $st->execute([$rider['id']]);
+        $row = $st->fetch();
+        if ($row && $row['delivery_lat'] !== null && $row['delivery_lng'] !== null) {
+            return ['lat' => (float)$row['delivery_lat'], 'lng' => (float)$row['delivery_lng']];
+        }
+    } catch (PDOException $e) {
+        // orders table may not have these columns on a very old install — fall through
+    }
+
+    if (!empty($rider['base_lat']) && !empty($rider['base_lng'])) {
+        return ['lat' => (float)$rider['base_lat'], 'lng' => (float)$rider['base_lng']];
+    }
+
+    if (!empty($rider['dark_store_id'])) {
+        try {
+            $st = $pdo->prepare("SELECT lat, lng FROM dark_stores WHERE id = ?");
+            $st->execute([$rider['dark_store_id']]);
+            $store = $st->fetch();
+            if ($store) return ['lat' => (float)$store['lat'], 'lng' => (float)$store['lng']];
+        } catch (PDOException $e) {
+            // dark_stores table may not exist yet — fall through
+        }
+    }
+
+    return ['lat' => STORE_LAT, 'lng' => STORE_LNG];
+}
+
+// Smart Rider Allocation: finds the nearest currently-AVAILABLE rider
+// stationed at the given dark store's hub. Riders idle near their hub
+// between deliveries, so distance is measured rider -> store. Returns null
+// if every rider at that hub is busy/offline/inactive.
+function allocate_nearest_available_rider($pdo, $darkStoreId) {
+    if (empty($darkStoreId)) return null;
+
+    try {
+        $st = $pdo->prepare("SELECT * FROM riders WHERE is_active = 1 AND availability_status = 'available' AND dark_store_id = ?");
+        $st->execute([$darkStoreId]);
+        $candidates = $st->fetchAll();
+    } catch (PDOException $e) {
+        return null;
+    }
+    if (!$candidates) return null;
+
+    try {
+        $storeSt = $pdo->prepare("SELECT lat, lng FROM dark_stores WHERE id = ?");
+        $storeSt->execute([$darkStoreId]);
+        $store = $storeSt->fetch();
+    } catch (PDOException $e) {
+        $store = null;
+    }
+    if (!$store) return null;
+
+    $best = null;
+    $bestDistanceKm = null;
+    foreach ($candidates as $rider) {
+        $loc = get_rider_current_location($pdo, $rider);
+        $distanceKm = haversine_km($loc['lat'], $loc['lng'], $store['lat'], $store['lng']);
+        if ($best === null || $distanceKm < $bestDistanceKm) {
+            $best = $rider;
+            $bestDistanceKm = $distanceKm;
+        }
+    }
+
+    $best['distance_km'] = round($bestDistanceKm, 3);
+    return $best;
+}
+
+// 10-Minute ETA Calculator: Store Packing time (fixed ~2-3 min band,
+// defaults to the midpoint) + Transit time (store -> customer distance at
+// an average urban speed of 25 km/h).
+function estimate_delivery_eta($storeLat, $storeLng, $customerLat, $customerLng, $packingMinutes = null) {
+    $packing = $packingMinutes !== null ? (float)$packingMinutes : 2.5;
+    $distanceKm = haversine_km($storeLat, $storeLng, $customerLat, $customerLng);
+    $transitMinutes = ($distanceKm / 25) * 60;
+    $total = $packing + $transitMinutes;
+
+    return [
+        'distance_km'     => round($distanceKm, 3),
+        'packing_minutes' => round($packing, 1),
+        'transit_minutes' => round($transitMinutes, 1),
+        'total_minutes'   => round($total, 1),
+    ];
+}
+
 // Sends an OTP to an Indian mobile number via 2Factor.in. Returns the
 // session_id needed to verify it later, or null on failure. 2Factor
 // generates and tracks the actual OTP code themselves — we never see or
@@ -418,6 +546,31 @@ function ensure_management_schema($pdo) {
             if (!$hasColumn('orders', 'delivery_lng')) $pdo->exec("ALTER TABLE orders ADD COLUMN delivery_lng DECIMAL(10,7) DEFAULT NULL");
             if (!$hasColumn('orders', 'location_updated_at')) $pdo->exec("ALTER TABLE orders ADD COLUMN location_updated_at TIMESTAMP NULL DEFAULT NULL");
             if (!$hasColumn('orders', 'delivered_at')) $pdo->exec("ALTER TABLE orders ADD COLUMN delivered_at TIMESTAMP NULL DEFAULT NULL");
+            // Quick-commerce dispatch: which dark store hub is fulfilling this
+            // order, and the 10-minute-style ETA estimate shown to the customer.
+            if (!$hasColumn('orders', 'dark_store_id')) $pdo->exec("ALTER TABLE orders ADD COLUMN dark_store_id INT DEFAULT NULL");
+            if (!$hasColumn('orders', 'eta_minutes')) $pdo->exec("ALTER TABLE orders ADD COLUMN eta_minutes DECIMAL(5,1) DEFAULT NULL");
+            if (!$hasColumn('orders', 'packing_started_at')) $pdo->exec("ALTER TABLE orders ADD COLUMN packing_started_at TIMESTAMP NULL DEFAULT NULL");
+        }
+
+        // ---- Quick-commerce dispatch: Dark Stores ----
+        // Multiple fulfillment hubs, each with its own lat/lng and service
+        // radius. Orders are auto-routed to whichever hub is nearest.
+        $pdo->exec("CREATE TABLE IF NOT EXISTS dark_stores (
+            id INT AUTO_INCREMENT PRIMARY KEY,
+            name VARCHAR(150) NOT NULL,
+            lat DECIMAL(10,7) NOT NULL,
+            lng DECIMAL(10,7) NOT NULL,
+            service_radius_km DECIMAL(6,2) NOT NULL DEFAULT 5,
+            is_active TINYINT(1) NOT NULL DEFAULT 1,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4");
+        $darkStoreCount = (int)$pdo->query("SELECT COUNT(*) FROM dark_stores")->fetchColumn();
+        if ($darkStoreCount === 0) {
+            // Seed one dark store from the site's existing single-store
+            // config so behaviour is unchanged on first run after upgrade.
+            $seedStore = $pdo->prepare("INSERT INTO dark_stores (name, lat, lng, service_radius_km, is_active) VALUES (?, ?, ?, 5, 1)");
+            $seedStore->execute([STORE_NAME, STORE_LAT, STORE_LNG]);
         }
 
         $pdo->exec("CREATE TABLE IF NOT EXISTS wastage (
@@ -576,6 +729,23 @@ function ensure_management_schema($pdo) {
             $riderCount = (int)$pdo->query("SELECT COUNT(*) FROM riders")->fetchColumn();
             if ($riderCount === 0) {
                 $pdo->exec("INSERT INTO riders (name, phone, vehicle, is_active, password_hash, pin_code) VALUES ('Default Rider', '0000000000', 'Bike', 1, NULL, '1234')");
+            }
+
+            // Which dark store hub a rider is stationed at, their live
+            // availability for auto-allocation, and an optional manually-set
+            // base location (falls back to their hub's location otherwise).
+            if (!$hasColumn('riders', 'dark_store_id')) $pdo->exec("ALTER TABLE riders ADD COLUMN dark_store_id INT DEFAULT NULL");
+            if (!$hasColumn('riders', 'availability_status')) $pdo->exec("ALTER TABLE riders ADD COLUMN availability_status ENUM('available','busy','offline') NOT NULL DEFAULT 'available'");
+            if (!$hasColumn('riders', 'base_lat')) $pdo->exec("ALTER TABLE riders ADD COLUMN base_lat DECIMAL(10,7) DEFAULT NULL");
+            if (!$hasColumn('riders', 'base_lng')) $pdo->exec("ALTER TABLE riders ADD COLUMN base_lng DECIMAL(10,7) DEFAULT NULL");
+
+            // Attach any riders with no hub yet to the first dark store, so
+            // auto-allocation has candidates to work with immediately.
+            if ($hasTable('dark_stores')) {
+                $defaultStoreId = (int)$pdo->query("SELECT id FROM dark_stores ORDER BY id ASC LIMIT 1")->fetchColumn();
+                if ($defaultStoreId > 0) {
+                    $pdo->exec("UPDATE riders SET dark_store_id = $defaultStoreId WHERE dark_store_id IS NULL");
+                }
             }
         }
 
@@ -866,6 +1036,30 @@ function get_order_with_geocoded_address($pdo, $orderId) {
         }
     }
     return $order;
+}
+
+// Best-effort post-checkout hook: geocodes the address if needed, finds the
+// nearest active dark store, and stores an ETA estimate on the order. Meant
+// to be called right after an order's transaction commits — any failure
+// here (geocoding down, no dark stores yet, etc.) is swallowed so it can
+// never break checkout itself.
+function dispatch_order_to_dark_store($pdo, $orderId) {
+    try {
+        $order = get_order_with_geocoded_address($pdo, $orderId);
+        if (!$order || !$order['address_lat'] || !$order['address_lng']) return null;
+
+        $store = find_nearest_dark_store($pdo, $order['address_lat'], $order['address_lng']);
+        if (!$store) return null;
+
+        $eta = estimate_delivery_eta($store['lat'], $store['lng'], $order['address_lat'], $order['address_lng']);
+
+        $upd = $pdo->prepare("UPDATE orders SET dark_store_id = ?, eta_minutes = ? WHERE id = ?");
+        $upd->execute([$store['id'], $eta['total_minutes'], $orderId]);
+
+        return ['dark_store' => $store, 'eta' => $eta];
+    } catch (Throwable $e) {
+        return null;
+    }
 }
 
 // Returns the price a customer actually pays for a product right now —

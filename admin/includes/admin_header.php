@@ -48,6 +48,8 @@ $current_page = basename($_SERVER['PHP_SELF']);
       ['daily_procurement_dashboard.php','📈','Daily Procurement'],
       ['deliveries.php','🚚','Deliveries'],
       ['delivery.php','🚚','Delivery Planner'],
+      ['dark_stores.php','🏬','Dark Stores'],
+      ['riders.php','🛵','Riders'],
       ['scan_delivery.php','📷','Scan Delivery'],
       ['orders.php','▱','Orders'],
       ['offers.php','🎁','Offers'],
