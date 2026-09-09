@@ -11,23 +11,9 @@ $orders = $pdo->query("SELECT * FROM orders ORDER BY created_at DESC")->fetchAll
 // so the admin can see exactly which vegetables (and how much of each)
 // were ordered, right in the orders table.
 $itemsByOrder = [];
-$itemRows = $pdo->query("SELECT oi.id, oi.order_id, oi.name, oi.quantity, oi.subtotal, oi.variant_label, oi.measured_quantity, v.unit AS item_unit FROM order_items oi LEFT JOIN vegetables v ON v.id = oi.vegetable_id ORDER BY oi.id")->fetchAll();
+$itemRows = $pdo->query("SELECT oi.id, oi.order_id, oi.name, oi.quantity, oi.subtotal, oi.variant_label FROM order_items oi ORDER BY oi.id")->fetchAll();
 foreach ($itemRows as $row) {
     $itemsByOrder[$row['order_id']][] = $row;
-}
-
-function item_requires_measurement($item) {
-    $unit = strtolower(trim((string)($item['item_unit'] ?? '')));
-    if (in_array($unit, ['kg','gram','grams','g','litre','litres','liter','liters','l','ml'], true)) {
-        return true;
-    }
-
-    $variant = strtolower(trim((string)($item['variant_label'] ?? '')));
-    if ($variant === '') {
-        return false;
-    }
-
-    return preg_match('/\b(kg|g|gram|grams|litre|liters|liter|l|ml)\b/i', $variant) === 1;
 }
 
 $paymentOptions = [
@@ -304,13 +290,6 @@ function applyStatusColor(select) {
               <?php foreach ($itemsByOrder[$o['id']] as $it): ?>
                             <div style="margin-bottom:8px;">
                               <span class="item-chip"><?= h($it['name']) ?><?= $it['variant_label'] ? ' (' . h($it['variant_label']) . ')' : '' ?> &times; <?= rtrim(rtrim(number_format($it['quantity'],3),'0'),'.') ?></span>
-                              <?php if (item_requires_measurement($it)): ?>
-                                <div style="margin-top:8px; display:flex; align-items:center; gap:8px; flex-wrap:wrap;">
-                                  <span style="color:#5B6656; font-size:0.85rem;">Measured:</span>
-                                  <input type="number" step="0.001" min="0" id="meas-<?= $it['id'] ?>" value="<?= $it['measured_quantity'] !== null ? rtrim(rtrim(number_format($it['measured_quantity'],3),'0'),'.') : '' ?>" style="width:90px; padding:4px 6px;">
-                                  <button class="btn" onclick="saveMeasuredItem(<?= $it['id'] ?>)">Save</button>
-                                </div>
-                              <?php endif; ?>
                             </div>
                           <?php endforeach; ?>
                         <?php else: ?>
@@ -349,13 +328,5 @@ function applyStatusColor(select) {
   </table>
 </div>
 
-<script>
-function saveMeasuredItem(itemId){
-  const el = document.getElementById('meas-' + itemId);
-  if(!el) return; const val = el.value;
-  el.disabled = true;
-  fetch('../ajax/update_order_item_measured.php', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ item_id: itemId, measured_quantity: val, csrf_token: '<?= h(csrf_token()) ?>' }) }).then(r=>r.json()).then(data=>{ if(data.success){ el.style.borderColor = '#4CAF50'; setTimeout(()=>el.style.borderColor='',800); } else { alert('Error: '+(data.error||'Failed')); } }).catch(()=>alert('Network error')).finally(()=>el.disabled=false);
-}
-</script>
 
 <?php include __DIR__ . '/includes/admin_footer.php'; ?>
