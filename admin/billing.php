@@ -37,6 +37,8 @@ if($_SERVER['REQUEST_METHOD']==='POST' && isset($_POST['checkout'])){
                 $variantId = isset($entry['variant_id']) && $entry['variant_id'] !== null ? (int)$entry['variant_id'] : null;
                 $variantLabel = null;
                 $baseQty = $qty;
+                $productUnit = strtolower(trim((string)($product['unit'] ?? 'kg')));
+                $isWeightUnit = strpos($productUnit, 'kg') !== false || strpos($productUnit, 'gram') !== false || strpos($productUnit, 'litre') !== false || strpos($productUnit, 'liter') !== false || $productUnit === 'g' || $productUnit === 'ml';
 
                 if($variantId){
                     $variantStmt=$pdo->prepare("SELECT id,label,price FROM vegetable_variants WHERE id=? AND vegetable_id=?");
@@ -49,9 +51,15 @@ if($_SERVER['REQUEST_METHOD']==='POST' && isset($_POST['checkout'])){
                             $baseQty = round($qty * $fraction, 4);
                         }
                     }
+                } elseif($isWeightUnit) {
+                    // Non-variant weight/volume sale: qty is grams (or ml) entered
+                    // via the Sale Mode toggle (weight or price-derived), not a
+                    // count of the product's base unit. Convert to the product's
+                    // stock unit (kg/litre) before comparing against stock.
+                    $baseQty = round($qty / 1000, 4);
                 } else {
                     $unitLabel = trim((string)($entry['unit'] ?? $product['unit']));
-                    if($unitLabel !== ''){
+                    if($unitLabel !== '' && $unitLabel !== $productUnit){
                         $fraction = size_fraction_of_base_unit($unitLabel, $product['unit']);
                         if($fraction !== null && $fraction > 0){
                             $baseQty = round($qty * $fraction, 4);
@@ -59,18 +67,12 @@ if($_SERVER['REQUEST_METHOD']==='POST' && isset($_POST['checkout'])){
                     }
                 }
 
-                $isWeightUnit = stripos((string)$product['unit'], 'kg') !== false || stripos((string)$product['unit'], 'gram') !== false || stripos((string)$product['unit'], 'g') !== false;
-                if($isWeightUnit && $qty > 0 && $baseQty <= 0){
-                    $baseQty = round($qty / 1000, 4);
-                }
-
                 if((float)$product['stock'] < (float)$baseQty) {
                     throw new Exception('Insufficient stock for '.($entry['name'] ?? $product['name']).'.');
                 }
 
                 $unitPrice=(float)($entry['price'] ?? get_effective_price($product));
-                $unitName = strtolower((string)($product['unit'] ?? 'kg'));
-                $kgEquivalent = (strpos($unitName, 'kg') !== false || strpos($unitName, 'kilogram') !== false) ? $baseQty : (($qty > 0 && (strpos($unitName, 'gram') !== false || strpos($unitName, 'g') !== false)) ? ($qty / 1000) : $baseQty);
+                $kgEquivalent = $baseQty;
                 $lineTotal=round($unitPrice * max($kgEquivalent, 0.0001), 2);
                 $subtotal += $lineTotal;
                 $linesToSave[] = [
@@ -149,15 +151,20 @@ if($_SERVER['REQUEST_METHOD']==='POST' && isset($_POST['checkout'])){
         }
     }
 }
-if($_SERVER['REQUEST_METHOD']==='POST' && isset($_POST['add_item'])){require_csrf();$id=(int)$_POST['vegetable_id'];$variantId=(int)($_POST['variant_id']??0);$saleMode=strtolower(trim($_POST['sale_mode'] ?? 'weight'));$saleValue=(float)($_POST['sale_value'] ?? $_POST['quantity'] ?? 1);$totalGrams=(float)($_POST['total_grams'] ?? 0);$st=$pdo->prepare("SELECT * FROM vegetables WHERE id=?");$st->execute([$id]);$v=$st->fetch();$variant=null;if($variantId){try{$vStmt=$pdo->prepare("SELECT * FROM vegetable_variants WHERE id=? AND vegetable_id=?");$vStmt->execute([$variantId,$id]);$variant=$vStmt->fetch();}catch(PDOException $e){$variant=null;}}if($v){
-    $effectivePricePerKg=(float)get_effective_price($v);
-    if($saleMode === 'price'){
-        $totalGrams = $effectivePricePerKg > 0 ? (($saleValue / $effectivePricePerKg) * 1000) : 0;
+if($_SERVER['REQUEST_METHOD']==='POST' && isset($_POST['add_item'])){require_csrf();$id=(int)$_POST['vegetable_id'];$variantId=(int)($_POST['variant_id']??0);$saleMode=strtolower(trim($_POST['sale_mode'] ?? 'weight'));$saleValue=(float)($_POST['sale_value'] ?? $_POST['quantity'] ?? 1);$st=$pdo->prepare("SELECT * FROM vegetables WHERE id=?");$st->execute([$id]);$v=$st->fetch();$variant=null;if($variantId){try{$vStmt=$pdo->prepare("SELECT * FROM vegetable_variants WHERE id=? AND vegetable_id=?");$vStmt->execute([$variantId,$id]);$variant=$vStmt->fetch();}catch(PDOException $e){$variant=null;}}if($v){
+    if($variant){
+        // Preset pack size selected (e.g. "250 g" @ fixed price): sale_value is
+        // simply how many packs, the weight/price toggle doesn't apply here.
+        $q = max(1, round($saleValue <= 0 ? 1 : $saleValue));
     } else {
-        $totalGrams = $saleValue;
+        $effectivePricePerKg=(float)get_effective_price($v);
+        if($saleMode === 'price'){
+            $totalGrams = $effectivePricePerKg > 0 ? (($saleValue / $effectivePricePerKg) * 1000) : 0;
+        } else {
+            $totalGrams = $saleValue;
+        }
+        $q = round(max(0, $totalGrams), 2);
     }
-    $totalGrams = max(0, $totalGrams);
-    $q = round($totalGrams, 2);
 
     // compute max allowed packs if variant
     $maxAllow = (float)$v['stock'];
@@ -169,15 +176,15 @@ if($_SERVER['REQUEST_METHOD']==='POST' && isset($_POST['add_item'])){require_csr
     }
     if($maxAllow < 0.01){ $_SESSION['flash']=['type'=>'error','message'=>'Insufficient stock.']; header('Location: billing.php'); exit; }
 
-    $stockLimit = ($v['unit'] === 'kg' || stripos((string)$v['unit'], 'kg') !== false || stripos((string)$v['unit'], 'gram') !== false || stripos((string)$v['unit'], 'g') !== false) ? $maxAllow * 1000 : $maxAllow;
+    $isWeightUnit = stripos((string)$v['unit'], 'kg') !== false || stripos((string)$v['unit'], 'gram') !== false || stripos((string)$v['unit'], 'litre') !== false || stripos((string)$v['unit'], 'liter') !== false;
+    $stockLimit = ($variant) ? $maxAllow : (($isWeightUnit) ? $maxAllow * 1000 : $maxAllow);
     if($q > $stockLimit) $q = $stockLimit;
 
     if(!isset($_SESSION['billing_cart'])) $_SESSION['billing_cart']=[];
     $key = $variant ? $id.'-'.$variant['id'] : (string)$id;
-    if(isset($_SESSION['billing_cart'][$key])){ $_SESSION['billing_cart'][$key]['qty'] += $q; $_SESSION['billing_cart'][$key]['grams'] = (float)($_SESSION['billing_cart'][$key]['grams'] ?? $q) + $q; }
-    else{ $_SESSION['billing_cart'][$key] = ['key'=>$key,'id'=>$v['id'],'variant_id'=>$variant['id']??null,'name'=>$variant ? $v['name'].' ('.$variant['label'].')' : $v['name'],'price'=>$variant ? (float)$variant['price'] : get_effective_price($v),'unit'=>$variant ? $variant['label'] : $v['unit'],'qty'=>$q,'sale_mode'=>$saleMode,'grams'=>$q]; }
+    if(isset($_SESSION['billing_cart'][$key])){ $_SESSION['billing_cart'][$key]['qty'] += $q; }
+    else{ $_SESSION['billing_cart'][$key] = ['key'=>$key,'id'=>$v['id'],'variant_id'=>$variant['id']??null,'name'=>$variant ? $v['name'].' ('.$variant['label'].')' : $v['name'],'price'=>$variant ? (float)$variant['price'] : get_effective_price($v),'unit'=>$variant ? $variant['label'] : $v['unit'],'qty'=>$q,'sale_mode'=>$variant ? 'pack' : $saleMode]; }
     if((float)$_SESSION['billing_cart'][$key]['qty'] > $stockLimit) $_SESSION['billing_cart'][$key]['qty'] = $stockLimit;
-    if((float)($_SESSION['billing_cart'][$key]['grams'] ?? 0) > $stockLimit) $_SESSION['billing_cart'][$key]['grams'] = $stockLimit;
 }else $_SESSION['flash']=['type'=>'error','message'=>'Invalid product or insufficient stock.'];header('Location: billing.php');exit;}
 if(isset($_GET['clear'])){unset($_SESSION['billing_cart']);header('Location: billing.php');exit;}
 $q=$pdo->prepare("SELECT id,name,unit,price,sale_price,stock FROM vegetables WHERE is_active=1 AND stock>0 ORDER BY name");$q->execute();$products=$q->fetchAll();$productVariantsRaw = get_variants_by_vegetable($pdo, array_column($products,'id'));// Deduplicate variants by label (keep lowest price for repeated labels)
@@ -193,16 +200,16 @@ foreach ($productVariantsRaw as $vid => $variantsList) {
     }
     $productVariants[$vid] = array_values($map);
 }
-$cart=$_SESSION['billing_cart']??[];$lines=[];$subtotal=0;if($cart){$qItem=$pdo->prepare("SELECT id,name,unit,price,sale_price,stock,cost_price FROM vegetables WHERE id=?");foreach($cart as $key=>$entry){if(is_array($entry)){ $vId=(int)$entry['id']; $qty=(float)($entry['qty'] ?? 0); $unit=$entry['unit'] ?? ''; $qItem->execute([$vId]); if($vRow=$qItem->fetch()){ $price=(float)$entry['price']; $unitName=strtolower((string)$unit); $kgEquivalent=(strpos($unitName,'kg')!==false || strpos($unitName,'kilogram')!==false) ? $qty/1000 : ((strpos($unitName,'gram')!==false || strpos($unitName,'g')!==false) ? $qty/1000 : $qty); $line=$price*max($kgEquivalent,0); $subtotal+=$line; $lines[]=['v'=>$vRow,'qty'=>$qty,'price'=>$price,'line'=>$line,'unit'=>$unit,'variant_id'=>$entry['variant_id']??null]; } } else { $id=(int)$key; $qty=(float)$entry; $qItem->execute([$id]); if($vRow=$qItem->fetch()){ $price=($vRow['sale_price']!==null&&$vRow['sale_price']<$vRow['price'])?$vRow['sale_price']:$vRow['price']; $unitName=strtolower((string)($vRow['unit'] ?? 'kg')); $kgEquivalent=(strpos($unitName,'kg')!==false || strpos($unitName,'kilogram')!==false) ? $qty/1000 : ((strpos($unitName,'gram')!==false || strpos($unitName,'g')!==false) ? $qty/1000 : $qty); $line=$price*max($kgEquivalent,0); $subtotal+=$line; $lines[]=['v'=>$vRow,'qty'=>$qty,'price'=>$price,'line'=>$line]; } } } }$flash=$_SESSION['flash']??null;unset($_SESSION['flash']);include __DIR__.'/includes/admin_header.php';
+$cart=$_SESSION['billing_cart']??[];$lines=[];$subtotal=0;if($cart){$qItem=$pdo->prepare("SELECT id,name,unit,price,sale_price,stock,cost_price FROM vegetables WHERE id=?");foreach($cart as $key=>$entry){if(is_array($entry)){ $vId=(int)$entry['id']; $qty=(float)($entry['qty'] ?? 0); $unit=$entry['unit'] ?? ''; $hasVariant=!empty($entry['variant_id']); $qItem->execute([$vId]); if($vRow=$qItem->fetch()){ $price=(float)$entry['price']; if($hasVariant){ $kgEquivalent=$qty; } else { $unitName=strtolower((string)($vRow['unit'] ?? 'kg')); $isWeightUnit=(strpos($unitName,'kg')!==false||strpos($unitName,'gram')!==false||strpos($unitName,'litre')!==false||strpos($unitName,'liter')!==false); $kgEquivalent=$isWeightUnit ? $qty/1000 : $qty; } $line=$price*max($kgEquivalent,0); $subtotal+=$line; $lines[]=['v'=>$vRow,'qty'=>$qty,'price'=>$price,'line'=>$line,'unit'=>$unit,'variant_id'=>$entry['variant_id']??null]; } } else { $id=(int)$key; $qty=(float)$entry; $qItem->execute([$id]); if($vRow=$qItem->fetch()){ $price=($vRow['sale_price']!==null&&$vRow['sale_price']<$vRow['price'])?$vRow['sale_price']:$vRow['price']; $unitName=strtolower((string)($vRow['unit'] ?? 'kg')); $isWeightUnit=(strpos($unitName,'kg')!==false||strpos($unitName,'gram')!==false||strpos($unitName,'litre')!==false||strpos($unitName,'liter')!==false); $kgEquivalent=$isWeightUnit ? $qty/1000 : $qty; $line=$price*max($kgEquivalent,0); $subtotal+=$line; $lines[]=['v'=>$vRow,'qty'=>$qty,'price'=>$price,'line'=>$line]; } } } }$flash=$_SESSION['flash']??null;unset($_SESSION['flash']);include __DIR__.'/includes/admin_header.php';
 ?>
 <div class="admin-page-heading"><div><h1>Billing (POS)</h1><p>Create bills and manage customer purchases.</p></div><a class="admin-btn" href="billing.php?clear=1">Clear Cart</a></div>
 <?php if($flash):?><div class="admin-alert admin-alert-<?=h($flash['type'])?>"><?=h($flash['message'])?><?php if($order):?> <a href="billing.php?receipt=<?=$order?>">Print receipt</a><?php endif;?></div><?php endif;?>
 <div class="billing-grid">
 <section class="admin-panel"><div class="admin-panel-head"><h2>Select Products</h2></div><div class="billing-search"><input id="billSearch" type="search" placeholder="⌕ Search products by name..."></div><div class="billing-product-list">
-<?php foreach($products as $v):$price=($v['sale_price']!==null&&$v['sale_price']<$v['price'])?$v['sale_price']:$v['price'];?><div class="billing-row" data-name="<?=h(strtolower($v['name']))?>"><div class="billing-thumb"><?=bill_icon($v['name'])?></div><div><div class="billing-name"><?=h($v['name'])?></div><div class="billing-meta">₹<?=number_format($price,2)?> / <?=h($v['unit'])?> · <?=$v['stock']?> available</div></div><form method="post" style="display:flex;gap:5px;align-items:center;flex-wrap:wrap"><input type="hidden" name="csrf_token" value="<?=h(csrf_token())?>"><input type="hidden" name="vegetable_id" value="<?=$v['id']?>"><?php if(!empty($productVariants[$v['id']])): ?><select name="variant_id" style="height:31px;border:1px solid #d8e1dc;border-radius:7px;padding:0 5px;margin-right:5px"><?php foreach($productVariants[$v['id']] as $vv): ?><option value="<?=$vv['id']?>"><?=h($vv['label'])?> — ₹<?=number_format($vv['price'],2)?></option><?php endforeach; ?></select><?php endif; ?><select name="sale_mode" class="sale-mode" data-price-per-kg="<?=h((string)$price)?>" style="height:31px;border:1px solid #d8e1dc;border-radius:7px;padding:0 5px"><option value="weight">Weight (g)</option><option value="price">Price (₹)</option></select><?php $maxAttr = $v['stock']; if(!empty($productVariants[$v['id']])){ $firstVar = $productVariants[$v['id']][0]; $frac = size_fraction_of_base_unit($firstVar['label'],$v['unit']); if($frac!==null && $frac>0){ $maxAttr = (int)floor($v['stock'] / $frac); } } ?><input type="number" name="sale_value" min="0" step="0.01" value="250" style="width:72px;height:31px;border:1px solid #d8e1dc;border-radius:7px;padding:0 5px"><input type="hidden" name="total_grams" value="250"><button class="billing-add" name="add_item" value="1">＋</button></form></div><?php endforeach;?></div></section>
+<?php foreach($products as $v):$price=($v['sale_price']!==null&&$v['sale_price']<$v['price'])?$v['sale_price']:$v['price'];?><div class="billing-row" data-name="<?=h(strtolower($v['name']))?>"><div class="billing-thumb"><?=bill_icon($v['name'])?></div><div><div class="billing-name"><?=h($v['name'])?></div><div class="billing-meta">₹<?=number_format($price,2)?> / <?=h($v['unit'])?> · <?=$v['stock']?> available</div></div><form method="post" style="display:flex;gap:5px;align-items:center;flex-wrap:wrap"><input type="hidden" name="csrf_token" value="<?=h(csrf_token())?>"><input type="hidden" name="vegetable_id" value="<?=$v['id']?>"><?php if(!empty($productVariants[$v['id']])): ?><select name="variant_id" class="variant-select" style="height:31px;border:1px solid #d8e1dc;border-radius:7px;padding:0 5px;margin-right:5px"><option value="">— No pack (custom weight) —</option><?php foreach($productVariants[$v['id']] as $vv): ?><option value="<?=$vv['id']?>"><?=h($vv['label'])?> — ₹<?=number_format($vv['price'],2)?></option><?php endforeach; ?></select><?php endif; ?><select name="sale_mode" class="sale-mode" data-price-per-kg="<?=h((string)$price)?>" style="height:31px;border:1px solid #d8e1dc;border-radius:7px;padding:0 5px"><option value="weight">Weight (g)</option><option value="price">Price (₹)</option></select><input type="number" name="sale_value" class="sale-value" min="0" step="0.01" value="250" style="width:72px;height:31px;border:1px solid #d8e1dc;border-radius:7px;padding:0 5px"><button class="billing-add" name="add_item" value="1">＋</button></form></div><?php endforeach;?></div></section>
 <section class="admin-panel"><div class="admin-panel-head"><h2>Current Bill</h2><span style="font-size:11px;color:#df2e24;font-weight:700"><?=count($lines)?> item(s)</span></div><div class="billing-cart">
 <?php if($lines):?><table class="billing-cart-table"><thead><tr><th>Product</th><th>Qty</th><th>Price</th><th>Total</th></tr></thead><tbody><?php foreach($lines as $x):?><tr><td><?=bill_icon($x['v']['name'])?> <?=h($x['v']['name'])?></td><td><?=$x['qty']?> <?=h($x['unit'] ?? $x['v']['unit'])?></td><td>₹<?=number_format($x['price'],2)?></td><td>₹<?=number_format($x['line'],2)?></td></tr><?php endforeach;?></tbody></table>
 <div class="billing-summary"><div class="billing-summary-line"><span>Subtotal</span><strong>₹<?=number_format($subtotal,2)?></strong></div></div>
 <form method="post"><input type="hidden" name="csrf_token" value="<?=h(csrf_token())?>"><input type="hidden" name="checkout" value="1"><div class="admin-form-grid"><div class="admin-field"><label>Customer</label><input name="customer_name" value="Walk-in Customer" required></div><div class="admin-field"><label>Phone</label><input name="phone" value="0000000000"></div><div class="admin-field"><label>Email</label><input type="email" name="email" value="walkin@local"></div><div class="admin-field"><label>Address</label><input name="address" value="Store counter"></div><div class="admin-field"><label>Discount (%)</label><input id="discount" type="number" name="discount_percent" min="0" max="100" step=".01" value="0"></div><div class="admin-field"><label>Payment</label><select name="payment_method"><option value="cash">Cash Payment</option><option value="upi_qr">UPI Payment</option></select></div></div><div class="billing-summary"><div class="billing-summary-line"><span>Discount</span><strong id="discountValue">- ₹0.00</strong></div><div class="billing-total"><span>Total Payable</span><strong id="grandTotal">₹<?=number_format($subtotal,2)?></strong></div></div><div class="payment-grid"><button type="submit" name="checkout" value="1" class="active">Checkout & Create Bill</button><a class="admin-btn" href="billing.php?clear=1">Clear</a></div></form><?php else:?><div class="admin-empty">Your bill is empty.<br>Add products from the left.</div><?php endif;?></div></section></div>
-<script>const bs=document.getElementById('billSearch');bs?.addEventListener('input',()=>{const q=bs.value.toLowerCase();document.querySelectorAll('.billing-row').forEach(r=>r.style.display=r.dataset.name.includes(q)?'':'none')});document.querySelectorAll('.sale-mode').forEach(select=>{const form=select.closest('form');const saleValue=form?.querySelector('[name="sale_value"]');const totalGrams=form?.querySelector('[name="total_grams"]');const pricePerKg=parseFloat(select.dataset.pricePerKg||'0');function syncMode(){const mode=select.value;const value=parseFloat(saleValue?.value||'0');if(mode==='price'){const grams=(pricePerKg>0 ? (value / pricePerKg) * 1000 : 0);saleValue.value = value.toFixed(2);totalGrams.value = grams.toFixed(2);}else {const grams = Math.max(0, value);saleValue.value = grams.toFixed(2);totalGrams.value = grams.toFixed(2);}}select.addEventListener('change',syncMode);saleValue?.addEventListener('input',syncMode);});const d=document.getElementById('discount'),dv=document.getElementById('discountValue'),gt=document.getElementById('grandTotal'),sub=<?=json_encode($subtotal)?>;function calc(){const p=Math.min(100,Math.max(0,parseFloat(d?.value||0)));const x=sub*p/100;dv.textContent='- ₹'+x.toFixed(2);gt.textContent='₹'+(sub-x).toFixed(2)}d?.addEventListener('input',calc);</script>
+<script>const bs=document.getElementById('billSearch');bs?.addEventListener('input',()=>{const q=bs.value.toLowerCase();document.querySelectorAll('.billing-row').forEach(r=>r.style.display=r.dataset.name.includes(q)?'':'none')});document.querySelectorAll('.billing-row form').forEach(form=>{const variantSelect=form.querySelector('.variant-select');const saleMode=form.querySelector('.sale-mode');const saleValue=form.querySelector('.sale-value');if(!saleMode||!saleValue)return;function syncVariantState(){const usingVariant=variantSelect && variantSelect.value !== '';if(usingVariant){saleMode.disabled=true;saleValue.step='1';saleValue.value='1';saleValue.title='Number of packs';}else{saleMode.disabled=false;saleValue.step='0.01';saleValue.title='';}}variantSelect?.addEventListener('change',syncVariantState);syncVariantState();});const d=document.getElementById('discount'),dv=document.getElementById('discountValue'),gt=document.getElementById('grandTotal'),sub=<?=json_encode($subtotal)?>;function calc(){const p=Math.min(100,Math.max(0,parseFloat(d?.value||0)));const x=sub*p/100;dv.textContent='- ₹'+x.toFixed(2);gt.textContent='₹'+(sub-x).toFixed(2)}d?.addEventListener('input',calc);</script>
 <?php include __DIR__.'/includes/admin_footer.php';
