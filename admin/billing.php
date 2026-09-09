@@ -20,54 +20,71 @@ if($_SERVER['REQUEST_METHOD']==='POST' && isset($_POST['checkout'])){
         try {
             $pdo->beginTransaction();
             $subtotal=0;
-            $locked=[];
-            $stockRequiredByProduct=[];
-            $sel=$pdo->prepare("SELECT id,name,unit,price,sale_price,cost_price,stock FROM vegetables WHERE id=? FOR UPDATE");
+            $linesToSave=[];
 
-            foreach($cart as $key=>$entry){
-                if(is_array($entry)){
-                    $vid=(int)$entry['id'];
-                    $qty=(int)$entry['qty'];
-                    if($qty<1) continue;
+            foreach($cart as $entry){
+                if(!is_array($entry)) continue;
 
-                    $sel->execute([$vid]);
-                    $v=$sel->fetch();
-                    if(!$v) throw new Exception('Invalid product');
+                $vegId=(int)($entry['id'] ?? 0);
+                $qty=(float)($entry['qty'] ?? 0);
+                if($vegId <= 0 || $qty <= 0) continue;
 
-                    $fraction = null;
-                    try { $fraction = size_fraction_of_base_unit($entry['unit'] ?? '', $v['unit']); } catch (Throwable $e) { $fraction = null; }
-                    $baseQty = ($fraction !== null && $fraction > 0) ? round($qty * $fraction, 3) : $qty;
-                    $stockRequiredByProduct[$vid] = ($stockRequiredByProduct[$vid] ?? 0) + $baseQty;
+                $productStmt=$pdo->prepare("SELECT id,name,unit,stock,cost_price,price,sale_price FROM vegetables WHERE id=? FOR UPDATE");
+                $productStmt->execute([$vegId]);
+                $product=$productStmt->fetch();
+                if(!$product) throw new Exception('Invalid product.');
 
-                    $price=(float)$entry['price'];
-                    $subtotal+=round($price*$qty,2);
-                    $locked[]=['v'=>$v,'qty'=>$qty,'price'=>$price,'variant_id'=>($entry['variant_id']??null),'variant_label'=>($entry['unit']??null),'base_qty'=>$baseQty];
+                $variantId = isset($entry['variant_id']) && $entry['variant_id'] !== null ? (int)$entry['variant_id'] : null;
+                $variantLabel = null;
+                $baseQty = $qty;
+
+                if($variantId){
+                    $variantStmt=$pdo->prepare("SELECT id,label,price FROM vegetable_variants WHERE id=? AND vegetable_id=?");
+                    $variantStmt->execute([$variantId,$vegId]);
+                    $variant=$variantStmt->fetch();
+                    if($variant){
+                        $variantLabel = (string)($variant['label'] ?? '');
+                        $fraction = size_fraction_of_base_unit($variantLabel, $product['unit']);
+                        if($fraction !== null && $fraction > 0){
+                            $baseQty = round($qty * $fraction, 4);
+                        }
+                    }
                 } else {
-                    $vid=(int)$key;
-                    $qty=(int)$entry;
-                    if($qty<1) continue;
-
-                    $sel->execute([$vid]);
-                    $v=$sel->fetch();
-                    if(!$v) throw new Exception('Invalid product');
-
-                    $use=($v['sale_price']!==null&&$v['sale_price']<$v['price'])?(float)$v['sale_price']:(float)$v['price'];
-                    $baseQty = $qty;
-                    $stockRequiredByProduct[$vid] = ($stockRequiredByProduct[$vid] ?? 0) + $baseQty;
-                    $subtotal+=round($use*$qty,2);
-                    $locked[]=['v'=>$v,'qty'=>$qty,'price'=>$use,'variant_id'=>null,'variant_label'=>null,'base_qty'=>$baseQty];
+                    $unitLabel = trim((string)($entry['unit'] ?? $product['unit']));
+                    if($unitLabel !== ''){
+                        $fraction = size_fraction_of_base_unit($unitLabel, $product['unit']);
+                        if($fraction !== null && $fraction > 0){
+                            $baseQty = round($qty * $fraction, 4);
+                        }
+                    }
                 }
+
+                if((float)$product['stock'] < (float)$baseQty) {
+                    throw new Exception('Insufficient stock for '.($entry['name'] ?? $product['name']).'.');
+                }
+
+                $unitPrice=(float)($entry['price'] ?? get_effective_price($product));
+                $lineTotal=round($unitPrice * $qty, 2);
+                $subtotal += $lineTotal;
+                $linesToSave[] = [
+                    'veg_id' => $vegId,
+                    'variant_id' => $variantId,
+                    'variant_label' => $variantLabel ?: null,
+                    'name' => $entry['name'] ?? $product['name'],
+                    'qty' => $qty,
+                    'base_qty' => $baseQty,
+                    'unit_price' => $unitPrice,
+                    'line_total' => $lineTotal,
+                    'before_stock' => (float)$product['stock'],
+                    'cost_price' => (float)($product['cost_price'] ?? 0),
+                ];
             }
 
-            foreach($stockRequiredByProduct as $vegId => $requiredQty){
-                $sel->execute([$vegId]);
-                $v=$sel->fetch();
-                if(!$v) throw new Exception('Invalid product');
-                if((float)$v['stock'] < (float)$requiredQty) throw new Exception('Insufficient stock for '.($v['name']??'item'));
-            }
+            if(!$linesToSave) throw new Exception('Add at least one item.');
 
             $discount=round($subtotal*$discountPct/100,2);
-            $total=$subtotal-$discount;
+            $total=round($subtotal-$discount,2);
+
             $st=$pdo->prepare("INSERT INTO orders (customer_name,email,phone,address,total_amount,payment_method,payment_status,order_status,discount_amount) VALUES (?,?,?,?,?,?, 'paid','placed',?)");
             $st->execute([$name,$email,$phone,$address,$total,$payment,$discount]);
             $oid=$pdo->lastInsertId();
@@ -87,44 +104,32 @@ if($_SERVER['REQUEST_METHOD']==='POST' && isset($_POST['checkout'])){
                 $it=$pdo->prepare("INSERT INTO order_items (order_id,vegetable_id,name,price,quantity,subtotal,cost_price) VALUES (?,?,?,?,?,?,?)");
             }
 
-            $up=$pdo->prepare("UPDATE vegetables SET stock=stock-? WHERE id=? AND stock>=?");
-            $mv=$pdo->prepare("INSERT INTO inventory_movements (vegetable_id,movement_type,quantity,reference_id,notes,created_by) VALUES (?,'sale',?,?,?,?)");
-            $movementTotals=[];
-
-            foreach($locked as $x){
-                $v=$x['v'];
-                $q=$x['qty'];
-                $baseQty = $x['base_qty'] ?? $q;
-                $line=round($x['price']*$q,2);
-
+            foreach($linesToSave as $line){
                 if($hasVariantCols){
-                    $it->execute([$oid,$v['id'],$x['variant_id'],$x['variant_label'],$v['name'],$x['price'],$q,$line,$v['cost_price']]);
+                    $it->execute([$oid,$line['veg_id'],$line['variant_id'],$line['variant_label'],$line['name'],$line['unit_price'],$line['qty'],$line['line_total'],$line['cost_price']]);
                 } else {
-                    $it->execute([$oid,$v['id'],$v['name'],$x['price'],$q,$line,$v['cost_price']]);
+                    $it->execute([$oid,$line['veg_id'],$line['name'],$line['unit_price'],$line['qty'],$line['line_total'],$line['cost_price']]);
                 }
-
-                $movementTotals[$v['id']] = ($movementTotals[$v['id']] ?? 0) + $baseQty;
             }
 
-            foreach($movementTotals as $vegId => $deductQty){
-                $stockBefore = $pdo->prepare("SELECT stock FROM vegetables WHERE id = ? FOR UPDATE");
-                $stockBefore->execute([$vegId]);
-                $beforeRow = $stockBefore->fetch();
-                $beforeStock = (float)($beforeRow['stock'] ?? 0);
-                if ($beforeStock < (float)$deductQty) {
-                    throw new Exception('Insufficient stock for item.');
-                }
+            $up=$pdo->prepare("UPDATE vegetables SET stock = stock - ? WHERE id = ? AND stock >= ?");
+            $mv=$pdo->prepare("INSERT INTO inventory_movements (vegetable_id,movement_type,quantity,reference_id,notes,created_by) VALUES (?,'sale',?,?,?,?)");
 
-                $up->execute([$deductQty,$vegId,$deductQty]);
-                $afterCheck = $pdo->prepare("SELECT stock FROM vegetables WHERE id = ?");
-                $afterCheck->execute([$vegId]);
-                $afterStock = (float)($afterCheck->fetchColumn() ?? 0);
-                $expectedAfter = $beforeStock - (float)$deductQty;
-                if ($afterStock < 0 || abs($afterStock - $expectedAfter) > 0.01) {
+            foreach($linesToSave as $line){
+                $updateResult=$up->execute([$line['base_qty'],$line['veg_id'],$line['base_qty']]);
+                if($updateResult === false){
                     throw new Exception('Stock changed during checkout. Please retry.');
                 }
 
-                $mv->execute([$vegId,-$deductQty,$oid,'Billing sale',$_SESSION['admin_id']]);
+                $verify=$pdo->prepare("SELECT stock FROM vegetables WHERE id = ?");
+                $verify->execute([$line['veg_id']]);
+                $afterStock=(float)($verify->fetchColumn() ?? 0);
+                $expectedAfter = $line['before_stock'] - $line['base_qty'];
+                if($afterStock < 0 || abs($afterStock - $expectedAfter) > 0.01){
+                    throw new Exception('Stock changed during checkout. Please retry.');
+                }
+
+                $mv->execute([$line['veg_id'], -(float)$line['base_qty'], $oid, 'Billing sale', $_SESSION['admin_id']]);
             }
 
             $pdo->commit();
