@@ -8,13 +8,18 @@ foreach ($pickerAdmins as $pickerAdmin) {
     $pickerMap[(int) $pickerAdmin['id']] = $pickerAdmin['username'];
 }
 
-$orders = $pdo->query("
+$activeFulfillmentStatuses = ['placed', 'processing', 'ready_for_pickup'];
+$statusPlaceholders = implode(',', array_fill(0, count($activeFulfillmentStatuses), '?'));
+$ordersStmt = $pdo->prepare("
     SELECT o.*, a.username AS assigned_picker_name
     FROM orders o
     LEFT JOIN admins a ON a.id = o.assigned_picker_id
+    WHERE o.order_status IN ($statusPlaceholders)
     ORDER BY o.created_at DESC
     LIMIT 200
-")->fetchAll();
+");
+$ordersStmt->execute($activeFulfillmentStatuses);
+$orders = $ordersStmt->fetchAll();
 
 $itemsByOrder = [];
 if ($orders) {
@@ -299,6 +304,18 @@ function renderStatusBadge(status, orderId) {
   badge.style.color = style.fg;
 }
 
+function removeOrderRow(orderId) {
+  const row = document.getElementById('order-' + orderId);
+  if (row) {
+    row.remove();
+  }
+  const selectAll = document.getElementById('selectAll');
+  if (selectAll) {
+    selectAll.checked = false;
+  }
+  updateSelectionSummary();
+}
+
 function selectedOrderIds() {
   return Array.from(document.querySelectorAll('.pickChk:checked')).map((cb) => cb.value);
 }
@@ -342,6 +359,9 @@ function updateStatus(orderId) {
     select.value = data.status || nextStatus;
     applySelectStyle(select);
     renderStatusBadge(select.value, orderId);
+    if (['delivery_partner_assigned', 'out_for_delivery', 'arriving_soon', 'delivered', 'cancelled'].includes(select.value)) {
+      removeOrderRow(orderId);
+    }
   }).catch((error) => {
     alert(error.message || 'Failed to update status.');
   }).finally(() => {
@@ -411,10 +431,14 @@ function applyBulkStatus() {
         select.value = targetStatus;
         applySelectStyle(select);
       }
-      renderStatusBadge(targetStatus, id);
-      const checkbox = document.getElementById('pick-' + id);
-      if (checkbox) {
-        checkbox.checked = false;
+      if (['delivery_partner_assigned', 'out_for_delivery', 'arriving_soon', 'delivered', 'cancelled'].includes(targetStatus)) {
+        removeOrderRow(id);
+      } else {
+        renderStatusBadge(targetStatus, id);
+        const checkbox = document.getElementById('pick-' + id);
+        if (checkbox) {
+          checkbox.checked = false;
+        }
       }
     });
     updateSelectionSummary();
