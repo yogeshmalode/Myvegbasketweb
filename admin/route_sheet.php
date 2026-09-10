@@ -56,10 +56,8 @@ include __DIR__ . '/includes/admin_header.php';
       <li>
         <strong>#ORD-<?= str_pad($o['id'],5,'0',STR_PAD_LEFT) ?></strong> — <?= h($o['customer_name']) ?> — <?= h($o['phone']) ?> — <?= h($o['address']) ?> <br>
         <small>Distance from previous: <?= number_format($step['dist'],2) ?> km</small>
-        <div style="margin-top:8px; display:flex; gap:8px; flex-wrap:wrap;">
-          <button type="button" class="btn" data-order-id="<?= (int)$o['id'] ?>" data-status="processing" data-label="Mark picked up">Mark picked up</button>
-          <button type="button" class="btn" data-order-id="<?= (int)$o['id'] ?>" data-status="out_for_delivery" data-label="Start delivery">Start delivery</button>
-          <button type="button" class="btn" data-order-id="<?= (int)$o['id'] ?>" data-status="delivered" data-label="Mark delivered">Mark delivered</button>
+        <div style="margin-top:8px; color:#5B6656; font-size:0.85rem;">
+          Use the rider dashboard to confirm pickup, mark arriving soon, and complete delivery in the correct sequence.
         </div>
       </li>
     <?php endforeach; ?>
@@ -102,7 +100,7 @@ if (points.length > 1) {
 }
 
 function updateOrderStatus(orderId, status, label) {
-  fetch('<?= BASE_URL ?>/ajax/update_order_status.php', {
+  fetch('../ajax/update_order_status.php', {
     method: 'POST',
     headers: { 'Content-Type':'application/json' },
     body: JSON.stringify({ id: Number(orderId), status: status, csrf_token: '<?= h(csrf_token()) ?>' })
@@ -136,7 +134,7 @@ document.getElementById('createManifest').addEventListener('click', function(){
   if(!ids.length) return alert('No orders');
   const rider = <?= json_encode($riderRow ? (int)$riderRow['id'] : '') ?>;
   if(!rider) if(!confirm('No rider selected — create manifest unassigned?')) return;
-  fetch('<?= BASE_URL ?>/ajax/create_manifest.php', {
+  fetch('../ajax/create_manifest.php', {
     method: 'POST', headers: {'Content-Type':'application/json'},
     body: JSON.stringify({ orders: ids.join(','), rider_id: rider, total_km: <?= number_format($totalKm,2,'.','') ?>, csrf_token: '<?= h(csrf_token()) ?>' })
   }).then(r=>r.json()).then(data=>{

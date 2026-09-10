@@ -276,6 +276,7 @@ function get_order_status_options() {
         'placed'                     => 'Order Placed',
         'processing'                 => 'Preparing',
         'ready_for_pickup'          => 'Ready for Pickup',
+        'assigning_rider'           => 'Assigning Rider',
         'delivery_partner_assigned' => 'Delivery Partner Assigned',
         'out_for_delivery'          => 'Out for Delivery',
         'arriving_soon'             => 'Arriving Soon',
@@ -289,6 +290,7 @@ function get_delivery_status_steps() {
         'placed'                     => 'Order Placed',
         'processing'                 => 'Preparing',
         'ready_for_pickup'          => 'Ready for Pickup',
+        'assigning_rider'           => 'Assigning Rider',
         'delivery_partner_assigned' => 'Delivery Partner Assigned',
         'out_for_delivery'          => 'Out for Delivery',
         'arriving_soon'             => 'Arriving Soon',
@@ -302,6 +304,8 @@ function normalize_order_status($status) {
         'packing'                  => 'processing',
         'preparing'                => 'processing',
         'ready_to_dispatch'        => 'ready_for_pickup',
+        'assigning'                => 'assigning_rider',
+        'assigning_rider'          => 'assigning_rider',
         'dispatched'               => 'out_for_delivery',
         'picked_up'                => 'out_for_delivery',
         'on_the_way'               => 'out_for_delivery',
@@ -316,6 +320,31 @@ function normalize_order_status($status) {
     }
 
     return array_key_exists($status, get_order_status_options()) ? $status : 'placed';
+}
+
+function get_allowed_order_status_transitions() {
+    return [
+        'pending' => ['placed', 'cancelled'],
+        'placed' => ['processing', 'cancelled'],
+        'processing' => ['ready_for_pickup', 'cancelled'],
+        'ready_for_pickup' => ['assigning_rider', 'cancelled'],
+        'assigning_rider' => ['delivery_partner_assigned', 'ready_for_pickup', 'cancelled'],
+        'delivery_partner_assigned' => ['out_for_delivery', 'ready_for_pickup', 'cancelled'],
+        'out_for_delivery' => ['arriving_soon', 'delivered', 'cancelled'],
+        'arriving_soon' => ['delivered', 'cancelled'],
+        'delivered' => [],
+        'cancelled' => [],
+    ];
+}
+
+function can_transition_order_status($fromStatus, $toStatus) {
+    $fromStatus = normalize_order_status($fromStatus);
+    $toStatus = normalize_order_status($toStatus);
+    if ($fromStatus === $toStatus) {
+        return true;
+    }
+    $transitions = get_allowed_order_status_transitions();
+    return in_array($toStatus, $transitions[$fromStatus] ?? [], true);
 }
 
 function haversine_km($lat1, $lng1, $lat2, $lng2) {

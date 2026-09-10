@@ -8,7 +8,7 @@ foreach ($pickerAdmins as $pickerAdmin) {
     $pickerMap[(int) $pickerAdmin['id']] = $pickerAdmin['username'];
 }
 
-$activeFulfillmentStatuses = ['placed', 'processing', 'ready_for_pickup'];
+$activeFulfillmentStatuses = ['placed', 'processing', 'ready_for_pickup', 'assigning_rider'];
 $statusPlaceholders = implode(',', array_fill(0, count($activeFulfillmentStatuses), '?'));
 $ordersStmt = $pdo->prepare("
     SELECT o.*, a.username AS assigned_picker_name
@@ -43,6 +43,7 @@ $statusColors = [
     'placed' => ['bg' => '#e7f0ff', 'fg' => '#1b4f93'],
     'processing' => ['bg' => '#fff4cc', 'fg' => '#8a6700'],
     'ready_for_pickup' => ['bg' => '#efe6ff', 'fg' => '#5f38a5'],
+    'assigning_rider' => ['bg' => '#edf3ff', 'fg' => '#355da8'],
     'delivery_partner_assigned' => ['bg' => '#e8f5ff', 'fg' => '#0b6b93'],
     'out_for_delivery' => ['bg' => '#ffe8d1', 'fg' => '#a55300'],
     'arriving_soon' => ['bg' => '#ffe3ea', 'fg' => '#ad355b'],
@@ -267,13 +268,13 @@ $assignedCount = 0;
 $processingCount = 0;
 foreach ($orders as $order) {
     $normalizedStatus = normalize_order_status($order['order_status']);
-    if ($normalizedStatus === 'ready_for_pickup') {
+    if (in_array($normalizedStatus, ['ready_for_pickup', 'assigning_rider'], true)) {
         $readyCount++;
     }
     if (!empty($order['assigned_picker_id'])) {
         $assignedCount++;
     }
-    if (in_array($normalizedStatus, ['processing', 'ready_for_pickup'], true)) {
+    if (in_array($normalizedStatus, ['processing', 'ready_for_pickup', 'assigning_rider'], true)) {
         $processingCount++;
     }
 }

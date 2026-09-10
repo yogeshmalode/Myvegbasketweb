@@ -11,10 +11,15 @@ $riderId = isset($input['rider_id']) && $input['rider_id'] !== '' ? (int)$input[
 $auto = !empty($input['auto']);
 if ($orderId <= 0) { echo json_encode(['success'=>false,'error'=>'Invalid order']); exit; }
 
-$ord = $pdo->prepare('SELECT id, rider_id, dark_store_id, address_lat, address_lng FROM orders WHERE id = ?');
+$ord = $pdo->prepare('SELECT id, rider_id, dark_store_id, address_lat, address_lng, order_status FROM orders WHERE id = ?');
 $ord->execute([$orderId]);
 $order = $ord->fetch();
 if (!$order) { echo json_encode(['success'=>false,'error'=>'Order not found']); exit; }
+$currentStatus = normalize_order_status($order['order_status']);
+if (!in_array($currentStatus, ['ready_for_pickup', 'assigning_rider', 'delivery_partner_assigned'], true)) {
+    echo json_encode(['success'=>false,'error'=>'Rider can only be assigned after the order is ready for pickup.']);
+    exit;
+}
 $previousRiderId = $order['rider_id'] ? (int)$order['rider_id'] : null;
 
 // Smart Rider Allocation: auto-assign the nearest available rider at the
@@ -45,7 +50,8 @@ if ($riderId !== null) {
 
 try {
     $pdo->beginTransaction();
-    $st = $pdo->prepare("UPDATE orders SET rider_id = ?, order_status = CASE WHEN order_status IN ('placed','processing','ready_for_pickup','out_for_delivery','arriving_soon','delivery_partner_assigned') THEN 'delivery_partner_assigned' ELSE order_status END, updated_at = NOW() WHERE id = ?");
+    $pdo->prepare("UPDATE orders SET order_status = 'assigning_rider', updated_at = NOW() WHERE id = ?")->execute([$orderId]);
+    $st = $pdo->prepare("UPDATE orders SET rider_id = ?, order_status = 'delivery_partner_assigned', updated_at = NOW() WHERE id = ?");
     $st->execute([$riderId, $orderId]);
 
     // Free the previously-assigned rider (if any, and different from the new one).
@@ -57,6 +63,7 @@ try {
         $pdo->prepare("UPDATE riders SET availability_status = 'busy' WHERE id = ?")->execute([$riderId]);
     }
     $pdo->commit();
+    send_order_alert("Order #$orderId rider assigned", ["Order #$orderId was assigned to rider #$riderId and is waiting for pickup confirmation."]);
     echo json_encode(['success'=>true, 'rider_id' => $riderId, 'status' => 'delivery_partner_assigned']);
 } catch (Exception $e) {
     if ($pdo->inTransaction()) $pdo->rollBack();

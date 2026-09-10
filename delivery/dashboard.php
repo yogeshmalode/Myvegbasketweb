@@ -10,7 +10,7 @@ $riderId = (int)$rider['id'];
 
 $orders = [];
 if ($rider) {
-    $stmt = $pdo->prepare("SELECT o.id, o.customer_name, o.phone, o.address, o.address_lat, o.address_lng, o.delivery_lat, o.delivery_lng, o.order_status, o.total_amount, o.created_at FROM orders o WHERE o.rider_id = ? AND o.order_status IN ('processing', 'delivery_partner_assigned', 'out_for_delivery', 'arriving_soon') ORDER BY o.created_at DESC");
+    $stmt = $pdo->prepare("SELECT o.id, o.customer_name, o.phone, o.address, o.address_lat, o.address_lng, o.delivery_lat, o.delivery_lng, o.order_status, o.total_amount, o.created_at FROM orders o WHERE o.rider_id = ? AND o.order_status IN ('delivery_partner_assigned', 'out_for_delivery', 'arriving_soon') ORDER BY o.created_at DESC");
     $stmt->execute([$riderId]);
     $orders = $stmt->fetchAll();
 }
@@ -227,8 +227,15 @@ include __DIR__ . '/../includes/header.php';
         <p class="address-copy"><?= nl2br(h($order['address'])) ?></p>
 
         <div class="action-row">
-          <button type="button" class="btn btn-primary" data-order-id="<?= (int)$order['id'] ?>" data-action="start_delivery">Start Delivery</button>
-          <button type="button" class="btn" data-order-id="<?= (int)$order['id'] ?>" data-action="mark_delivered">Mark Delivered</button>
+          <?php if ($order['order_status'] === 'delivery_partner_assigned'): ?>
+            <button type="button" class="btn btn-primary" data-order-id="<?= (int)$order['id'] ?>" data-action="pickup">Confirm Pickup</button>
+            <button type="button" class="btn" data-order-id="<?= (int)$order['id'] ?>" data-action="reject">Reject</button>
+          <?php elseif ($order['order_status'] === 'out_for_delivery'): ?>
+            <button type="button" class="btn btn-primary" data-order-id="<?= (int)$order['id'] ?>" data-action="arriving">Arriving Soon</button>
+            <button type="button" class="btn" data-order-id="<?= (int)$order['id'] ?>" data-action="deliver">Mark Delivered</button>
+          <?php elseif ($order['order_status'] === 'arriving_soon'): ?>
+            <button type="button" class="btn btn-primary" data-order-id="<?= (int)$order['id'] ?>" data-action="deliver">Mark Delivered</button>
+          <?php endif; ?>
           <a class="btn" href="tel:<?= h($order['phone']) ?>">Call customer</a>
           <a class="btn" href="../track_order.php?order_id=<?= (int)$order['id'] ?>" target="_blank">Open tracking</a>
           <?php if ($customerLat !== null && $customerLng !== null): ?>
@@ -247,11 +254,11 @@ include __DIR__ . '/../includes/header.php';
 </div>
 
 <script>
-function updateOrderStatus(orderId, status, label) {
-  fetch('../ajax/update_order_status.php', {
+function runDeliveryAction(orderId, action, label) {
+  fetch('../ajax/rider_delivery_action.php', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ id: Number(orderId), status: status, csrf_token: '<?= h(csrf_token()) ?>' })
+    body: JSON.stringify({ order_id: Number(orderId), action: action, csrf_token: '<?= h(csrf_token()) ?>' })
   }).then(async (r) => {
     const text = await r.text();
     try {
@@ -272,13 +279,13 @@ document.querySelectorAll('[data-order-id]').forEach((button) => {
   button.addEventListener('click', () => {
     const orderId = button.dataset.orderId;
     const action = button.dataset.action;
-    if (action === 'start_delivery') {
-      updateOrderStatus(orderId, 'out_for_delivery', 'Delivery started');
-      return;
-    }
-    if (action === 'mark_delivered') {
-      updateOrderStatus(orderId, 'delivered', 'Order marked delivered');
-    }
+    const labels = {
+      pickup: 'Pickup confirmed',
+      reject: 'Assignment rejected',
+      arriving: 'Arriving soon',
+      deliver: 'Order marked delivered'
+    };
+    runDeliveryAction(orderId, action, labels[action] || 'Order updated');
   });
 });
 </script>
