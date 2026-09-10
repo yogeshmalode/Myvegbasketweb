@@ -331,7 +331,7 @@ function updateStatus(orderId) {
   const select = document.getElementById('select-status-' + orderId);
   const nextStatus = select.value;
   setStatusSaving(orderId, true);
-  fetch('<?= BASE_URL ?>/ajax/update_order_status.php', {
+  fetch('../ajax/update_order_status.php', {
     method: 'POST',
     headers: {'Content-Type': 'application/json'},
     body: JSON.stringify({ id: orderId, status: nextStatus, csrf_token: CSRF_TOKEN })
@@ -365,7 +365,7 @@ function assignPicker(orderId) {
     return;
   }
   setPickerSaving(orderId, true);
-  fetch('<?= BASE_URL ?>/ajax/assign_picker.php', {
+  fetch('../ajax/assign_picker.php', {
     method: 'POST',
     headers: {'Content-Type': 'application/json'},
     body: JSON.stringify({ order_id: orderId, picker_id: Number(pickerId), csrf_token: CSRF_TOKEN })
@@ -396,7 +396,7 @@ function applyBulkStatus() {
     alert('Choose a status to apply.');
     return;
   }
-  Promise.all(ids.map((id) => fetch('<?= BASE_URL ?>/ajax/update_order_status.php', {
+  Promise.all(ids.map((id) => fetch('../ajax/update_order_status.php', {
     method: 'POST',
     headers: {'Content-Type': 'application/json'},
     body: JSON.stringify({ id: Number(id), status: targetStatus, csrf_token: CSRF_TOKEN })
