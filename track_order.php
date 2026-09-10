@@ -34,9 +34,9 @@ if ($allowed) {
     $order = get_order_with_geocoded_address($pdo, $orderId);
 }
 
-$steps = ['placed' => 'Placed', 'processing' => 'Processing', 'out_for_delivery' => 'Out for delivery', 'delivered' => 'Delivered'];
+$steps = get_delivery_status_steps();
 $stepKeys = array_keys($steps);
-$currentIndex = $allowed ? array_search($order['order_status'] === 'pending' ? 'placed' : $order['order_status'], $stepKeys) : false;
+$currentIndex = $allowed ? array_search(normalize_order_status($order['order_status'] === 'pending' ? 'placed' : $order['order_status']), $stepKeys, true) : false;
 if ($currentIndex === false) $currentIndex = 0;
 
 $page_title = 'Track Order';

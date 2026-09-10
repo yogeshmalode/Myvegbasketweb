@@ -10,14 +10,7 @@ if (!$order) {
     redirect('orders.php');
 }
 
-$orderStatusOptions = [
-    'pending'          => 'Pending',
-    'placed'           => 'Placed',
-    'processing'       => 'Processing',
-    'out_for_delivery' => 'Out for delivery',
-    'delivered'        => 'Delivered',
-    'cancelled'        => 'Cancelled',
-];
+$orderStatusOptions = get_order_status_options();
 
 include __DIR__ . '/includes/admin_header.php';
 ?>

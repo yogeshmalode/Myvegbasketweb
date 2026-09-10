@@ -22,14 +22,7 @@ $paymentOptions = [
     'paid'                   => 'Paid',
     'failed'                 => 'Failed',
 ];
-$orderStatusOptions = [
-    'pending'          => 'Pending',
-    'placed'           => 'Placed',
-    'processing'       => 'Processing',
-    'out_for_delivery' => 'Out for delivery',
-    'delivered'        => 'Delivered',
-    'cancelled'        => 'Cancelled',
-];
+$orderStatusOptions = get_order_status_options();
 
 // Inline colors so the dropdowns are always colored, even if the CSS
 // file on the server hasn't been updated yet or is browser-cached.
@@ -37,8 +30,12 @@ $colorMap = [
     'pending'                => ['bg' => '#EDEDE6', 'fg' => '#5B6656'], // gray
     'placed'                 => ['bg' => '#E3EDFB', 'fg' => '#1F4E8C'], // blue
     'processing'             => ['bg' => '#FFF1BF', 'fg' => '#8A6D00'], // yellow
+    'ready_for_pickup'       => ['bg' => '#EFE6FF', 'fg' => '#5F38A5'], // violet
+    'assigning_rider'        => ['bg' => '#EDF3FF', 'fg' => '#355DA8'], // blue-violet
+    'delivery_partner_assigned' => ['bg' => '#E8F5FF', 'fg' => '#0B6B93'], // cyan
     'awaiting_verification'  => ['bg' => '#FFF1BF', 'fg' => '#8A6D00'], // yellow
     'out_for_delivery'       => ['bg' => '#FFE1C2', 'fg' => '#B25B00'], // orange
+    'arriving_soon'          => ['bg' => '#FFE3EA', 'fg' => '#AD355B'], // pink
     'delivered'              => ['bg' => '#DCEEDB', 'fg' => '#1F4D36'], // green
     'paid'                   => ['bg' => '#DCEEDB', 'fg' => '#1F4D36'], // green
     'cancelled'              => ['bg' => '#FCE8E6', 'fg' => '#9A2E24'], // red
