@@ -1315,7 +1315,7 @@ function veg_emoji($name) {
         'sweet potato' => '🍠', 'ladyfinger' => '🥒', 'bottle gourd' => '🥒',
         'bitter gourd' => '🥒', 'green beans' => '🫛', 'broccoli' => '🥦',
         // Fruits
-        'apple' => '🍎', 'banana' => '🍌', 'mango' => '🥭', 'orange' => '🍊',
+        'apple' => '🍎', 'banana' => '🍌', 'mango' => '🥭', 'chikoo' => '🥭', 'chikku' => '🥭', 'sapota' => '🥭', 'orange' => '🍊',
         'grapes' => '🍇', 'papaya' => '🫐', 'watermelon' => '🍉', 'pomegranate' => '🍎',
         'guava' => '🍈', 'pineapple' => '🍍',
         // Dairy
@@ -1341,6 +1341,9 @@ function veg_thumb_html($veg) {
         'bottlegourd' => 'bottlegourd',
         'bittergourd' => 'bittergourd',
         'curryleaves' => 'curryleaves',
+        'chikoo' => 'Chikoo',
+        'chikku' => 'Chikoo',
+        'sapota' => 'Chikoo',
     ];
 
     static $photoMap = [
@@ -1377,6 +1380,9 @@ function veg_thumb_html($veg) {
         'pomegranate' => 'Pomegranate photo.jpg',
         'guava' => 'Guava.jpg',
         'pineapple' => 'Pineapple.jpg',
+        'chikoo' => 'Chikoo.jpg',
+        'chikku' => 'Chikoo.jpg',
+        'sapota' => 'Chikoo.jpg',
         'milk' => 'Milk (24299977096).jpg',
         'coriander' => 'Coriander leaves.jpg',
         'fenugreek' => 'Fenugreek.jpg',
