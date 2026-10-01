@@ -1190,6 +1190,7 @@ function size_fraction_of_base_unit($label, $baseUnit) {
     if ($baseUnit === 'grams') $baseUnit = 'gram';
     if ($baseUnit === 'kilograms' || $baseUnit === 'kgs' || $baseUnit === 'kilo') $baseUnit = 'kg';
     if ($baseUnit === 'liters' || $baseUnit === 'litres') $baseUnit = 'litre';
+    if ($baseUnit === '100 g' || $baseUnit === '100gram' || $baseUnit === '100 gram') $baseUnit = '100g';
     if (!preg_match('/^([\d.]+)\s*(kilogram|kilograms|kgs|kg|gram|grams|gm|g|litre|litres|liter|liters|l|millilitre|millilitres|ml)\b/i', trim((string)$label), $m)) {
         return null;
     }
@@ -1211,6 +1212,7 @@ function size_fraction_of_base_unit($label, $baseUnit) {
 
     if ($baseUnit === 'kg' && $grams !== null) return $grams / 1000;
     if ($baseUnit === 'gram' && $grams !== null) return $grams;
+    if ($baseUnit === '100g' && $grams !== null) return $grams / 100;
     if ($baseUnit === 'litre' && $ml !== null) return $ml / 1000;
     return null;
 }
@@ -1220,7 +1222,7 @@ function size_fraction_of_base_unit($label, $baseUnit) {
 // Returns how many variants were updated vs. left alone (labels it
 // couldn't parse, like "piece"-based sizes, are skipped untouched).
 function recalculate_variant_prices($pdo, $vegId, $basePrice, $baseUnit) {
-    if (!in_array($baseUnit, ['kg', 'gram', 'litre'], true) || $basePrice <= 0) {
+    if (!in_array($baseUnit, ['kg', 'gram', 'litre', '100g'], true) || $basePrice <= 0) {
         return ['updated' => 0, 'skipped' => 0];
     }
 
