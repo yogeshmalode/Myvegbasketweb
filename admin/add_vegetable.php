@@ -83,7 +83,7 @@ include __DIR__ . '/includes/admin_header.php';
       <div class="form-group" style="flex:1;">
         <label for="unit">Unit</label>
         <select id="unit" name="unit">
-          <?php foreach (['kg','piece','bunch','dozen','gram','litre'] as $u): ?>
+          <?php foreach (['kg','piece','bunch','dozen','gram','100g','litre'] as $u): ?>
             <option value="<?= $u ?>" <?= ($_POST['unit'] ?? 'kg') === $u ? 'selected' : '' ?>><?= $u ?></option>
           <?php endforeach; ?>
         </select>
@@ -156,6 +156,7 @@ include __DIR__ . '/includes/admin_header.php';
 
     if (baseUnit === 'kg' && grams !== null) return grams / 1000;
     if (baseUnit === 'gram' && grams !== null) return grams;
+    if (baseUnit === '100g' && grams !== null) return grams / 100;
     if (baseUnit === 'litre' && ml !== null) return ml / 1000;
     return null;
   }
@@ -168,8 +169,8 @@ include __DIR__ . '/includes/admin_header.php';
       alert('Enter a valid base price above first.');
       return;
     }
-    if (!['kg', 'gram', 'litre'].includes(baseUnit)) {
-      alert('Automatic recalculation only works when the unit above is kg, gram, or litre — sizes for "' + baseUnit + '" need to be set manually.');
+    if (!['kg', 'gram', '100g', 'litre'].includes(baseUnit)) {
+      alert('Automatic recalculation only works when the unit above is kg, gram, 100g, or litre — sizes for "' + baseUnit + '" need to be set manually.');
       return;
     }
 
