@@ -5,250 +5,215 @@ $page_title = 'Orders';
 $flash = $_SESSION['flash'] ?? null;
 unset($_SESSION['flash']);
 
-$orders = $pdo->query("SELECT * FROM orders ORDER BY created_at DESC")->fetchAll();
+$orders = $pdo->query("
+    SELECT o.*, r.name AS rider_name, r.phone AS rider_phone, ds.name AS dark_store_name
+    FROM orders o
+    LEFT JOIN riders r ON r.id = o.rider_id
+    LEFT JOIN dark_stores ds ON ds.id = o.dark_store_id
+    ORDER BY o.created_at DESC
+")->fetchAll();
+
+$riders = $pdo->query("SELECT id, name FROM riders WHERE is_active = 1 ORDER BY name")->fetchAll();
 
 // Pull every order's line items in one query and group them by order_id,
 // so the admin can see exactly which vegetables (and how much of each)
-// were ordered, right in the orders table.
+// were ordered, right on each order card.
 $itemsByOrder = [];
 $itemRows = $pdo->query("SELECT oi.id, oi.order_id, oi.name, oi.quantity, oi.subtotal, oi.variant_label FROM order_items oi ORDER BY oi.id")->fetchAll();
 foreach ($itemRows as $row) {
     $itemsByOrder[$row['order_id']][] = $row;
 }
 
-$paymentOptions = [
-    'pending'                => 'Pending',
-    'awaiting_verification'  => 'Awaiting verification',
-    'paid'                   => 'Paid',
-    'failed'                 => 'Failed',
-];
 $orderStatusOptions = get_order_status_options();
 
-// Inline colors so the dropdowns are always colored, even if the CSS
-// file on the server hasn't been updated yet or is browser-cached.
+// Inline colors so the badges are always colored, even if the CSS file on
+// the server hasn't been updated yet or is browser-cached.
 $colorMap = [
-    'pending'                => ['bg' => '#EDEDE6', 'fg' => '#5B6656'], // gray
-    'placed'                 => ['bg' => '#E3EDFB', 'fg' => '#1F4E8C'], // blue
-    'processing'             => ['bg' => '#FFF1BF', 'fg' => '#8A6D00'], // yellow
-    'ready_for_pickup'       => ['bg' => '#EFE6FF', 'fg' => '#5F38A5'], // violet
-    'assigning_rider'        => ['bg' => '#EDF3FF', 'fg' => '#355DA8'], // blue-violet
-    'delivery_partner_assigned' => ['bg' => '#E8F5FF', 'fg' => '#0B6B93'], // cyan
-    'awaiting_verification'  => ['bg' => '#FFF1BF', 'fg' => '#8A6D00'], // yellow
-    'out_for_delivery'       => ['bg' => '#FFE1C2', 'fg' => '#B25B00'], // orange
-    'arriving_soon'          => ['bg' => '#FFE3EA', 'fg' => '#AD355B'], // pink
-    'delivered'              => ['bg' => '#DCEEDB', 'fg' => '#1F4D36'], // green
-    'paid'                   => ['bg' => '#DCEEDB', 'fg' => '#1F4D36'], // green
-    'cancelled'              => ['bg' => '#FCE8E6', 'fg' => '#9A2E24'], // red
-    'failed'                 => ['bg' => '#FCE8E6', 'fg' => '#9A2E24'], // red
+    'pending'                => ['bg' => '#EDEDE6', 'fg' => '#5B6656'],
+    'placed'                 => ['bg' => '#E3EDFB', 'fg' => '#1F4E8C'],
+    'processing'             => ['bg' => '#FFF1BF', 'fg' => '#8A6D00'],
+    'ready_for_pickup'       => ['bg' => '#EFE6FF', 'fg' => '#5F38A5'],
+    'assigning_rider'        => ['bg' => '#EDF3FF', 'fg' => '#355DA8'],
+    'delivery_partner_assigned' => ['bg' => '#E8F5FF', 'fg' => '#0B6B93'],
+    'awaiting_verification'  => ['bg' => '#FFF1BF', 'fg' => '#8A6D00'],
+    'out_for_delivery'       => ['bg' => '#FFE1C2', 'fg' => '#B25B00'],
+    'arriving_soon'          => ['bg' => '#FFE3EA', 'fg' => '#AD355B'],
+    'delivered'              => ['bg' => '#DCEEDB', 'fg' => '#1F4D36'],
+    'paid'                   => ['bg' => '#DCEEDB', 'fg' => '#1F4D36'],
+    'cancelled'              => ['bg' => '#FCE8E6', 'fg' => '#9A2E24'],
+    'failed'                 => ['bg' => '#FCE8E6', 'fg' => '#9A2E24'],
 ];
 function status_color_style($value, $colorMap) {
     $c = $colorMap[$value] ?? ['bg' => '#fff', 'fg' => '#26301F'];
     return "background:{$c['bg']}; color:{$c['fg']};";
 }
 
+// ---- Bucket every order into one of the 6 lifecycle-stage tabs ----
+// This mirrors get_allowed_order_status_transitions() in config.php, just
+// grouped into the 6 stages an admin actually thinks in day-to-day.
+$tabs = [
+    'new'        => ['label' => '🆕 New',               'orders' => []],
+    'processing' => ['label' => '📦 Processing',         'orders' => []],
+    'ready'      => ['label' => '🚀 Ready for Dispatch',  'orders' => []],
+    'transit'    => ['label' => '🛵 Out for Delivery',    'orders' => []],
+    'completed'  => ['label' => '✅ Completed',           'orders' => []],
+    'exceptions' => ['label' => '⚠️ Exceptions',          'orders' => []],
+];
+
+$todayRevenue = 0;
+$cancelledToday = 0;
+$delayedCount = 0;
+$today = date('Y-m-d');
+
+foreach ($orders as $o) {
+    $status = normalize_order_status($o['order_status']);
+    $isException = $status === 'cancelled' || $o['payment_status'] === 'failed';
+
+    if ($isException) {
+        $tabs['exceptions']['orders'][] = $o;
+    } elseif (in_array($status, ['pending', 'placed'], true)) {
+        $tabs['new']['orders'][] = $o;
+    } elseif ($status === 'processing') {
+        $tabs['processing']['orders'][] = $o;
+    } elseif (in_array($status, ['ready_for_pickup', 'assigning_rider', 'delivery_partner_assigned'], true)) {
+        $tabs['ready']['orders'][] = $o;
+    } elseif (in_array($status, ['out_for_delivery', 'arriving_soon'], true)) {
+        $tabs['transit']['orders'][] = $o;
+
+        // Flag as delayed if we're past the ETA estimated from when the
+        // order last changed status (updated_at is bumped on every
+        // transition, including the move into out_for_delivery).
+        if ($o['eta_minutes'] !== null && $o['updated_at']) {
+            $minutesSince = (time() - strtotime($o['updated_at'])) / 60;
+            if ($minutesSince > (float)$o['eta_minutes']) {
+                $delayedCount++;
+            }
+        }
+    } elseif ($status === 'delivered') {
+        $tabs['completed']['orders'][] = $o;
+    }
+
+    if ($status === 'cancelled' && substr((string)$o['updated_at'], 0, 10) === $today) {
+        $cancelledToday++;
+    }
+    if ($status === 'delivered' && substr((string)$o['delivered_at'], 0, 10) === $today) {
+        $todayRevenue += (float)$o['total_amount'];
+    }
+}
+
 include __DIR__ . '/includes/admin_header.php';
 ?>
 
 <style>
-  .orders-page-shell {
-    background: transparent;
-  }
+  .orders-page-shell { background: transparent; }
   .orders-page-header {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    gap: 16px;
-    flex-wrap: wrap;
-    margin: 0 0 18px;
+    display: flex; align-items: center; justify-content: space-between;
+    gap: 16px; flex-wrap: wrap; margin: 0 0 16px;
   }
   .orders-page-header h2 {
-    margin: 0;
-    color: #0c5a42;
-    font-size: clamp(1.5rem, 2vw, 2.2rem);
-    line-height: 1.2;
-    letter-spacing: -0.03em;
-    font-weight: 800;
+    margin: 0; color: #0c5a42; font-size: clamp(1.5rem, 2vw, 2.2rem);
+    line-height: 1.2; letter-spacing: -0.03em; font-weight: 800;
   }
   .orders-page-header h2::after {
-    content: "";
-    display: block;
-    width: 100%;
-    max-width: 120px;
-    height: 3px;
-    border-radius: 999px;
-    background: linear-gradient(90deg, #f0a26f 0%, #f0a26f 100%);
-    margin-top: 8px;
-    opacity: 0.9;
+    content: ""; display: block; width: 100%; max-width: 120px; height: 3px;
+    border-radius: 999px; background: linear-gradient(90deg, #f0a26f 0%, #f0a26f 100%);
+    margin-top: 8px; opacity: 0.9;
   }
-  .orders-page-actions {
-    display: flex;
-    gap: 10px;
-    flex-wrap: wrap;
-    align-items: center;
-  }
+  .orders-page-actions { display: flex; gap: 10px; flex-wrap: wrap; align-items: center; }
   .orders-page-actions .btn {
-    min-height: 40px;
-    padding: 0 16px;
-    border-radius: 999px;
-    border: 1px solid #dfe9df;
-    background: rgba(255,255,255,0.85);
-    color: #1f2e2a;
-    font-weight: 700;
-    font-size: 0.76rem;
+    min-height: 40px; padding: 0 16px; border-radius: 999px; border: 1px solid #dfe9df;
+    background: rgba(255,255,255,0.85); color: #1f2e2a; font-weight: 700; font-size: 0.76rem;
     box-shadow: 0 1px 0 rgba(18, 41, 34, 0.04);
   }
-  .orders-page-actions .btn:hover {
-    background: #f6faf7;
-    border-color: #cfe0ce;
+  .orders-page-actions .btn:hover { background: #f6faf7; border-color: #cfe0ce; }
+
+  /* ---- KPI strip ---- */
+  .kpi-strip { display: flex; gap: 10px; flex-wrap: wrap; margin-bottom: 18px; }
+  .kpi-chip {
+    background: #fff; border: 1px solid #dfe8df; border-radius: 14px;
+    padding: 10px 16px; font-size: 0.78rem; font-weight: 700; color: #26372f;
+    box-shadow: 0 6px 16px rgba(18, 52, 40, 0.04);
+    display: flex; align-items: center; gap: 8px;
   }
-  .orders-card {
-    background: #fff;
-    border: 1px solid #dfe8df;
-    border-radius: 20px;
-    overflow: hidden;
-    box-shadow: 0 10px 28px rgba(18, 52, 40, 0.05);
+  .kpi-chip .kpi-value { font-size: 0.95rem; font-weight: 900; color: #0c5a42; }
+  .kpi-chip.warn .kpi-value { color: #B25B00; }
+  .kpi-chip.danger .kpi-value { color: #9A2E24; }
+
+  /* ---- Tab bar ---- */
+  .order-tabs {
+    display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 18px;
+    background: #fff; border: 1px solid #dfe8df; border-radius: 16px; padding: 6px;
+    box-shadow: 0 6px 16px rgba(18, 52, 40, 0.04);
   }
-  .table-wrap {
-    overflow-x: auto;
-    background: #fff;
-    border-radius: 20px;
-    border: 1px solid #dfe8df;
-    box-shadow: 0 10px 28px rgba(18, 52, 40, 0.05);
+  .order-tab-btn {
+    border: none; background: transparent; padding: 10px 16px; border-radius: 12px;
+    font-weight: 800; font-size: 0.8rem; color: #4a5a52; cursor: pointer;
+    display: flex; align-items: center; gap: 6px;
   }
-  .orders-table {
-    width: 100%;
-    border-collapse: collapse;
-    min-width: 1200px;
+  .order-tab-btn:hover { background: #f3f8f4; }
+  .order-tab-btn.active { background: #0c5a42; color: #fff; }
+  .order-tab-count { background: rgba(0,0,0,0.08); border-radius: 999px; padding: 1px 8px; font-size: 0.72rem; }
+  .order-tab-btn.active .order-tab-count { background: rgba(255,255,255,0.25); }
+  .order-tab-btn[data-tab="exceptions"] .order-tab-count { background: #FCE8E6; color: #9A2E24; }
+
+  .order-tab-panel { display: none; }
+  .order-tab-panel.active { display: block; }
+
+  /* ---- Kanban card grid ---- */
+  .order-card-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(290px, 1fr)); gap: 14px; }
+  .order-card {
+    background: #fff; border: 1px solid #dfe8df; border-radius: 16px; padding: 14px 16px;
+    box-shadow: 0 6px 16px rgba(18, 52, 40, 0.05); border-left: 4px solid #cfe0ce;
   }
+  .order-card.urgent { border-left-color: #D64545; }
+  .order-card.warn { border-left-color: #E0A030; }
+  .order-card-top { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 8px; }
+  .order-card-id { font-weight: 900; color: #15241e; font-size: 0.95rem; }
+  .order-card-time { font-size: 0.7rem; color: #74847c; }
+  .order-card-customer { font-weight: 700; color: #1c2d2b; font-size: 0.85rem; }
+  .order-card-sub { font-size: 0.74rem; color: #5d6e65; margin-top: 2px; }
+  .order-card-badge {
+    display: inline-block; font-size: 0.68rem; font-weight: 800; padding: 3px 9px;
+    border-radius: 999px; margin-top: 8px;
+  }
+  .order-card-items { margin-top: 8px; font-size: 0.74rem; color: #44544c; }
+  .order-card-items summary { cursor: pointer; font-weight: 700; color: #1c5f46; }
+  .order-card-total { font-weight: 900; color: #1a4e3c; font-size: 0.92rem; margin-top: 8px; }
+  .order-card-actions { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 12px; }
+  .order-card-actions .btn {
+    min-height: 34px; padding: 0 12px; border-radius: 999px; font-size: 0.74rem; font-weight: 800;
+    border: 1px solid #cfe0ce; background: #eef5f1; color: #1c4e3d; cursor: pointer;
+  }
+  .order-card-actions .btn.primary { background: #0c5a42; color: #fff; border-color: #0c5a42; }
+  .order-card-actions .btn.danger { background: #FCE8E6; color: #9A2E24; border-color: #f4cfc9; }
+  .order-card-actions select { min-height: 34px; border-radius: 8px; border: 1px solid #d5dfd7; font-size: 0.76rem; padding: 0 8px; }
+  .order-card-empty { grid-column: 1 / -1; text-align: center; color: #5B6656; padding: 30px; }
+
+  /* ---- Completed tab: compact table ---- */
+  .table-wrap { overflow-x: auto; background: #fff; border-radius: 20px; border: 1px solid #dfe8df; box-shadow: 0 10px 28px rgba(18, 52, 40, 0.05); }
+  .orders-table { width: 100%; border-collapse: collapse; min-width: 900px; }
   .orders-table thead th {
-    background: #dfe9dc;
-    color: #1b342d;
-    font-size: 0.7rem;
-    letter-spacing: 0.04em;
-    text-transform: uppercase;
-    font-weight: 800;
-    padding: 12px 12px;
-    border-bottom: 1px solid #cfe1ce;
-    text-align: left;
-    vertical-align: middle;
+    background: #dfe9dc; color: #1b342d; font-size: 0.7rem; letter-spacing: 0.04em;
+    text-transform: uppercase; font-weight: 800; padding: 12px; border-bottom: 1px solid #cfe1ce; text-align: left;
   }
-  .orders-table tbody td {
-    padding: 12px 12px;
-    vertical-align: top;
-    border-bottom: 1px solid #edf1ed;
-    color: #1e2c28;
-    font-size: 0.8rem;
-    line-height: 1.45;
-  }
-  .orders-table tbody tr:hover {
-    background: #fafdf9;
-  }
-  .orders-table tbody tr:last-child td {
-    border-bottom: none;
-  }
-  .order-id {
-    font-weight: 800;
-    color: #1c2d2b;
-  }
-  .customer-name {
-    font-weight: 700;
-    color: #1c2d2b;
-  }
-  .customer-email {
-    color: #5d6e65;
-    font-size: 0.72rem;
-    margin-top: 4px;
-  }
-  .order-address {
-    color: #596760;
-    line-height: 1.45;
-    max-width: 220px;
-    white-space: normal;
-  }
-  .item-chip {
-    display: inline-block;
-    background: #edf5eb;
-    color: #1c5f46;
-    padding: 5px 10px;
-    border-radius: 999px;
-    font-size: 0.75rem;
-    font-weight: 700;
-    margin: 0 6px 6px 0;
-    white-space: nowrap;
-  }
-  .measured-wrap {
-    display: flex;
-    align-items: center;
-    gap: 8px;
-    flex-wrap: wrap;
-    margin-top: 8px;
-  }
-  .measured-wrap input {
-    width: 90px;
-    min-height: 32px;
-    border: 1px solid #d4ddd6;
-    border-radius: 8px;
-    padding: 6px 8px;
-    background: #fff;
-    color: #1c2d2b;
-  }
-  .measured-wrap .btn {
-    min-height: 32px;
-    padding: 0 12px;
-    border-radius: 999px;
-    border: 1px solid #d7e6db;
-    background: #eef5f1;
-    color: #1c4e3d;
-    font-size: 0.76rem;
-    font-weight: 700;
-  }
-  .order-total {
-    font-weight: 800;
-    color: #1a4e3c;
-    font-size: 0.96rem;
-  }
-  .payment-select,
-  .status-select {
-    min-width: 150px;
-    min-height: 40px;
-    padding: 8px 12px;
-    border-radius: 10px;
-    border: 1px solid #d5dfd7;
-    font-weight: 700;
-    font-size: 0.82rem;
-    cursor: pointer;
-    background: #f1f5f2;
-    color: #1d2d2a;
-    box-shadow: inset 0 1px 0 rgba(255,255,255,0.4);
-  }
-  .status-select {
-    min-width: 170px;
-  }
-  .share-link {
-    display: inline-block;
-    margin-top: 10px;
-    color: #1e5f9d;
-    font-weight: 700;
-    font-size: 0.8rem;
-  }
-  .share-link:hover { text-decoration: underline; }
-  .orders-table small {
-    color: #65736a;
-  }
+  .orders-table tbody td { padding: 12px; vertical-align: top; border-bottom: 1px solid #edf1ed; color: #1e2c28; font-size: 0.8rem; }
+  .orders-table tbody tr:hover { background: #fafdf9; }
+  .completed-search { min-height: 40px; border-radius: 10px; border: 1px solid #d5dfd7; padding: 0 14px; margin-bottom: 12px; width: 100%; max-width: 320px; font-size: 0.82rem; }
+
+  /* ---- Exceptions inline form ---- */
+  .exception-form { margin-top: 10px; display: flex; flex-direction: column; gap: 6px; }
+  .exception-form input, .exception-form select { min-height: 32px; border-radius: 8px; border: 1px solid #d5dfd7; padding: 0 8px; font-size: 0.76rem; }
+
   @media (max-width: 900px) {
     .orders-page-header { align-items: flex-start; }
-    .orders-page-header h2 {
-      font-size: 2.3rem;
-    }
-    .orders-page-header h2::after {
-      width: 72%;
-    }
+    .orders-page-header h2 { font-size: 2.3rem; }
+    .orders-page-header h2::after { width: 72%; }
   }
 </style>
 
 <div class="orders-page-shell">
   <div class="orders-page-header">
-    <h2>Customer Orders</h2>
+    <h2>Orders</h2>
     <div class="orders-page-actions">
       <a href="export_orders.php" class="btn">⬇ Export Excel (CSV)</a>
       <a href="export_orders_pdf.php" class="btn">⬇ Download PDF</a>
@@ -260,77 +225,255 @@ include __DIR__ . '/includes/admin_header.php';
   <div class="alert alert-<?= $flash['type'] ?>"><?= h($flash['message']) ?></div>
 <?php endif; ?>
 
-<!-- Color map used by JS below, kept in sync with the PHP $colorMap above -->
+<div class="kpi-strip">
+  <div class="kpi-chip">🆕 New <span class="kpi-value"><?= count($tabs['new']['orders']) ?></span></div>
+  <div class="kpi-chip">📦 Processing <span class="kpi-value"><?= count($tabs['processing']['orders']) ?></span></div>
+  <div class="kpi-chip <?= count($tabs['ready']['orders']) > 0 ? 'warn' : '' ?>">🚀 Awaiting Rider <span class="kpi-value"><?= count($tabs['ready']['orders']) ?></span></div>
+  <div class="kpi-chip">🛵 Active Deliveries <span class="kpi-value"><?= count($tabs['transit']['orders']) ?></span></div>
+  <div class="kpi-chip <?= $delayedCount > 0 ? 'danger' : '' ?>">⏱ Delayed <span class="kpi-value"><?= $delayedCount ?></span></div>
+  <div class="kpi-chip <?= $cancelledToday > 0 ? 'danger' : '' ?>">❌ Cancelled Today <span class="kpi-value"><?= $cancelledToday ?></span></div>
+  <div class="kpi-chip">💰 Today's Revenue <span class="kpi-value">₹<?= number_format($todayRevenue, 2) ?></span></div>
+</div>
+
+<div class="order-tabs" role="tablist">
+  <?php $first = true; foreach ($tabs as $key => $tab): ?>
+    <button type="button" class="order-tab-btn <?= $first ? 'active' : '' ?>" data-tab="<?= $key ?>" onclick="showOrderTab('<?= $key ?>')">
+      <?= $tab['label'] ?> <span class="order-tab-count"><?= count($tab['orders']) ?></span>
+    </button>
+  <?php $first = false; endforeach; ?>
+</div>
+
 <script>
-const STATUS_COLORS = <?= json_encode(array_map(fn($c) => ['bg' => $c['bg'], 'fg' => $c['fg']], $colorMap)) ?>;
-function applyStatusColor(select) {
-  const c = STATUS_COLORS[select.value] || { bg: '#fff', fg: '#26301F' };
-  select.style.background = c.bg;
-  select.style.color = c.fg;
+const CSRF_TOKEN = '<?= h(csrf_token()) ?>';
+
+function showOrderTab(key) {
+  document.querySelectorAll('.order-tab-btn').forEach(b => b.classList.toggle('active', b.dataset.tab === key));
+  document.querySelectorAll('.order-tab-panel').forEach(p => p.classList.toggle('active', p.dataset.tab === key));
+}
+
+function postAction(url, payload) {
+  payload.csrf_token = CSRF_TOKEN;
+  fetch(url, { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify(payload) })
+    .then(async (r) => {
+      const text = await r.text();
+      try {
+        const data = JSON.parse(text);
+        if (data.success) { location.reload(); }
+        else { alert('Action failed: ' + (data.error || 'Unknown error')); }
+      } catch (e) { alert('Action failed: ' + text.slice(0, 200)); }
+    }).catch(() => alert('Network error'));
+}
+
+function setOrderStatus(orderId, status) {
+  postAction('../ajax/update_order_status.php', { id: orderId, status: status });
+}
+
+function verifyPayment(orderId) {
+  if (!confirm('Mark order #' + orderId + ' as paid? Only do this after you have verified the UPI payment in your app.')) return;
+  window.location = 'update_order.php?id=' + orderId + '&type=payment&value=paid';
+}
+
+function assignRider(orderId) {
+  const sel = document.getElementById('rider-' + orderId);
+  const riderId = sel ? sel.value : '';
+  if (!riderId) { alert('Please select a rider first.'); return; }
+  postAction('../ajax/assign_rider.php', { order_id: orderId, rider_id: Number(riderId) });
+}
+
+function autoAssignRider(orderId) {
+  postAction('../ajax/assign_rider.php', { order_id: orderId, auto: true });
+}
+
+function saveException(orderId) {
+  const reason = document.getElementById('reason-' + orderId).value;
+  const refundStatus = document.getElementById('refund-status-' + orderId).value;
+  const refundAmount = document.getElementById('refund-amount-' + orderId).value;
+  postAction('../ajax/manage_exception.php', {
+    order_id: orderId, exception_reason: reason, refund_status: refundStatus, refund_amount: refundAmount
+  });
+}
+
+function filterCompleted() {
+  const q = document.getElementById('completedSearch').value.toLowerCase();
+  document.querySelectorAll('#completed-table tbody tr[data-search]').forEach(row => {
+    row.style.display = row.dataset.search.includes(q) ? '' : 'none';
+  });
 }
 </script>
 
-<div class="table-wrap orders-card">
-  <table class="orders-table">
-    <thead>
-      <tr><th>#</th><th>Customer</th><th>Phone</th><th>Address</th><th>Delivery</th><th>Items</th><th>Total</th><th>Payment</th><th>Status</th><th>Placed</th></tr>
-    </thead>
-    <tbody>
-      <?php foreach ($orders as $o): ?>
-        <tr>
-          <td><?= $o['id'] ?></td>
-          <td><?= h($o['customer_name']) ?><br><small style="color:#5B6656;"><?= h($o['email']) ?></small></td>
-          <td><?= h($o['phone']) ?></td>
-          <td class="order-address" style="max-width:200px; white-space:normal; font-size:0.85rem;"><?= nl2br(h($o['address'])) ?></td>
-          <td style="white-space:nowrap; font-size:0.85rem;">
-            <?php if (!empty($o['delivery_date'])): ?>
-              <?= h(date('d M Y', strtotime($o['delivery_date']))) ?><br><?= h($o['delivery_slot']) ?>
-            <?php else: ?>
-              <span style="color:#5B6656;">—</span>
-            <?php endif; ?>
-          </td>
-          <td style="max-width:220px; white-space:normal;">
-            <?php if (!empty($itemsByOrder[$o['id']])): ?>
-              <?php foreach ($itemsByOrder[$o['id']] as $it): ?>
-                            <div style="margin-bottom:8px;">
-                              <span class="item-chip"><?= h($it['name']) ?><?= $it['variant_label'] ? ' (' . h($it['variant_label']) . ')' : '' ?> &times; <?= rtrim(rtrim(number_format($it['quantity'],3),'0'),'.') ?></span>
-                            </div>
-                          <?php endforeach; ?>
-                        <?php else: ?>
-                          <span style="color:#5B6656;">—</span>
-                        <?php endif; ?>          </td>
-          <td class="order-total">₹<?= number_format($o['total_amount'],2) ?></td>
-          <td>
-            <select
-              onchange="var v=this.value; if(!v) return; if(v==='paid' && !confirm('Mark order #<?= $o['id'] ?> as paid? Only do this after you have verified the UPI payment in your app.')){ this.value='<?= $o['payment_status'] ?>'; applyStatusColor(this); return; } applyStatusColor(this); window.location='update_order.php?id=<?= $o['id'] ?>&type=payment&value='+v;"
-              style="font-weight:700; font-size:0.85rem; padding:6px 10px; border-radius:8px; border:1px solid #D9E0CD; cursor:pointer; <?= status_color_style($o['payment_status'], $colorMap) ?>">
-              <?php foreach ($paymentOptions as $val => $label): ?>
-                <option value="<?= $val ?>" <?= $o['payment_status'] === $val ? 'selected' : '' ?>><?= h($label) ?></option>
-              <?php endforeach; ?>
-            </select>
-            <br><small style="color:#5B6656;"><?= h($o['payment_method'] ?? 'razorpay') ?></small>
-          </td>
-          <td>
-            <select
-              style="font-weight:700; font-size:0.85rem; padding:6px 10px; border-radius:8px; border:1px solid #D9E0CD; cursor:pointer; <?= status_color_style($o['order_status'], $colorMap) ?>"
-              onchange="if(!this.value) return; applyStatusColor(this); window.location='update_order.php?id=<?= $o['id'] ?>&type=order&value='+this.value;">
-              <?php foreach ($orderStatusOptions as $val => $label): ?>
-                <option value="<?= $val ?>" <?= $o['order_status'] === $val ? 'selected' : '' ?>><?= h($label) ?></option>
-              <?php endforeach; ?>
-            </select>
-            <?php if (!in_array($o['order_status'], ['delivered', 'cancelled'])): ?>
-              <br><a href="deliver.php?order_id=<?= $o['id'] ?>" style="font-size:0.78rem; color:#1F4E8C;">📍 Share location</a>
-            <?php endif; ?>
-          </td>
-          <td style="white-space:nowrap; color:#5B6656; font-size:0.85rem;"><?= format_ist($o['created_at'], 'd M Y') ?><br><?= format_ist($o['created_at'], 'h:i A') ?></td>
-        </tr>
-      <?php endforeach; ?>
-      <?php if (empty($orders)): ?>
-        <tr><td colspan="9" style="text-align:center; color:#5B6656;">No orders placed yet.</td></tr>
+<?php
+function render_order_card($o, $itemsByOrder, $colorMap, $actionsHtml, $orderStatusOptions) {
+    $status = normalize_order_status($o['order_status']);
+    $urgentClass = '';
+    if (in_array($status, ['out_for_delivery', 'arriving_soon'], true) && $o['eta_minutes'] !== null && $o['updated_at']) {
+        $minutesSince = (time() - strtotime($o['updated_at'])) / 60;
+        if ($minutesSince > (float)$o['eta_minutes']) $urgentClass = 'urgent';
+        elseif ($minutesSince > (float)$o['eta_minutes'] * 0.7) $urgentClass = 'warn';
+    }
+    ?>
+    <div class="order-card <?= $urgentClass ?>">
+      <div class="order-card-top">
+        <span class="order-card-id">#<?= $o['id'] ?></span>
+        <span class="order-card-time"><?= format_ist($o['created_at'], 'd M, h:i A') ?></span>
+      </div>
+      <div class="order-card-customer"><?= h($o['customer_name']) ?></div>
+      <div class="order-card-sub">📞 <?= h($o['phone']) ?></div>
+      <?php if (!empty($o['delivery_date'])): ?>
+        <div class="order-card-sub">🗓 <?= h(date('d M', strtotime($o['delivery_date']))) ?>, <?= h($o['delivery_slot']) ?></div>
       <?php endif; ?>
-    </tbody>
-  </table>
+      <?php if (!empty($o['rider_name'])): ?>
+        <div class="order-card-sub">🛵 <?= h($o['rider_name']) ?><?= $o['rider_phone'] ? ' · <a href="tel:' . h($o['rider_phone']) . '">📞 Call</a>' : '' ?></div>
+      <?php endif; ?>
+      <span class="order-card-badge" style="<?= status_color_style($status, $colorMap) ?>"><?= h($orderStatusOptions[$status] ?? ucfirst($status)) ?></span>
+      <?php if (!empty($itemsByOrder[$o['id']])): ?>
+        <details class="order-card-items">
+          <summary><?= count($itemsByOrder[$o['id']]) ?> item(s)</summary>
+          <?php foreach ($itemsByOrder[$o['id']] as $it): ?>
+            <div>• <?= h($it['name']) ?><?= $it['variant_label'] ? ' (' . h($it['variant_label']) . ')' : '' ?> × <?= rtrim(rtrim(number_format($it['quantity'], 3), '0'), '.') ?></div>
+          <?php endforeach; ?>
+        </details>
+      <?php endif; ?>
+      <div class="order-card-total">₹<?= number_format($o['total_amount'], 2) ?></div>
+      <div class="order-card-actions">
+        <?= $actionsHtml ?>
+      </div>
+    </div>
+    <?php
+}
+?>
+
+<!-- ===================== NEW ===================== -->
+<div class="order-tab-panel active" data-tab="new">
+  <div class="order-card-grid">
+    <?php if (empty($tabs['new']['orders'])): ?>
+      <div class="order-card-empty">No new orders waiting.</div>
+    <?php endif; ?>
+    <?php foreach ($tabs['new']['orders'] as $o):
+      $actions = '';
+      if ($o['payment_status'] === 'awaiting_verification') {
+          $actions .= '<button class="btn primary" onclick="verifyPayment(' . $o['id'] . ')">✅ Verify Payment</button>';
+      }
+      if (normalize_order_status($o['order_status']) === 'placed') {
+          $actions .= '<button class="btn" onclick="setOrderStatus(' . $o['id'] . ", 'processing')\">▶ Start Processing</button>";
+      }
+      $actions .= '<button class="btn danger" onclick="if(confirm(\'Cancel order #' . $o['id'] . "')) setOrderStatus(" . $o['id'] . ", 'cancelled')\">✕ Cancel</button>";
+      render_order_card($o, $itemsByOrder, $colorMap, $actions, $orderStatusOptions);
+    endforeach; ?>
+  </div>
 </div>
 
+<!-- ===================== PROCESSING ===================== -->
+<div class="order-tab-panel" data-tab="processing">
+  <div class="order-card-grid">
+    <?php if (empty($tabs['processing']['orders'])): ?>
+      <div class="order-card-empty">Nothing being packed right now.</div>
+    <?php endif; ?>
+    <?php foreach ($tabs['processing']['orders'] as $o):
+      $actions = '<a class="btn" href="export_orders_pdf.php?id=' . $o['id'] . '" target="_blank">🖨 Print Packing Slip</a>';
+      $actions .= '<button class="btn primary" onclick="setOrderStatus(' . $o['id'] . ", 'ready_for_pickup')\">✅ Ready for Dispatch</button>";
+      $actions .= '<button class="btn danger" onclick="if(confirm(\'Cancel order #' . $o['id'] . "')) setOrderStatus(" . $o['id'] . ", 'cancelled')\">✕ Cancel</button>";
+      render_order_card($o, $itemsByOrder, $colorMap, $actions, $orderStatusOptions);
+    endforeach; ?>
+  </div>
+</div>
+
+<!-- ===================== READY FOR DISPATCH ===================== -->
+<div class="order-tab-panel" data-tab="ready">
+  <div class="order-card-grid">
+    <?php if (empty($tabs['ready']['orders'])): ?>
+      <div class="order-card-empty">No orders waiting on a rider.</div>
+    <?php endif; ?>
+    <?php foreach ($tabs['ready']['orders'] as $o):
+      $riderSelect = '<select id="rider-' . $o['id'] . '"><option value="">— Select rider —</option>';
+      foreach ($riders as $r) {
+          $sel = (int)($o['rider_id'] ?? 0) === (int)$r['id'] ? 'selected' : '';
+          $riderSelect .= '<option value="' . $r['id'] . '" ' . $sel . '>' . h($r['name']) . '</option>';
+      }
+      $riderSelect .= '</select>';
+      $actions = $riderSelect;
+      $actions .= '<button class="btn" onclick="assignRider(' . $o['id'] . ')">Assign</button>';
+      $actions .= '<button class="btn primary" onclick="autoAssignRider(' . $o['id'] . ')" title="Assign nearest available rider automatically">⚡ Auto-Assign</button>';
+      $actions .= '<a class="btn" href="export_orders_pdf.php?id=' . $o['id'] . '" target="_blank">🖨 Print Shipping Label</a>';
+      $actions .= '<button class="btn danger" onclick="if(confirm(\'Cancel order #' . $o['id'] . "')) setOrderStatus(" . $o['id'] . ", 'cancelled')\">✕ Cancel</button>";
+      render_order_card($o, $itemsByOrder, $colorMap, $actions, $orderStatusOptions);
+    endforeach; ?>
+  </div>
+</div>
+
+<!-- ===================== OUT FOR DELIVERY ===================== -->
+<div class="order-tab-panel" data-tab="transit">
+  <div class="order-card-grid">
+    <?php if (empty($tabs['transit']['orders'])): ?>
+      <div class="order-card-empty">No active deliveries right now.</div>
+    <?php endif; ?>
+    <?php foreach ($tabs['transit']['orders'] as $o):
+      $actions = '<a class="btn" href="deliver.php?order_id=' . $o['id'] . '">📍 Track</a>';
+      if (!empty($o['rider_phone'])) {
+          $actions .= '<a class="btn" href="tel:' . h($o['rider_phone']) . '">📞 Call Rider</a>';
+      }
+      $actions .= '<button class="btn danger" onclick="if(confirm(\'Cancel order #' . $o['id'] . "')) setOrderStatus(" . $o['id'] . ", 'cancelled')\">✕ Cancel</button>";
+      render_order_card($o, $itemsByOrder, $colorMap, $actions, $orderStatusOptions);
+    endforeach; ?>
+  </div>
+</div>
+
+<!-- ===================== COMPLETED ===================== -->
+<div class="order-tab-panel" data-tab="completed">
+  <input type="text" id="completedSearch" class="completed-search" placeholder="Search by order # or customer name..." oninput="filterCompleted()">
+  <div class="table-wrap">
+    <table class="orders-table" id="completed-table">
+      <thead>
+        <tr><th>#</th><th>Customer</th><th>Delivered</th><th>Total</th><th>Invoice</th></tr>
+      </thead>
+      <tbody>
+        <?php foreach ($tabs['completed']['orders'] as $o): ?>
+          <tr data-search="<?= h(strtolower('#' . $o['id'] . ' ' . $o['customer_name'])) ?>">
+            <td><?= $o['id'] ?></td>
+            <td><?= h($o['customer_name']) ?><br><small style="color:#5B6656;"><?= h($o['email']) ?></small></td>
+            <td><?= $o['delivered_at'] ? format_ist($o['delivered_at'], 'd M Y, h:i A') : '—' ?></td>
+            <td>₹<?= number_format($o['total_amount'], 2) ?></td>
+            <td><a class="btn" href="export_orders_pdf.php?id=<?= $o['id'] ?>" target="_blank">⬇ Invoice</a></td>
+          </tr>
+        <?php endforeach; ?>
+        <?php if (empty($tabs['completed']['orders'])): ?>
+          <tr><td colspan="5" style="text-align:center; color:#5B6656;">No completed orders yet.</td></tr>
+        <?php endif; ?>
+      </tbody>
+    </table>
+  </div>
+</div>
+
+<!-- ===================== EXCEPTIONS ===================== -->
+<div class="order-tab-panel" data-tab="exceptions">
+  <div class="order-card-grid">
+    <?php if (empty($tabs['exceptions']['orders'])): ?>
+      <div class="order-card-empty">No cancellations, returns, or failed payments. 🎉</div>
+    <?php endif; ?>
+    <?php foreach ($tabs['exceptions']['orders'] as $o): ?>
+      <div class="order-card urgent">
+        <div class="order-card-top">
+          <span class="order-card-id">#<?= $o['id'] ?></span>
+          <span class="order-card-time"><?= format_ist($o['created_at'], 'd M, h:i A') ?></span>
+        </div>
+        <div class="order-card-customer"><?= h($o['customer_name']) ?></div>
+        <div class="order-card-sub">📞 <?= h($o['phone']) ?></div>
+        <span class="order-card-badge" style="<?= status_color_style(normalize_order_status($o['order_status']) === 'cancelled' ? 'cancelled' : 'failed', $colorMap) ?>">
+          <?= normalize_order_status($o['order_status']) === 'cancelled' ? 'Cancelled' : 'Payment Failed' ?>
+        </span>
+        <div class="order-card-total">₹<?= number_format($o['total_amount'], 2) ?></div>
+        <div class="exception-form">
+          <input type="text" id="reason-<?= $o['id'] ?>" placeholder="Reason / note" value="<?= h($o['exception_reason'] ?? '') ?>">
+          <select id="refund-status-<?= $o['id'] ?>">
+            <?php foreach (['none' => 'No refund', 'requested' => 'Refund requested', 'processed' => 'Refund processed'] as $val => $label): ?>
+              <option value="<?= $val ?>" <?= ($o['refund_status'] ?? 'none') === $val ? 'selected' : '' ?>><?= $label ?></option>
+            <?php endforeach; ?>
+          </select>
+          <input type="number" step="0.01" id="refund-amount-<?= $o['id'] ?>" placeholder="Refund amount (₹)" value="<?= h($o['refund_amount'] ?? '') ?>">
+          <button class="btn primary" onclick="saveException(<?= $o['id'] ?>)">💾 Save</button>
+        </div>
+      </div>
+    <?php endforeach; ?>
+  </div>
+</div>
 
 <?php include __DIR__ . '/includes/admin_footer.php'; ?>

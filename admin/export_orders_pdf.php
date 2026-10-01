@@ -1,7 +1,14 @@
 <?php
 require_once __DIR__ . '/includes/auth.php';
 
-$orders = $pdo->query("SELECT * FROM orders ORDER BY created_at DESC")->fetchAll();
+$filterId = (int)($_GET['id'] ?? 0);
+if ($filterId > 0) {
+    $stmt = $pdo->prepare("SELECT * FROM orders WHERE id = ?");
+    $stmt->execute([$filterId]);
+    $orders = $stmt->fetchAll();
+} else {
+    $orders = $pdo->query("SELECT * FROM orders ORDER BY created_at DESC")->fetchAll();
+}
 
 $itemsByOrder = [];
 $itemRows = $pdo->query("SELECT order_id, name, quantity FROM order_items ORDER BY id")->fetchAll();
@@ -174,7 +181,10 @@ class SimplePdf
     }
 }
 
-$pdf = new SimplePdf((defined('SITE_NAME') && SITE_NAME ? SITE_NAME . ' - ' : '') . 'Customer Orders (' . date('d M Y') . ')');
+$pdfTitle = $filterId > 0
+    ? (defined('SITE_NAME') && SITE_NAME ? SITE_NAME . ' - ' : '') . "Invoice / Packing Slip #$filterId"
+    : (defined('SITE_NAME') && SITE_NAME ? SITE_NAME . ' - ' : '') . 'Customer Orders (' . date('d M Y') . ')';
+$pdf = new SimplePdf($pdfTitle);
 
 foreach ($orders as $o) {
     $pdf->addOrderRow([
@@ -190,4 +200,4 @@ foreach ($orders as $o) {
     ]);
 }
 
-$pdf->output('orders_' . date('Y-m-d_His') . '.pdf');
+$pdf->output($filterId > 0 ? "invoice_order_{$filterId}.pdf" : 'orders_' . date('Y-m-d_His') . '.pdf');

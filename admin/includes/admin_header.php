@@ -33,36 +33,57 @@ $current_page = basename($_SERVER['PHP_SELF']);
   </div>
   <nav class="admin-sidebar-nav" aria-label="Admin navigation">
     <?php
-    $nav = [
-      ['dashboard.php','⌂','Dashboard'],
-      ['vegetables.php','♧','Vegetables'],
-      ['inventory.php','▣','Inventory'],
-      ['billing.php','▤','Billing (POS)'],
-      ['wastage.php','♜','Wastage'],
-      ['reports.php','▥','Reports (P&L)'],
-      ['management_check.php','♢','System Check'],
-      ['catalog_pricing.php','⚡','Catalog & Live Pricing'],
-      ['subscriptions.php','♻','Subscriptions'],
-      ['fulfillment.php','📦','Fulfillment'],
-      ['procurement.php','🧾','Procurement'],
-      ['daily_procurement_dashboard.php','📈','Daily Procurement'],
-      ['deliveries.php','🚚','Deliveries'],
-      ['delivery.php','🚚','Delivery Planner'],
-      ['dark_stores.php','🏬','Dark Stores'],
-      ['riders.php','🛵','Riders'],
-      ['scan_delivery.php','📷','Scan Delivery'],
-      ['orders.php','▱','Orders'],
-      ['offers.php','🎁','Offers'],
-      ['users.php','♙','Users'],
-      ['role_permissions.php','🔐','Role Permissions'],
+    // Grouped into sections so the order-to-delivery workflow (Orders,
+    // Fulfillment, Dark Stores, Riders, Deliveries) reads as one cohesive
+    // block instead of 20 flat, unrelated-looking links.
+    $navGroups = [
+      'Overview' => [
+        ['dashboard.php','⌂','Dashboard'],
+        ['management_check.php','♢','System Check'],
+      ],
+      'Orders & Delivery' => [
+        ['orders.php','▱','Orders'],
+        ['fulfillment.php','📦','Fulfillment'],
+        ['deliveries.php','🚚','Deliveries'],
+        ['delivery.php','🚚','Delivery Planner'],
+        ['dark_stores.php','🏬','Dark Stores'],
+        ['riders.php','🛵','Riders'],
+        ['scan_delivery.php','📷','Scan Delivery'],
+      ],
+      'Catalog & Pricing' => [
+        ['vegetables.php','♧','Vegetables'],
+        ['catalog_pricing.php','⚡','Catalog & Live Pricing'],
+        ['offers.php','🎁','Offers'],
+        ['subscriptions.php','♻','Subscriptions'],
+      ],
+      'Operations' => [
+        ['inventory.php','▣','Inventory'],
+        ['billing.php','▤','Billing (POS)'],
+        ['wastage.php','♜','Wastage'],
+        ['procurement.php','🧾','Procurement'],
+        ['daily_procurement_dashboard.php','📈','Daily Procurement'],
+        ['reports.php','▥','Reports (P&L)'],
+      ],
+      'Administration' => [
+        ['users.php','♙','Users'],
+        ['role_permissions.php','🔐','Role Permissions'],
+      ],
     ];
     $roleAllowedPages = is_admin_role() ? null : get_role_allowed_pages($pdo, admin_role());
-    foreach($nav as $item):
-      if (($item[0]==='users.php' || $item[0]==='management_check.php' || $item[0]==='role_permissions.php') && !is_admin_role()) continue;
-      if ($roleAllowedPages !== null && !in_array($item[0], rbac_always_allowed_pages(), true) && !in_array($item[0], $roleAllowedPages, true)) continue;
-      $active = $current_page === $item[0] || ($item[0]==='dashboard.php' && $current_page==='index.php');
+    foreach ($navGroups as $groupLabel => $items):
+      $visibleItems = array_filter($items, function($item) use ($roleAllowedPages) {
+        if (($item[0]==='users.php' || $item[0]==='management_check.php' || $item[0]==='role_permissions.php') && !is_admin_role()) return false;
+        if ($roleAllowedPages !== null && !in_array($item[0], rbac_always_allowed_pages(), true) && !in_array($item[0], $roleAllowedPages, true)) return false;
+        return true;
+      });
+      if (empty($visibleItems)) continue;
     ?>
-      <a class="admin-side-link <?= $active ? 'active' : '' ?>" href="<?= h($item[0]) ?>"><span class="admin-side-icon"><?= $item[1] ?></span><span class="admin-side-text"><?= h($item[2]) ?></span></a>
+      <div class="admin-side-group-label"><?= h($groupLabel) ?></div>
+      <?php foreach ($visibleItems as $item):
+        $active = $current_page === $item[0] || ($item[0]==='dashboard.php' && $current_page==='index.php');
+      ?>
+        <a class="admin-side-link <?= $active ? 'active' : '' ?>" href="<?= h($item[0]) ?>"><span class="admin-side-icon"><?= $item[1] ?></span><span class="admin-side-text"><?= h($item[2]) ?></span></a>
+      <?php endforeach; ?>
     <?php endforeach; ?>
     <a class="admin-side-link" href="<?= BASE_URL ?>/index.php" target="_blank"><span class="admin-side-icon">▣</span><span class="admin-side-text">View Store</span><span class="admin-external">↗</span></a>
     <a class="admin-side-link admin-logout" href="logout.php"><span class="admin-side-icon">⇥</span><span class="admin-side-text">Logout</span></a>

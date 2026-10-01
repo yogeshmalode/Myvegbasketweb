@@ -743,6 +743,13 @@ function ensure_management_schema($pdo) {
             if (!$hasColumn('orders', 'delivery_date')) $pdo->exec("ALTER TABLE orders ADD COLUMN delivery_date DATE DEFAULT NULL AFTER address");
             if (!$hasColumn('orders', 'delivery_slot')) $pdo->exec("ALTER TABLE orders ADD COLUMN delivery_slot VARCHAR(50) DEFAULT NULL AFTER delivery_date");
 
+            // Exceptions tab (cancellations/returns/refunds) on the admin
+            // Orders dashboard needs somewhere to record why an order was
+            // cancelled and whether a refund has been issued.
+            if (!$hasColumn('orders', 'exception_reason')) $pdo->exec("ALTER TABLE orders ADD COLUMN exception_reason VARCHAR(255) DEFAULT NULL");
+            if (!$hasColumn('orders', 'refund_status')) $pdo->exec("ALTER TABLE orders ADD COLUMN refund_status ENUM('none','requested','processed') NOT NULL DEFAULT 'none'");
+            if (!$hasColumn('orders', 'refund_amount')) $pdo->exec("ALTER TABLE orders ADD COLUMN refund_amount DECIMAL(10,2) DEFAULT NULL");
+
             // Critical fix: older installs created order_status as an ENUM
             // limited to ('pending','placed','processing','out_for_delivery',
             // 'delivered','cancelled'). The rider workflow needs additional
