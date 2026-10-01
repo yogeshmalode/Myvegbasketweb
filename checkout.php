@@ -67,6 +67,23 @@ include __DIR__ . '/includes/header.php';
       </div>
 
       <div class="form-group">
+        <label for="delivery_date">Preferred delivery date</label>
+        <input type="date" id="delivery_date" name="delivery_date" min="<?= date('Y-m-d') ?>" required>
+      </div>
+      <div class="form-group">
+        <label for="delivery_slot">Preferred time slot</label>
+        <select id="delivery_slot" name="delivery_slot" required>
+          <option value="">Select a time slot</option>
+          <option value="8 AM - 10 AM">8 AM - 10 AM</option>
+          <option value="10 AM - 12 PM">10 AM - 12 PM</option>
+          <option value="12 PM - 2 PM">12 PM - 2 PM</option>
+          <option value="2 PM - 5 PM">2 PM - 5 PM</option>
+          <option value="5 PM - 7 PM">5 PM - 7 PM</option>
+          <option value="7 PM - 9 PM">7 PM - 9 PM</option>
+        </select>
+      </div>
+
+      <div class="form-group">
         <label for="couponCode">Coupon code (optional)</label>
         <div style="display:flex; gap:8px;">
           <input type="text" id="couponCode" placeholder="e.g. WELCOME10" value="<?= h($appliedCoupon['coupon_code'] ?? '') ?>" style="flex:1; text-transform:uppercase;" <?= $appliedCoupon ? 'readonly' : '' ?>>

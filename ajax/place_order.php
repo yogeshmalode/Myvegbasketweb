@@ -17,9 +17,24 @@ $name    = trim($_POST['name'] ?? '');
 $email   = trim($_POST['email'] ?? '');
 $phone   = trim($_POST['phone'] ?? '');
 $address = trim($_POST['address'] ?? '');
+$deliveryDate = trim($_POST['delivery_date'] ?? '');
+$deliverySlot = trim($_POST['delivery_slot'] ?? '');
 
 if ($name === '' || $email === '' || $phone === '' || $address === '') {
     echo json_encode(['success' => false, 'message' => 'Please fill in all delivery details.']);
+    exit;
+}
+
+if ($deliveryDate === '' || $deliverySlot === '') {
+    echo json_encode(['success' => false, 'message' => 'Please choose a delivery date and time slot.']);
+    exit;
+}
+
+// Never trust a client-sent date — reject anything before today so no one
+// can request delivery in the past via a tampered request.
+$today = date('Y-m-d');
+if ($deliveryDate < $today) {
+    echo json_encode(['success' => false, 'message' => 'Delivery date cannot be in the past.']);
     exit;
 }
 
@@ -51,9 +66,9 @@ try {
     $pdo->beginTransaction();
 
     $stmt = $pdo->prepare("INSERT INTO orders
-        (customer_id, customer_name, email, phone, address, total_amount, coupon_code, discount_amount, payment_method, payment_status, order_status)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'upi_qr', 'awaiting_verification', 'placed')");
-    $stmt->execute([$customerId, $name, $email, $phone, $address, $total, $couponCode, $discountAmount]);
+        (customer_id, customer_name, email, phone, address, delivery_date, delivery_slot, total_amount, coupon_code, discount_amount, payment_method, payment_status, order_status)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'upi_qr', 'awaiting_verification', 'placed')");
+    $stmt->execute([$customerId, $name, $email, $phone, $address, $deliveryDate, $deliverySlot, $total, $couponCode, $discountAmount]);
     $orderId = $pdo->lastInsertId();
 
     $itemStmt  = $pdo->prepare("INSERT INTO order_items (order_id, vegetable_id, vegetable_variant_id, variant_label, name, price, quantity, subtotal, cost_price)
@@ -148,6 +163,7 @@ send_order_alert(
         "Phone: $phone",
         "Email: $email",
         "Address: $address",
+        "Delivery: " . date('d M Y', strtotime($deliveryDate)) . ", $deliverySlot",
         "Subtotal: " . SITE_CURRENCY . number_format($subtotal, 2),
         $couponCode ? "Coupon: $couponCode (-" . SITE_CURRENCY . number_format($discountAmount, 2) . ")" : null,
         "Delivery charge: " . ($deliveryCharge > 0 ? SITE_CURRENCY . number_format($deliveryCharge, 2) : 'FREE'),

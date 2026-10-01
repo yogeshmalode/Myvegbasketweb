@@ -273,7 +273,7 @@ function applyStatusColor(select) {
 <div class="table-wrap orders-card">
   <table class="orders-table">
     <thead>
-      <tr><th>#</th><th>Customer</th><th>Phone</th><th>Address</th><th>Items</th><th>Total</th><th>Payment</th><th>Status</th><th>Placed</th></tr>
+      <tr><th>#</th><th>Customer</th><th>Phone</th><th>Address</th><th>Delivery</th><th>Items</th><th>Total</th><th>Payment</th><th>Status</th><th>Placed</th></tr>
     </thead>
     <tbody>
       <?php foreach ($orders as $o): ?>
@@ -282,6 +282,13 @@ function applyStatusColor(select) {
           <td><?= h($o['customer_name']) ?><br><small style="color:#5B6656;"><?= h($o['email']) ?></small></td>
           <td><?= h($o['phone']) ?></td>
           <td class="order-address" style="max-width:200px; white-space:normal; font-size:0.85rem;"><?= nl2br(h($o['address'])) ?></td>
+          <td style="white-space:nowrap; font-size:0.85rem;">
+            <?php if (!empty($o['delivery_date'])): ?>
+              <?= h(date('d M Y', strtotime($o['delivery_date']))) ?><br><?= h($o['delivery_slot']) ?>
+            <?php else: ?>
+              <span style="color:#5B6656;">—</span>
+            <?php endif; ?>
+          </td>
           <td style="max-width:220px; white-space:normal;">
             <?php if (!empty($itemsByOrder[$o['id']])): ?>
               <?php foreach ($itemsByOrder[$o['id']] as $it): ?>
