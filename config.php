@@ -421,6 +421,50 @@ function can_transition_order_status($fromStatus, $toStatus) {
     return in_array($toStatus, $transitions[$fromStatus] ?? [], true);
 }
 
+// Online checkout, Razorpay verification, and the billing/POS counter all
+// deduct vegetables.stock the instant an order is created, and each of those
+// deductions is logged as a 'sale' row in inventory_movements (quantity in
+// the vegetable's own base unit — kg/litre/piece — already converted from
+// whatever display unit the customer/cashier picked). When an order is
+// later cancelled, that stock was never actually used, so it must be added
+// back — otherwise live stock keeps drifting lower than what's really on
+// the shelf every time an order is cancelled.
+//
+// We reverse the exact 'sale' movements instead of recalculating from
+// order_items, since order_items.quantity is stored in the original display
+// unit (grams/packs) while inventory_movements already has the correct
+// base-unit amount that was actually subtracted from stock.
+//
+// Safe to call multiple times for the same order — it no-ops if this order
+// was already restocked once (idempotency guard via the 'adjustment' row
+// it leaves behind). Does not manage its own transaction, so it can be
+// called from inside a caller's already-open transaction.
+function restock_cancelled_order($pdo, $orderId) {
+    $orderId = (int)$orderId;
+    if ($orderId <= 0) return;
+
+    $already = $pdo->prepare("SELECT COUNT(*) FROM inventory_movements WHERE reference_id = ? AND movement_type = 'adjustment' AND notes = 'Order cancelled: stock restored'");
+    $already->execute([$orderId]);
+    if ((int)$already->fetchColumn() > 0) {
+        return;
+    }
+
+    $sums = $pdo->prepare("SELECT vegetable_id, SUM(quantity) AS total_qty FROM inventory_movements WHERE reference_id = ? AND movement_type = 'sale' GROUP BY vegetable_id");
+    $sums->execute([$orderId]);
+    $rows = $sums->fetchAll();
+    if (!$rows) return;
+
+    $restock = $pdo->prepare("UPDATE vegetables SET stock = stock + ? WHERE id = ?");
+    $logMovement = $pdo->prepare("INSERT INTO inventory_movements (vegetable_id, movement_type, quantity, reference_id, notes) VALUES (?, 'adjustment', ?, ?, 'Order cancelled: stock restored')");
+
+    foreach ($rows as $row) {
+        $restoreQty = abs((float)$row['total_qty']); // 'sale' movements are stored as negative quantities
+        if ($restoreQty <= 0) continue;
+        $restock->execute([$restoreQty, (int)$row['vegetable_id']]);
+        $logMovement->execute([(int)$row['vegetable_id'], $restoreQty, $orderId]);
+    }
+}
+
 function haversine_km($lat1, $lng1, $lat2, $lng2) {
     $lat1 = (float)$lat1;
     $lng1 = (float)$lng1;
@@ -823,6 +867,15 @@ function ensure_management_schema($pdo) {
             if (!$hasColumn('orders', 'exception_reason')) $pdo->exec("ALTER TABLE orders ADD COLUMN exception_reason VARCHAR(255) DEFAULT NULL");
             if (!$hasColumn('orders', 'refund_status')) $pdo->exec("ALTER TABLE orders ADD COLUMN refund_status ENUM('none','requested','processed') NOT NULL DEFAULT 'none'");
             if (!$hasColumn('orders', 'refund_amount')) $pdo->exec("ALTER TABLE orders ADD COLUMN refund_amount DECIMAL(10,2) DEFAULT NULL");
+
+            // Billing/POS counter sales and the online delivery storefront
+            // both write to this same table, but they need completely
+            // different handling — a POS sale is a walk-in customer who
+            // already paid and walked out with their bag, so it has no
+            // rider/delivery workflow at all. Without a way to tell them
+            // apart, POS bills were cluttering the same 6-stage delivery
+            // pipeline as real online orders and confusing rider assignment.
+            if (!$hasColumn('orders', 'source')) $pdo->exec("ALTER TABLE orders ADD COLUMN source ENUM('online','pos') NOT NULL DEFAULT 'online'");
 
             // Critical fix: older installs created order_status as an ENUM
             // limited to ('pending','placed','processing','out_for_delivery',

@@ -55,6 +55,12 @@ try {
         $freedRiderId = (int)$order['rider_id'];
     }
 
+    // Order is being cancelled — the stock deducted when it was placed was
+    // never actually sold, so put it back on the shelf now.
+    if ($status === 'cancelled' && $currentStatus !== 'cancelled') {
+        restock_cancelled_order($pdo, $id);
+    }
+
     $pdo->commit();
 
     // The rider is free again — immediately hand them the next queued

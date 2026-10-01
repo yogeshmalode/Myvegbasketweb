@@ -44,6 +44,11 @@ if ($id && $type === 'payment' && in_array($value, $allowedPaymentValues, true))
                 // queued order at their dark store automatically.
                 auto_assign_next_order_to_rider($pdo, (int)$order['rider_id']);
             }
+            if ($normalized === 'cancelled' && $currentStatus !== 'cancelled') {
+                // Stock was deducted when this order was placed but never
+                // actually sold — put it back on the shelf now.
+                restock_cancelled_order($pdo, $id);
+            }
             $_SESSION['flash'] = ['type' => 'success', 'message' => "Order #$id status set to " . str_replace('_', ' ', $normalized) . "."];
             $ok = true;
         }

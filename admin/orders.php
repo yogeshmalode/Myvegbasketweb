@@ -48,9 +48,16 @@ function status_color_style($value, $colorMap) {
     return "background:{$c['bg']}; color:{$c['fg']};";
 }
 
-// ---- Bucket every order into one of the 6 lifecycle-stage tabs ----
+// ---- Bucket every order into one of the lifecycle-stage tabs ----
 // This mirrors get_allowed_order_status_transitions() in config.php, just
-// grouped into the 6 stages an admin actually thinks in day-to-day.
+// grouped into the stages an admin actually thinks in day-to-day.
+//
+// Billing/POS counter sales (source = 'pos') are walk-in customers who
+// already paid and left with their bag — they never need rider assignment
+// or a delivery workflow. Mixing them into the same New/Processing/Ready
+// for Dispatch/Out for Delivery tabs as real online orders was exactly
+// what made rider assignment confusing, so POS bills get their own
+// dedicated tab instead and never enter the online delivery pipeline tabs.
 $tabs = [
     'new'        => ['label' => '🆕 New',               'orders' => []],
     'processing' => ['label' => '📦 Processing',         'orders' => []],
@@ -58,6 +65,7 @@ $tabs = [
     'transit'    => ['label' => '🛵 Out for Delivery',    'orders' => []],
     'completed'  => ['label' => '✅ Completed',           'orders' => []],
     'exceptions' => ['label' => '⚠️ Exceptions',          'orders' => []],
+    'pos'        => ['label' => '🧾 POS Bills',           'orders' => []],
 ];
 
 $todayRevenue = 0;
@@ -67,36 +75,47 @@ $today = date('Y-m-d');
 
 foreach ($orders as $o) {
     $status = normalize_order_status($o['order_status']);
-    $isException = $status === 'cancelled' || $o['payment_status'] === 'failed';
+    $isPos = ($o['source'] ?? 'online') === 'pos';
 
-    if ($isException) {
-        $tabs['exceptions']['orders'][] = $o;
-    } elseif (in_array($status, ['pending', 'placed'], true)) {
-        $tabs['new']['orders'][] = $o;
-    } elseif ($status === 'processing') {
-        $tabs['processing']['orders'][] = $o;
-    } elseif (in_array($status, ['ready_for_pickup', 'assigning_rider', 'delivery_partner_assigned'], true)) {
-        $tabs['ready']['orders'][] = $o;
-    } elseif (in_array($status, ['out_for_delivery', 'arriving_soon'], true)) {
-        $tabs['transit']['orders'][] = $o;
+    if ($isPos) {
+        // Counter sales never need rider/delivery handling — keep them
+        // entirely separate from the online order lifecycle tabs.
+        $tabs['pos']['orders'][] = $o;
+    } else {
+        $isException = $status === 'cancelled' || $o['payment_status'] === 'failed';
 
-        // Flag as delayed if we're past the ETA estimated from when the
-        // order last changed status (updated_at is bumped on every
-        // transition, including the move into out_for_delivery).
-        if ($o['eta_minutes'] !== null && $o['updated_at']) {
-            $minutesSince = (time() - strtotime($o['updated_at'])) / 60;
-            if ($minutesSince > (float)$o['eta_minutes']) {
-                $delayedCount++;
+        if ($isException) {
+            $tabs['exceptions']['orders'][] = $o;
+        } elseif (in_array($status, ['pending', 'placed'], true)) {
+            $tabs['new']['orders'][] = $o;
+        } elseif ($status === 'processing') {
+            $tabs['processing']['orders'][] = $o;
+        } elseif (in_array($status, ['ready_for_pickup', 'assigning_rider', 'delivery_partner_assigned'], true)) {
+            $tabs['ready']['orders'][] = $o;
+        } elseif (in_array($status, ['out_for_delivery', 'arriving_soon'], true)) {
+            $tabs['transit']['orders'][] = $o;
+
+            // Flag as delayed if we're past the ETA estimated from when the
+            // order last changed status (updated_at is bumped on every
+            // transition, including the move into out_for_delivery).
+            if ($o['eta_minutes'] !== null && $o['updated_at']) {
+                $minutesSince = (time() - strtotime($o['updated_at'])) / 60;
+                if ($minutesSince > (float)$o['eta_minutes']) {
+                    $delayedCount++;
+                }
             }
+        } elseif ($status === 'delivered') {
+            $tabs['completed']['orders'][] = $o;
         }
-    } elseif ($status === 'delivered') {
-        $tabs['completed']['orders'][] = $o;
     }
 
     if ($status === 'cancelled' && substr((string)$o['updated_at'], 0, 10) === $today) {
         $cancelledToday++;
     }
     if ($status === 'delivered' && substr((string)$o['delivered_at'], 0, 10) === $today) {
+        $todayRevenue += (float)$o['total_amount'];
+    }
+    if ($isPos && $status !== 'cancelled' && substr((string)$o['created_at'], 0, 10) === $today) {
         $todayRevenue += (float)$o['total_amount'];
     }
 }
@@ -232,6 +251,7 @@ include __DIR__ . '/includes/admin_header.php';
   <div class="kpi-chip">🛵 Active Deliveries <span class="kpi-value"><?= count($tabs['transit']['orders']) ?></span></div>
   <div class="kpi-chip <?= $delayedCount > 0 ? 'danger' : '' ?>">⏱ Delayed <span class="kpi-value"><?= $delayedCount ?></span></div>
   <div class="kpi-chip <?= $cancelledToday > 0 ? 'danger' : '' ?>">❌ Cancelled Today <span class="kpi-value"><?= $cancelledToday ?></span></div>
+  <div class="kpi-chip">🧾 POS Bills <span class="kpi-value"><?= count($tabs['pos']['orders']) ?></span></div>
   <div class="kpi-chip">💰 Today's Revenue <span class="kpi-value">₹<?= number_format($todayRevenue, 2) ?></span></div>
 </div>
 
@@ -251,14 +271,14 @@ function showOrderTab(key) {
   document.querySelectorAll('.order-tab-panel').forEach(p => p.classList.toggle('active', p.dataset.tab === key));
 }
 
-function postAction(url, payload) {
+function postAction(url, payload, onSuccess) {
   payload.csrf_token = CSRF_TOKEN;
   fetch(url, { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify(payload) })
     .then(async (r) => {
       const text = await r.text();
       try {
         const data = JSON.parse(text);
-        if (data.success) { location.reload(); }
+        if (data.success) { if (onSuccess) { onSuccess(); } else { location.reload(); } }
         else { alert('Action failed: ' + (data.error || 'Unknown error')); }
       } catch (e) { alert('Action failed: ' + text.slice(0, 200)); }
     }).catch(() => alert('Network error'));
@@ -290,12 +310,19 @@ function saveException(orderId) {
   const refundAmount = document.getElementById('refund-amount-' + orderId).value;
   postAction('../ajax/manage_exception.php', {
     order_id: orderId, exception_reason: reason, refund_status: refundStatus, refund_amount: refundAmount
-  });
+  }, () => { alert('✅ Saved — reason & refund status updated for order #' + orderId); location.reload(); });
 }
 
 function filterCompleted() {
   const q = document.getElementById('completedSearch').value.toLowerCase();
   document.querySelectorAll('#completed-table tbody tr[data-search]').forEach(row => {
+    row.style.display = row.dataset.search.includes(q) ? '' : 'none';
+  });
+}
+
+function filterPos() {
+  const q = document.getElementById('posSearch').value.toLowerCase();
+  document.querySelectorAll('#pos-table tbody tr[data-search]').forEach(row => {
     row.style.display = row.dataset.search.includes(q) ? '' : 'none';
   });
 }
@@ -481,6 +508,41 @@ function render_order_card($o, $itemsByOrder, $colorMap, $actionsHtml, $orderSta
         </div>
       </div>
     <?php endforeach; ?>
+  </div>
+</div>
+
+<!-- ===================== POS BILLS ===================== -->
+<div class="order-tab-panel" data-tab="pos">
+  <input type="text" id="posSearch" class="completed-search" placeholder="Search by bill # or customer name..." oninput="filterPos()">
+  <div class="table-wrap">
+    <table class="orders-table" id="pos-table">
+      <thead>
+        <tr><th>#</th><th>Customer</th><th>Billed</th><th>Payment</th><th>Status</th><th>Total</th><th>Actions</th></tr>
+      </thead>
+      <tbody>
+        <?php foreach ($tabs['pos']['orders'] as $o):
+          $posStatus = normalize_order_status($o['order_status']);
+        ?>
+          <tr data-search="<?= h(strtolower('#' . $o['id'] . ' ' . $o['customer_name'])) ?>">
+            <td><?= $o['id'] ?></td>
+            <td><?= h($o['customer_name']) ?><br><small style="color:#5B6656;"><?= h($o['phone']) ?></small></td>
+            <td><?= format_ist($o['created_at'], 'd M Y, h:i A') ?></td>
+            <td><?= $o['payment_method'] === 'upi_qr' ? 'UPI' : 'Cash' ?></td>
+            <td><span class="order-card-badge" style="<?= status_color_style($posStatus, $colorMap) ?>"><?= h($orderStatusOptions[$posStatus] ?? ucfirst($posStatus)) ?></span></td>
+            <td>₹<?= number_format($o['total_amount'], 2) ?></td>
+            <td>
+              <a class="btn" href="billing.php?receipt=<?= $o['id'] ?>" target="_blank">🖨 Receipt</a>
+              <?php if ($posStatus !== 'cancelled'): ?>
+                <button class="btn danger" onclick="if(confirm('Cancel bill #<?= $o['id'] ?> and restore its stock?')) setOrderStatus(<?= $o['id'] ?>, 'cancelled')">✕ Cancel</button>
+              <?php endif; ?>
+            </td>
+          </tr>
+        <?php endforeach; ?>
+        <?php if (empty($tabs['pos']['orders'])): ?>
+          <tr><td colspan="7" style="text-align:center; color:#5B6656;">No POS bills yet.</td></tr>
+        <?php endif; ?>
+      </tbody>
+    </table>
   </div>
 </div>
 
