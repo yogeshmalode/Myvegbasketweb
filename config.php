@@ -116,6 +116,31 @@ try {
     die('Database connection failed. Please check config.php -> ' . htmlspecialchars($e->getMessage()));
 }
 
+// ---- Self-healing schema guard ----
+// Previously ensure_management_schema() only ran on admin pages (called from
+// admin/includes/auth.php), so if a customer placed an order, or a rider
+// logged in, before any admin page had loaded on a fresh deploy, tables like
+// dark_stores or columns like orders.rider_id / the widened order_status
+// might not exist yet — causing exactly the "auto-assign failed" / "rider
+// can't pick up" errors reported in practice. Running it from here instead
+// means EVERY request (customer, rider, or admin) self-heals the schema.
+// Throttled via a marker file so it only actually re-checks every 5 minutes,
+// not on every single page view.
+function maybe_heal_schema($pdo) {
+    $marker = sys_get_temp_dir() . '/vegbasket_schema_healed.flag';
+    $lastRun = @filemtime($marker);
+    if ($lastRun !== false && (time() - $lastRun) < 300) {
+        return;
+    }
+    try {
+        ensure_management_schema($pdo);
+    } catch (Throwable $e) {
+        // Never let a schema-heal failure break the page that triggered it.
+    }
+    @touch($marker);
+}
+maybe_heal_schema($pdo);
+
 // ---- Application security helpers ----
 function csrf_token() {
     if (empty($_SESSION['csrf_token'])) {
@@ -710,6 +735,30 @@ function ensure_management_schema($pdo) {
             if (!$hasColumn('orders', 'dark_store_id')) $pdo->exec("ALTER TABLE orders ADD COLUMN dark_store_id INT DEFAULT NULL");
             if (!$hasColumn('orders', 'eta_minutes')) $pdo->exec("ALTER TABLE orders ADD COLUMN eta_minutes DECIMAL(5,1) DEFAULT NULL");
             if (!$hasColumn('orders', 'packing_started_at')) $pdo->exec("ALTER TABLE orders ADD COLUMN packing_started_at TIMESTAMP NULL DEFAULT NULL");
+            // Customer-chosen delivery date/time-slot picker at checkout.
+            // Previously only added via migration_delivery_schedule.sql, which
+            // requires a manual run — if that was never run, every checkout
+            // failed with "Unknown column 'delivery_date'". Self-heal it here
+            // too so it can never silently regress again.
+            if (!$hasColumn('orders', 'delivery_date')) $pdo->exec("ALTER TABLE orders ADD COLUMN delivery_date DATE DEFAULT NULL AFTER address");
+            if (!$hasColumn('orders', 'delivery_slot')) $pdo->exec("ALTER TABLE orders ADD COLUMN delivery_slot VARCHAR(50) DEFAULT NULL AFTER delivery_date");
+
+            // Critical fix: older installs created order_status as an ENUM
+            // limited to ('pending','placed','processing','out_for_delivery',
+            // 'delivered','cancelled'). The rider workflow needs additional
+            // values (ready_for_pickup, assigning_rider,
+            // delivery_partner_assigned, arriving_soon) that aren't in that
+            // ENUM — writing them fails outright in strict SQL mode (common
+            // on shared hosts) which is exactly what breaks rider
+            // login/pickup/deliver actions. Widen it to a plain VARCHAR so
+            // any status key from get_order_status_options() can be stored;
+            // existing values are preserved as-is during the type change.
+            $statusTypeQ = $pdo->prepare("SELECT DATA_TYPE FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = ? AND TABLE_NAME = 'orders' AND COLUMN_NAME = 'order_status'");
+            $statusTypeQ->execute([$db]);
+            $statusType = strtolower((string)$statusTypeQ->fetchColumn());
+            if ($statusType === 'enum') {
+                $pdo->exec("ALTER TABLE orders MODIFY COLUMN order_status VARCHAR(40) NOT NULL DEFAULT 'placed'");
+            }
         }
 
         // ---- Quick-commerce dispatch: Dark Stores ----

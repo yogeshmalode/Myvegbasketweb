@@ -25,6 +25,13 @@ $previousRiderId = $order['rider_id'] ? (int)$order['rider_id'] : null;
 // Smart Rider Allocation: auto-assign the nearest available rider at the
 // order's dark store hub instead of trusting a rider_id from the client.
 if ($auto) {
+    // If the address was never geocoded (e.g. the geocoder was briefly down
+    // when the order was placed), re-geocode it now instead of giving up —
+    // this was a real cause of "No dark store available to allocate from".
+    if (!$order['address_lat'] || !$order['address_lng']) {
+        $order = get_order_with_geocoded_address($pdo, $orderId) ?? $order;
+    }
+
     $darkStoreId = $order['dark_store_id'];
     if (!$darkStoreId) {
         $store = find_nearest_dark_store($pdo, $order['address_lat'], $order['address_lng']);
