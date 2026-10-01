@@ -792,7 +792,7 @@ function ensure_management_schema($pdo) {
                     'catalog_pricing.php', 'procurement.php', 'daily_procurement_dashboard.php',
                 ],
                 'delivery' => [
-                    'dashboard.php', 'delivery.php', 'deliveries.php', 'riders.php',
+                    'dashboard.php', 'orders.php', 'deliveries.php', 'riders.php',
                     'dark_stores.php', 'scan_delivery.php', 'manifest.php',
                     'picking_sheet.php', 'route_sheet.php',
                 ],
@@ -808,6 +808,10 @@ function ensure_management_schema($pdo) {
         if ($hasTable('vegetables')) {
             if (!$hasColumn('vegetables', 'supplier_name')) $pdo->exec("ALTER TABLE vegetables ADD COLUMN supplier_name VARCHAR(120) DEFAULT NULL");
             if (!$hasColumn('vegetables', 'cost_price')) $pdo->exec("ALTER TABLE vegetables ADD COLUMN cost_price DECIMAL(10,2) NOT NULL DEFAULT 0");
+            // Lets admins upload a real product photo from the Add/Edit
+            // Vegetable page instead of having to edit veg_thumb_html()'s
+            // hardcoded filename map every time a new product is added.
+            if (!$hasColumn('vegetables', 'image_path')) $pdo->exec("ALTER TABLE vegetables ADD COLUMN image_path VARCHAR(255) DEFAULT NULL");
 
             // Critical fix: older installs created `stock` as INT, which
             // silently rounds fractional weight-based deductions (e.g. 0.25 kg
@@ -1562,6 +1566,60 @@ function recalculate_all_variant_prices($pdo) {
     return ['products' => $productsTouched, 'updated' => $totalUpdated, 'skipped' => $totalSkipped];
 }
 
+// Handles a product photo upload from the Add/Edit Vegetable form so new
+// products get a real image just by browsing a file on the admin's computer
+// — no code change / filename-map edit required (that was the old way,
+// via veg_thumb_html()'s hardcoded $photoMap). Returns:
+//   ['path' => '<relative path to store in vegetables.image_path>', 'error' => null]
+//   ['path' => null, 'error' => null]   -- no file was uploaded, leave as-is
+//   ['path' => null, 'error' => '<message>'] -- upload attempted but invalid
+// $oldPath, if given, is deleted once the new file is safely in place.
+function handle_vegetable_image_upload($fileField, $oldPath = null) {
+    if (empty($_FILES[$fileField]) || ($_FILES[$fileField]['error'] ?? UPLOAD_ERR_NO_FILE) === UPLOAD_ERR_NO_FILE) {
+        return ['path' => null, 'error' => null];
+    }
+
+    $file = $_FILES[$fileField];
+    if ($file['error'] !== UPLOAD_ERR_OK) {
+        return ['path' => null, 'error' => 'Image upload failed (error code ' . $file['error'] . ').'];
+    }
+
+    $maxBytes = 5 * 1024 * 1024; // 5 MB
+    if ($file['size'] > $maxBytes) {
+        return ['path' => null, 'error' => 'Image is too large — please upload a file under 5 MB.'];
+    }
+
+    $allowedMimes = ['image/jpeg' => 'jpg', 'image/png' => 'png', 'image/webp' => 'webp'];
+    $finfo = finfo_open(FILEINFO_MIME_TYPE);
+    $mime = finfo_file($finfo, $file['tmp_name']);
+    finfo_close($finfo);
+    if (!isset($allowedMimes[$mime])) {
+        return ['path' => null, 'error' => 'Please upload a JPG, PNG, or WEBP image.'];
+    }
+
+    $uploadDir = __DIR__ . '/uploads/vegetables';
+    if (!is_dir($uploadDir)) {
+        mkdir($uploadDir, 0755, true);
+    }
+
+    $ext = $allowedMimes[$mime];
+    $filename = bin2hex(random_bytes(8)) . '.' . $ext;
+    $destination = $uploadDir . '/' . $filename;
+
+    if (!move_uploaded_file($file['tmp_name'], $destination)) {
+        return ['path' => null, 'error' => 'Could not save the uploaded image. Please try again.'];
+    }
+
+    // Clean up the old photo once the new one is safely on disk, so
+    // replacing an image doesn't leave orphaned files behind.
+    if ($oldPath) {
+        $oldFull = __DIR__ . '/' . ltrim($oldPath, '/');
+        if (is_file($oldFull)) { @unlink($oldFull); }
+    }
+
+    return ['path' => 'uploads/vegetables/' . $filename, 'error' => null];
+}
+
 function get_effective_price($veg) {
     if (!empty($veg['sale_price']) && (float)$veg['sale_price'] > 0 && (float)$veg['sale_price'] < (float)$veg['price']) {
         return (float)$veg['sale_price'];
@@ -1623,9 +1681,16 @@ function veg_emoji($name) {
     return $map[$key] ?? '🥗';
 }
 
-// Renders the product thumbnail: a local image from the /img directory when
-// available, otherwise a curated fallback, then the emoji fallback.
+// Renders the product thumbnail: an admin-uploaded photo first (so new
+// products never require a code change), then a local image from the
+// /img directory when available, otherwise a curated fallback, then the
+// emoji fallback.
 function veg_thumb_html($veg) {
+    if (!empty($veg['image_path']) && file_exists(__DIR__ . '/' . ltrim($veg['image_path'], '/'))) {
+        return '<img src="' . BASE_URL . '/' . ltrim(h($veg['image_path']), '/') . '" alt="' . h($veg['name']) . '" loading="lazy" decoding="async" '
+             . 'style="width:100%; height:100%; object-fit:contain; display:block; border-radius:10px; background:#fff; padding:6px; box-sizing:border-box;">';
+    }
+
     $slug = strtolower(preg_replace('/[^a-z0-9]/i', '', $veg['name']));
 
     static $localAliasMap = [

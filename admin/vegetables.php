@@ -52,12 +52,13 @@ include __DIR__ . '/includes/admin_header.php';
   <table>
     <thead>
       <tr>
-        <th>#</th><th>Name</th><th>Category</th><th>Price</th><th>Stock</th><th>Status</th><th>Actions</th>
+        <th></th><th>#</th><th>Name</th><th>Category</th><th>Price</th><th>Stock</th><th>Status</th><th>Actions</th>
       </tr>
     </thead>
     <tbody>
       <?php foreach ($vegetables as $veg): ?>
         <tr>
+          <td style="width:52px;"><div style="width:44px; height:44px;"><?= veg_thumb_html($veg) ?></div></td>
           <td><?= $veg['id'] ?></td>
           <td><?= veg_emoji($veg['name']) ?> <?= h($veg['name']) ?></td>
           <td><?= h($veg['category']) ?></td>
@@ -87,7 +88,7 @@ include __DIR__ . '/includes/admin_header.php';
         </tr>
       <?php endforeach; ?>
       <?php if (empty($vegetables)): ?>
-        <tr><td colspan="7" style="text-align:center; color:#5B6656;">No vegetables yet. Add your first one!</td></tr>
+        <tr><td colspan="8" style="text-align:center; color:#5B6656;">No vegetables yet. Add your first one!</td></tr>
       <?php endif; ?>
     </tbody>
   </table>

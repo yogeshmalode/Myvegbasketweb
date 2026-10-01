@@ -64,7 +64,7 @@ include __DIR__ . '/includes/admin_header.php';
   </ol>
   <p style="margin-top:12px;">Total estimated route distance: <strong><?= number_format($totalKm,2) ?> km</strong></p>
   <div style="text-align:right;">
-    <a class="btn" href="delivery.php">Back</a>
+    <a class="btn" href="orders.php">Back</a>
     <button class="btn" onclick="window.print();">Print</button>
     <button class="btn" id="createManifest">Create Manifest</button>
   </div>
@@ -138,7 +138,7 @@ document.getElementById('createManifest').addEventListener('click', function(){
     method: 'POST', headers: {'Content-Type':'application/json'},
     body: JSON.stringify({ orders: ids.join(','), rider_id: rider, total_km: <?= number_format($totalKm,2,'.','') ?>, csrf_token: '<?= h(csrf_token()) ?>' })
   }).then(r=>r.json()).then(data=>{
-    if(data.success){ alert('Manifest created: #' + data.manifest_id); window.location = 'delivery.php'; }
+    if(data.success){ alert('Manifest created: #' + data.manifest_id); window.location = 'orders.php'; }
     else alert('Failed: ' + (data.error||'')); 
   }).catch(()=>alert('Network error'));
 });

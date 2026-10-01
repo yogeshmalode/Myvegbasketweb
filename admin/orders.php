@@ -398,10 +398,34 @@ function assignPicker(orderId) {
     if (btn) { btn.disabled = false; btn.textContent = 'Assign'; }
   });
 }
+
+// ---- Delivery route planning (merged from the old standalone Delivery
+// Planner page, which wrongly showed POS counter-sale orders alongside
+// online orders needing a rider route). Scoped to Ready for Dispatch only,
+// which already excludes POS orders by design. ----
+function selectedRouteOrderIds() {
+  return Array.from(document.querySelectorAll('.order-card-route-select:checked')).map(cb => cb.value);
+}
+
+function updateRouteSelectionSummary() {
+  const ids = selectedRouteOrderIds();
+  const summary = document.getElementById('routeSelectionSummary');
+  const btn = document.getElementById('planRouteBtn');
+  if (summary) summary.textContent = ids.length ? ids.length + ' order(s) selected for route planning' : 'Select orders below to plan a delivery route (merged from the old Delivery Planner page)';
+  if (btn) btn.disabled = ids.length === 0;
+}
+
+function planRoute() {
+  const ids = selectedRouteOrderIds();
+  const rider = document.getElementById('routeRiderSelect').value;
+  if (!ids.length) { alert('Select at least one order to include in the route.'); return; }
+  if (!rider) { alert('Select a rider first.'); return; }
+  window.open('route_sheet.php?orders=' + encodeURIComponent(ids.join(',')) + '&rider=' + encodeURIComponent(rider), '_blank');
+}
 </script>
 
 <?php
-function render_order_card($o, $itemsByOrder, $colorMap, $actionsHtml, $orderStatusOptions, $pickerHtml = '', $enablePickSelect = false) {
+function render_order_card($o, $itemsByOrder, $colorMap, $actionsHtml, $orderStatusOptions, $pickerHtml = '', $enablePickSelect = false, $enableRouteSelect = false) {
     $status = normalize_order_status($o['order_status']);
     $urgentClass = '';
     if (in_array($status, ['out_for_delivery', 'arriving_soon'], true) && $o['eta_minutes'] !== null && $o['updated_at']) {
@@ -410,9 +434,12 @@ function render_order_card($o, $itemsByOrder, $colorMap, $actionsHtml, $orderSta
         elseif ($minutesSince > (float)$o['eta_minutes'] * 0.7) $urgentClass = 'warn';
     }
     ?>
-    <div class="order-card <?= $urgentClass ?> <?= $enablePickSelect ? 'has-select' : '' ?>">
+    <div class="order-card <?= $urgentClass ?> <?= ($enablePickSelect || $enableRouteSelect) ? 'has-select' : '' ?>">
       <?php if ($enablePickSelect): ?>
         <input type="checkbox" class="order-card-select" value="<?= $o['id'] ?>" onchange="updatePickingSelectionSummary()" title="Select for batch picking sheet">
+      <?php endif; ?>
+      <?php if ($enableRouteSelect): ?>
+        <input type="checkbox" class="order-card-route-select" value="<?= $o['id'] ?>" onchange="updateRouteSelectionSummary()" title="Select for route planning">
       <?php endif; ?>
       <div class="order-card-top">
         <span class="order-card-id">#<?= $o['id'] ?></span>
@@ -494,6 +521,14 @@ function render_picker_block($o, $pickerAdmins) {
 
 <!-- ===================== READY FOR DISPATCH ===================== -->
 <div class="order-tab-panel" data-tab="ready">
+  <div class="picking-toolbar">
+    <span id="routeSelectionSummary">Select orders below to plan a delivery route (merged from the old Delivery Planner page)</span>
+    <select id="routeRiderSelect">
+      <option value="">— Choose rider —</option>
+      <?php foreach ($riders as $r): ?><option value="<?= $r['id'] ?>"><?= h($r['name']) ?></option><?php endforeach; ?>
+    </select>
+    <button class="btn" id="planRouteBtn" type="button" disabled onclick="planRoute()">🗺️ Plan Route</button>
+  </div>
   <div class="order-card-grid">
     <?php if (empty($tabs['ready']['orders'])): ?>
       <div class="order-card-empty">No orders waiting on a rider.</div>
@@ -518,7 +553,7 @@ function render_picker_block($o, $pickerAdmins) {
       }
       $actions .= '<a class="btn" href="export_orders_pdf.php?id=' . $o['id'] . '" target="_blank">🖨 Print Shipping Label</a>';
       $actions .= '<button class="btn danger" onclick="if(confirm(\'Cancel order #' . $o['id'] . "')) setOrderStatus(" . $o['id'] . ", 'cancelled')\">✕ Cancel</button>";
-      render_order_card($o, $itemsByOrder, $colorMap, $actions, $orderStatusOptions);
+      render_order_card($o, $itemsByOrder, $colorMap, $actions, $orderStatusOptions, '', false, true);
     endforeach; ?>
   </div>
 </div>

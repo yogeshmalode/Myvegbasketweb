@@ -1,11 +1,14 @@
 <?php
 require_once __DIR__ . '/includes/auth.php';
-$page_title = 'Delivery & Route Planner';
-
-// Fetch pending orders with geocoded addresses and any assigned rider
-$orders = $pdo->query("SELECT o.id, o.customer_name, o.phone, o.address, o.address_lat, o.address_lng, o.total_amount, o.order_status, o.rider_id, o.dark_store_id, o.eta_minutes, r.name AS rider_name, ds.name AS dark_store_name FROM orders o LEFT JOIN riders r ON r.id = o.rider_id LEFT JOIN dark_stores ds ON ds.id = o.dark_store_id WHERE o.order_status IN ('placed','processing','ready_for_pickup','assigning_rider','delivery_partner_assigned','out_for_delivery','arriving_soon') ORDER BY o.created_at ASC")->fetchAll();
-$riders = $pdo->query('SELECT id, name FROM riders WHERE is_active=1 ORDER BY name')->fetchAll();
-include __DIR__ . '/includes/admin_header.php';
+// This standalone Delivery & Route Planner was merged into orders.php
+// (the Ready for Dispatch tab now has the same multi-order select + Plan
+// Route tools) so everything is trackable from one page instead of two
+// out-of-sync dashboards. It also fixes a bug where POS counter-sale
+// orders were incorrectly listed here — orders.php's Ready for Dispatch
+// tab already excludes POS orders by design. Redirect anyone with an old
+// bookmark/link.
+header('Location: orders.php');
+exit;
 ?>
 <style>
   .route-planner-shell {

@@ -20,7 +20,6 @@ $allPages = [
     'daily_procurement_dashboard.php' => 'Daily Procurement',
     'offers.php' => 'Offers',
     'deliveries.php' => 'Deliveries',
-    'delivery.php' => 'Delivery Planner',
     'dark_stores.php' => 'Dark Stores',
     'riders.php' => 'Riders',
     'scan_delivery.php' => 'Scan Delivery',

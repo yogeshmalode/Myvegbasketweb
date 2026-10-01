@@ -1,0 +1,9 @@
+# Uploaded files are images only — block any script execution here in case
+# someone manages to upload a disguised PHP file despite the extension/MIME
+# checks in admin/includes/image_upload.php.
+<IfModule mod_php.c>
+    php_flag engine off
+</IfModule>
+<FilesMatch "\.(php|php\d|phtml|phar)$">
+    Require all denied
+</FilesMatch>

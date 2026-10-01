@@ -37,10 +37,30 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $error = 'Sale price must be lower than the normal price.';
         $veg = array_merge($veg, $_POST);
     } else {
+        $removeImage = isset($_POST['remove_image']);
+        // Pass the current image path so the upload helper deletes it
+        // automatically if a replacement photo is being uploaded.
+        $upload = handle_vegetable_image_upload('image', $veg['image_path'] ?? null);
+        if ($upload['error']) {
+            $error = $upload['error'];
+            $veg = array_merge($veg, $_POST);
+        } else {
+        if ($upload['path']) {
+            $newImagePath = $upload['path']; // new photo uploaded (old one already deleted above)
+        } elseif ($removeImage) {
+            if (!empty($veg['image_path'])) {
+                $oldFull = __DIR__ . '/../' . ltrim($veg['image_path'], '/');
+                if (is_file($oldFull)) { @unlink($oldFull); }
+            }
+            $newImagePath = null;
+        } else {
+            $newImagePath = $veg['image_path'] ?? null; // unchanged
+        }
+
         try {
         $pdo->beginTransaction();
-        $stmt = $pdo->prepare("UPDATE vegetables SET name=?, name_mr=?, description=?, price=?, sale_price=?, unit=?, stock=?, supplier_name=?, cost_price=?, category=?, is_active=? WHERE id=?");
-        $stmt->execute([$name, $name_mr ?: null, $description, $price, $sale_price, $unit, $stock, $supplier_name ?: null, $cost_price, $category, $is_active, $id]);
+        $stmt = $pdo->prepare("UPDATE vegetables SET name=?, name_mr=?, description=?, price=?, sale_price=?, unit=?, stock=?, supplier_name=?, cost_price=?, category=?, is_active=?, image_path=? WHERE id=?");
+        $stmt->execute([$name, $name_mr ?: null, $description, $price, $sale_price, $unit, $stock, $supplier_name ?: null, $cost_price, $category, $is_active, $newImagePath, $id]);
 
         // Simplest way to keep variants in sync with the form: replace the
         // whole set rather than trying to diff old vs new rows.
@@ -54,9 +74,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $vStmt->execute([$id, $label, $vPrice, $order++]);
         }
 
+        $pdo->commit();
         $_SESSION['flash'] = ['type' => 'success', 'message' => "$name updated successfully."];
         redirect('dashboard.php');
         } catch (Throwable $e) { if ($pdo->inTransaction()) $pdo->rollBack(); $error = 'Could not update vegetable.'; }
+        }
     }
 }
 
@@ -74,11 +96,27 @@ include __DIR__ . '/includes/admin_header.php';
 <?php if ($error): ?><div class="alert alert-error"><?= h($error) ?></div><?php endif; ?>
 
 <div class="form-card" style="max-width:560px;">
-  <form method="post">
+  <form method="post" enctype="multipart/form-data">
     <input type="hidden" name="csrf_token" value="<?= h(csrf_token()) ?>">
     <div class="form-group">
       <label for="name">Vegetable name</label>
       <input type="text" id="name" name="name" value="<?= h($veg['name']) ?>" required>
+    </div>
+    <div class="form-group">
+      <label for="image">Product photo (optional)</label>
+      <p style="color:#5B6656; font-size:0.82rem; margin:2px 0 10px;">Browse a photo from your computer — JPG, PNG, or WEBP, up to 5 MB. Uploading a new one replaces the current photo automatically.</p>
+      <?php if (!empty($veg['image_path'])): ?>
+        <div style="margin-bottom:10px;">
+          <img src="<?= h(BASE_URL . '/' . ltrim($veg['image_path'], '/')) ?>" alt="Current photo" style="width:120px; height:120px; object-fit:contain; background:#fff; border:1px solid #D9E0CD; border-radius:10px; padding:6px;">
+          <label style="display:inline-flex; align-items:center; gap:6px; margin-left:10px; font-size:0.82rem;">
+            <input type="checkbox" name="remove_image" style="width:auto;"> Remove current photo
+          </label>
+        </div>
+      <?php endif; ?>
+      <input type="file" id="image" name="image" accept="image/jpeg,image/png,image/webp" onchange="previewVegImage(this)">
+      <div id="imagePreviewWrap" style="margin-top:10px; display:none;">
+        <img id="imagePreview" src="" alt="New photo preview" style="width:120px; height:120px; object-fit:contain; background:#fff; border:1px solid #D9E0CD; border-radius:10px; padding:6px;">
+      </div>
     </div>
     <div class="form-group">
       <label for="name_mr">Marathi name (optional)</label>
@@ -145,9 +183,10 @@ include __DIR__ . '/includes/admin_header.php';
       </div>
       <div style="display:flex; gap:10px; flex-wrap:wrap;">
         <button type="button" id="addVariantRow" class="btn" style="background:#fff; border:1px solid #E4E9DD; padding:8px 14px; font-size:0.85rem;">+ Add size option</button>
+        <button type="button" id="addStandardSizes" class="btn" style="background:#EAF6EF; border:1px solid #BEE3CE; padding:8px 14px; font-size:0.85rem;">⚡ Add standard sizes (250 g / 500 g / 1 kg)</button>
         <button type="button" id="recalcVariants" class="btn" style="background:#FFF4E5; border:1px solid #F0C989; padding:8px 14px; font-size:0.85rem;">🔄 Recalculate sizes from base price</button>
       </div>
-      <p style="color:#5B6656; font-size:0.78rem; margin-top:8px;">Changed the price above? Click "Recalculate" to scale every size option to match — e.g. if 1 kg is now ₹62, a 250 g option becomes ₹15.50 automatically.</p>
+      <p style="color:#5B6656; font-size:0.78rem; margin-top:8px;">Prices auto-recalculate whenever you change the base price or unit above — no need to click Recalculate every time.</p>
     </div>
 
     <button type="submit" class="btn btn-primary">Update Vegetable</button>
@@ -156,6 +195,17 @@ include __DIR__ . '/includes/admin_header.php';
 </div>
 
 <script>
+  function previewVegImage(input) {
+    const wrap = document.getElementById('imagePreviewWrap');
+    const img = document.getElementById('imagePreview');
+    if (input.files && input.files[0]) {
+      img.src = URL.createObjectURL(input.files[0]);
+      wrap.style.display = 'block';
+    } else {
+      wrap.style.display = 'none';
+    }
+  }
+
   function variantRowHtml(label, price) {
     return '<div style="display:flex; gap:10px; margin-bottom:8px; align-items:center;">' +
       '<input type="text" name="variant_label[]" class="variant-label-input" placeholder="e.g. 250 g" value="' + (label || '') + '" style="flex:1; padding:8px 10px; border-radius:8px; border:1px solid #D9E0CD;">' +
@@ -165,6 +215,12 @@ include __DIR__ . '/includes/admin_header.php';
   }
   document.getElementById('addVariantRow').addEventListener('click', function () {
     document.getElementById('variantRows').insertAdjacentHTML('beforeend', variantRowHtml());
+  });
+
+  // Also auto-recalculate when a size label is typed/changed (e.g. the
+  // admin adds a blank row and types "250 g" after the price is already set).
+  document.getElementById('variantRows').addEventListener('input', function (e) {
+    if (e.target.classList.contains('variant-label-input')) recalcAllVariants(true);
   });
 
   // Parses a size label like "250 g", "500g", "1 kg", "1 litre", "250 ml"
@@ -191,15 +247,23 @@ include __DIR__ . '/includes/admin_header.php';
   }
 
   document.getElementById('recalcVariants').addEventListener('click', function () {
+    recalcAllVariants(false);
+  });
+
+  // Core recalculation logic, shared by: the manual "Recalculate" button,
+  // live auto-recalc whenever price/unit changes, and the "Add standard
+  // sizes" button below. silent=true suppresses the summary alert (used
+  // for the live auto-recalc so it doesn't interrupt typing).
+  function recalcAllVariants(silent) {
     const basePrice = parseFloat(document.getElementById('price').value);
     const baseUnit = document.getElementById('unit').value;
 
     if (!basePrice || basePrice <= 0) {
-      alert('Enter a valid base price above first.');
+      if (!silent) alert('Enter a valid base price above first.');
       return;
     }
     if (!['kg', 'gram', '100g', 'litre'].includes(baseUnit)) {
-      alert('Automatic recalculation only works when the unit above is kg, gram, 100g, or litre — sizes for "' + baseUnit + '" need to be set manually.');
+      if (!silent) alert('Automatic recalculation only works when the unit above is kg, gram, 100g, or litre — sizes for "' + baseUnit + '" need to be set manually.');
       return;
     }
 
@@ -219,9 +283,34 @@ include __DIR__ . '/includes/admin_header.php';
       updated++;
     });
 
-    let msg = 'Updated ' + updated + ' size price(s) to match ₹' + basePrice.toFixed(2) + ' per ' + baseUnit + '.';
-    if (unclear.length) msg += '\n\nCouldn\'t figure out these labels, please check them manually: ' + unclear.join(', ');
-    alert(msg);
+    if (!silent) {
+      let msg = 'Updated ' + updated + ' size price(s) to match ₹' + basePrice.toFixed(2) + ' per ' + baseUnit + '.';
+      if (unclear.length) msg += '\n\nCouldn\'t figure out these labels, please check them manually: ' + unclear.join(', ');
+      alert(msg);
+    }
+  }
+
+  // Auto-recalculate pricing the moment the base price or unit changes —
+  // no manual click needed for the common case of just adjusting price.
+  document.getElementById('price').addEventListener('input', function () { recalcAllVariants(true); });
+  document.getElementById('unit').addEventListener('change', function () { recalcAllVariants(true); });
+
+  // One click to add the three most common size options with correctly
+  // scaled prices already filled in, instead of typing each one manually.
+  document.getElementById('addStandardSizes').addEventListener('click', function () {
+    const basePrice = parseFloat(document.getElementById('price').value);
+    const baseUnit = document.getElementById('unit').value;
+    if (!basePrice || basePrice <= 0) { alert('Enter a valid base price above first.'); return; }
+    if (!['kg', 'gram', '100g', 'litre'].includes(baseUnit)) {
+      alert('Standard sizes only make sense when the unit above is kg, gram, 100g, or litre.');
+      return;
+    }
+    const sizes = baseUnit === 'litre' ? ['250 ml', '500 ml', '1 litre'] : ['250 g', '500 g', '1 kg'];
+    sizes.forEach(function (label) {
+      const fraction = sizeFractionOfBaseUnit(label, baseUnit);
+      const price = fraction !== null ? (basePrice * fraction).toFixed(2) : '';
+      document.getElementById('variantRows').insertAdjacentHTML('beforeend', variantRowHtml(label, price));
+    });
   });
 </script>
 
