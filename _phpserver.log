@@ -12,3 +12,9 @@ At line:3 char:1
 [Thu Oct  1 15:59:11 2026] 127.0.0.1:64813 Accepted
 [Thu Oct  1 15:59:11 2026] 127.0.0.1:64813 [200]: GET /index.php?category=Flower
 [Thu Oct  1 15:59:11 2026] 127.0.0.1:64813 Closing
+[Thu Oct  1 16:44:55 2026] 127.0.0.1:53917 Accepted
+[Thu Oct  1 16:44:55 2026] 127.0.0.1:53917 [200]: GET /index.php
+[Thu Oct  1 16:44:55 2026] 127.0.0.1:53917 Closing
+[Thu Oct  1 16:45:31 2026] 127.0.0.1:53942 Accepted
+[Thu Oct  1 16:45:31 2026] 127.0.0.1:53942 [200]: GET /index.php?category=Flower
+[Thu Oct  1 16:45:31 2026] 127.0.0.1:53942 Closing

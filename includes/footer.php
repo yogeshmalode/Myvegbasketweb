@@ -19,6 +19,12 @@
   <small>&copy; <?= date('Y') ?> MyVegBasket. Built with PHP.</small>
 </footer>
 
+<a href="https://wa.me/<?= WHATSAPP_NUMBER ?>?text=<?= rawurlencode('Hello, I need help with my order.') ?>"
+   target="_blank" rel="noopener noreferrer" title="Chat with us on WhatsApp"
+   style="position:fixed; width:56px; height:56px; bottom:22px; right:22px; background-color:#25D366; color:#fff; border-radius:50%; display:flex; align-items:center; justify-content:center; box-shadow:2px 2px 10px rgba(0,0,0,0.3); z-index:1000; text-decoration:none; font-size:28px;">
+  💬
+</a>
+
 <script src="<?= BASE_URL ?>/assets/js/script.js"></script>
 </body>
 </html>

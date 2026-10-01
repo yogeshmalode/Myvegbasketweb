@@ -69,6 +69,7 @@ include __DIR__ . '/includes/header.php';
         <span><?= SITE_CURRENCY ?><?= number_format($grandTotal,2) ?></span>
       </div>
       <a href="<?= BASE_URL ?>/checkout.php" class="btn btn-primary btn-block" style="margin-top:14px;">Proceed to Checkout</a>
+      <a href="<?= h(cart_whatsapp_url()) ?>" target="_blank" rel="noopener noreferrer" class="btn btn-block" style="margin-top:10px; background:#25D366; color:#fff;">Order via WhatsApp</a>
     </div>
 
     <!-- Delivery charge info popup -->

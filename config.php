@@ -197,6 +197,36 @@ function cart_grand_total() {
     return $subtotal + get_delivery_charge($subtotal);
 }
 
+// ---- WhatsApp cart order link ----
+define('WHATSAPP_NUMBER', '917972381861');
+
+// Builds a readable "Item Name / Quantity / Total Price" message from the
+// current cart and returns a ready-to-use https://wa.me/... click-to-chat URL.
+function cart_whatsapp_url() {
+    $cart = $_SESSION['cart'] ?? [];
+
+    $lines = ['Hello, I would like to order the following items:', ''];
+
+    if (empty($cart)) {
+        $lines[] = 'My cart is empty.';
+    } else {
+        foreach ($cart as $item) {
+            $qty = (int)($item['qty'] ?? 0);
+            $price = (float)($item['price'] ?? 0);
+            $lineTotal = $qty * $price;
+
+            $lines[] = 'Item Name: ' . ($item['name'] ?? 'Unknown Item');
+            $lines[] = 'Quantity: ' . $qty . (!empty($item['unit']) ? ' ' . $item['unit'] : '');
+            $lines[] = 'Total Price: ' . SITE_CURRENCY . number_format($lineTotal, 2);
+            $lines[] = '--------------------';
+        }
+        $lines[] = 'Grand Total: ' . SITE_CURRENCY . number_format(cart_grand_total(), 2);
+    }
+
+    $message = implode("\n", $lines);
+    return 'https://wa.me/' . WHATSAPP_NUMBER . '?text=' . rawurlencode($message);
+}
+
 // ---- Offers / coupon codes ----
 
 // Fetches every currently-redeemable offer (active, not expired) for
