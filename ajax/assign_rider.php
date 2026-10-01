@@ -38,6 +38,9 @@ if ($auto) {
         $darkStoreId = $store['id'] ?? null;
         if ($darkStoreId) {
             $pdo->prepare('UPDATE orders SET dark_store_id = ? WHERE id = ?')->execute([$darkStoreId, $orderId]);
+            // The store was only just resolved, so the order never got a
+            // packer auto-assigned at creation time either — fix that now.
+            auto_assign_picker_for_order($pdo, $orderId, $darkStoreId);
         }
     }
     if (!$darkStoreId) { echo json_encode(['success'=>false,'error'=>'No dark store available to allocate from']); exit; }

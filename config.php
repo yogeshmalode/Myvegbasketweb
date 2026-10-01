@@ -208,13 +208,45 @@ function require_page_access($pdo, $currentPage) {
     if ($role === 'admin' || $role === null) return;
     if (in_array($currentPage, rbac_always_allowed_pages(), true)) return;
 
+    // store_procurement.php isn't gated by the normal per-role table — it's
+    // a per-user grant (admins.can_procure) combined with that user's own
+    // store being in 'independent' mode, so it needs its own check instead
+    // of a role-wide allow-list entry that every staff member would share.
+    if ($currentPage === 'store_procurement.php') {
+        if (can_access_store_procurement($pdo)) return;
+        $_SESSION['flash'] = ['type' => 'error', 'message' => 'You do not have permission to access that page.'];
+        header('Location: dashboard.php');
+        exit;
+    }
+
     $allowed = get_role_allowed_pages($pdo, $role);
     if (in_array($currentPage, $allowed, true)) return;
 
     $_SESSION['flash'] = ['type' => 'error', 'message' => 'You do not have permission to access that page.'];
     header('Location: dashboard.php');
     exit;
-}function can_manage_inventory() {
+}
+
+// True if the currently logged-in user is allowed to open
+// store_procurement.php: always true for admin (they can manage any
+// independent store via a dropdown), otherwise only true for a staff login
+// that an admin has specifically flagged can_procure = 1 AND whose assigned
+// store is itself set to procurement_mode = 'independent'.
+function can_access_store_procurement($pdo) {
+    if (admin_role() === 'admin') return true;
+    $adminId = $_SESSION['admin_id'] ?? null;
+    if (!$adminId) return false;
+    try {
+        $st = $pdo->prepare("SELECT a.can_procure, ds.procurement_mode FROM admins a
+            LEFT JOIN dark_stores ds ON ds.id = a.dark_store_id WHERE a.id = ?");
+        $st->execute([(int)$adminId]);
+        $row = $st->fetch();
+        return (bool)$row && (int)$row['can_procure'] === 1 && ($row['procurement_mode'] ?? '') === 'independent';
+    } catch (Throwable $e) {
+        return false;
+    }
+}
+function can_manage_inventory() {
     return in_array(admin_role(), ['admin','staff'], true);
 }
 function auto_sale_price($cost) {
@@ -763,6 +795,63 @@ function auto_assign_next_order_to_rider($pdo, $riderId, $excludeOrderId = null)
     }
 }
 
+// Smart Staff Allocation: as soon as a new order's dark store is known,
+// automatically hand it to whichever staff/admin member stationed at that
+// store currently has the lightest packing queue, instead of leaving it
+// in "New" for someone to manually pick from a dropdown. Mirrors
+// allocate_nearest_available_rider() but for in-store picking/packing
+// (distance doesn't matter here, only workload). "Busy" = how many orders
+// they're already holding that haven't reached a terminal state yet.
+function auto_assign_picker_for_order($pdo, $orderId, $darkStoreId) {
+    $orderId = (int)$orderId;
+    if ($orderId <= 0) return null;
+
+    try {
+        $candidates = [];
+        if (!empty($darkStoreId)) {
+            $st = $pdo->prepare("SELECT id, username FROM admins WHERE role IN ('admin','staff') AND dark_store_id = ?");
+            $st->execute([(int)$darkStoreId]);
+            $candidates = $st->fetchAll();
+        }
+        // No staff dedicated to this particular store (or the store itself
+        // couldn't be resolved) — fall back to head-office staff who aren't
+        // tied to any single store, rather than leaving the order unpacked.
+        if (!$candidates) {
+            $candidates = $pdo->query("SELECT id, username FROM admins WHERE role IN ('admin','staff') AND dark_store_id IS NULL")->fetchAll();
+        }
+        if (!$candidates) return null;
+
+        $ids = array_map('intval', array_column($candidates, 'id'));
+        $idPlaceholders = implode(',', array_fill(0, count($ids), '?'));
+        $activeStatuses = ['pending', 'placed', 'processing', 'ready_for_pickup', 'assigning_rider', 'delivery_partner_assigned', 'out_for_delivery', 'arriving_soon'];
+        $statusPlaceholders = implode(',', array_fill(0, count($activeStatuses), '?'));
+        $countSt = $pdo->prepare("SELECT assigned_picker_id, COUNT(*) AS cnt FROM orders
+            WHERE assigned_picker_id IN ($idPlaceholders) AND order_status IN ($statusPlaceholders) AND id != ?
+            GROUP BY assigned_picker_id");
+        $countSt->execute(array_merge($ids, $activeStatuses, [$orderId]));
+        $loadMap = [];
+        foreach ($countSt->fetchAll() as $row) {
+            $loadMap[(int)$row['assigned_picker_id']] = (int)$row['cnt'];
+        }
+
+        $best = null;
+        $bestLoad = null;
+        foreach ($candidates as $c) {
+            $load = $loadMap[(int)$c['id']] ?? 0;
+            if ($best === null || $load < $bestLoad) {
+                $best = $c;
+                $bestLoad = $load;
+            }
+        }
+        if (!$best) return null;
+
+        $pdo->prepare("UPDATE orders SET assigned_picker_id = ? WHERE id = ?")->execute([(int)$best['id'], $orderId]);
+        return $best;
+    } catch (PDOException $e) {
+        return null;
+    }
+}
+
 // 10-Minute ETA Calculator: Store Packing time (fixed ~2-3 min band,
 // defaults to the midpoint) + Transit time (store -> customer distance at
 // an average urban speed of 25 km/h).
@@ -873,6 +962,15 @@ function ensure_management_schema($pdo) {
             // admin, and also the default for staff/delivery on older
             // single-store installs so nothing breaks on upgrade.
             $pdo->exec("ALTER TABLE admins ADD COLUMN dark_store_id INT DEFAULT NULL");
+        }
+        if ($hasTable('admins') && !$hasColumn('admins', 'can_procure')) {
+            // Independent-store franchise right: admin grants this to ONE
+            // specific staff login (the store's owner/manager) so only they
+            // — not every staff member assigned to that store — can open
+            // store_procurement.php and buy stock for it. Meaningless unless
+            // their dark_store_id also points at a procurement_mode =
+            // 'independent' store (checked in can_access_store_procurement()).
+            $pdo->exec("ALTER TABLE admins ADD COLUMN can_procure TINYINT(1) NOT NULL DEFAULT 0");
         }
 
         // ---- Role-Based Access Control: which admin/*.php pages each
@@ -1089,6 +1187,16 @@ function ensure_management_schema($pdo) {
             // config so behaviour is unchanged on first run after upgrade.
             $seedStore = $pdo->prepare("INSERT INTO dark_stores (name, lat, lng, service_radius_km, is_active) VALUES (?, ?, ?, 5, 1)");
             $seedStore->execute([STORE_NAME, STORE_LAT, STORE_LNG]);
+        }
+        if ($hasTable('dark_stores') && !$hasColumn('dark_stores', 'procurement_mode')) {
+            // 'centralized' (default): this store only ever receives stock
+            // via admin's Stock Transfer — matches every existing store's
+            // current behaviour exactly, nothing changes for them.
+            // 'independent': this store runs its own franchise-style
+            // procurement instead — its designated owner (admins.can_procure
+            // = 1) buys stock directly into this store via
+            // store_procurement.php, completely bypassing the central pool.
+            $pdo->exec("ALTER TABLE dark_stores ADD COLUMN procurement_mode ENUM('centralized','independent') NOT NULL DEFAULT 'centralized'");
         }
 
         // Per-store stock for products set to stock_mode='per_store' above.

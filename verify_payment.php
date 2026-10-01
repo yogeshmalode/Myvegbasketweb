@@ -104,6 +104,10 @@ try {
 // dark_store_id/eta_minutes/address_lat/address_lng were already resolved
 // and saved above — no need to call dispatch_order_to_dark_store() here too.
 
+// Hand this order to the least-busy packer at the resolved store right
+// away, instead of making an admin pick someone from a dropdown manually.
+auto_assign_picker_for_order($pdo, $orderId, $darkStoreId);
+
 // Clear the cart now that the order is placed
 unset($_SESSION['cart'], $_SESSION['pending_razorpay_order_id']);
 

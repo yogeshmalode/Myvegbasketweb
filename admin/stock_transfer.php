@@ -5,7 +5,7 @@ $page_title = 'Stock Transfer';
 $flash = $_SESSION['flash'] ?? null;
 unset($_SESSION['flash']);
 
-$allStores = $pdo->query("SELECT id, name FROM dark_stores WHERE is_active = 1 ORDER BY name")->fetchAll();
+$allStores = $pdo->query("SELECT id, name FROM dark_stores WHERE is_active = 1 AND procurement_mode = 'centralized' ORDER BY name")->fetchAll();
 
 // Only per_store products ever need a transfer — shared products are already
 // visible to every store from the same central number, nothing to move.
@@ -29,6 +29,15 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $mode = $modeSt->fetchColumn();
             if ($mode !== 'per_store') {
                 throw new Exception('This product is in Shared mode — all stores already use the same stock number, no transfer needed.');
+            }
+
+            // Guard against a tampered form posting an independent store's
+            // id directly — that store manages its own stock on Store
+            // Procurement and should never receive a silent central push.
+            $modeCheckSt = $pdo->prepare("SELECT procurement_mode FROM dark_stores WHERE id = ?");
+            $modeCheckSt->execute([$storeId]);
+            if ($modeCheckSt->fetchColumn() !== 'centralized') {
+                throw new Exception('That store is set to Independent procurement — it manages its own stock and cannot receive a central transfer.');
             }
 
             // Pull out of the central pool first; this fails (returns false)

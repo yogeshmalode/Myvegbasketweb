@@ -304,11 +304,15 @@ $vegetables = $pdo->query("SELECT v.*, COALESCE(od.active_order_qty, 0) AS activ
 
 // For per_store products, "available stock" to cover demand is both what's
 // still sitting in the central pool (not yet sent to any store) AND what's
-// already been transferred out to stores — all of it was already bought,
-// just not necessarily sold yet.
+// already been transferred out to centralized-mode stores — all of it was
+// already bought by central, just not necessarily sold yet. Independent
+// stores are deliberately excluded here: they buy their own stock on Store
+// Procurement, so their numbers aren't central's responsibility to cover.
 foreach ($vegetables as &$veg) {
     if ($veg['stock_mode'] === 'per_store') {
-        $distSt = $pdo->prepare("SELECT COALESCE(SUM(stock),0) FROM store_inventory WHERE vegetable_id = ?");
+        $distSt = $pdo->prepare("SELECT COALESCE(SUM(si.stock),0) FROM store_inventory si
+            JOIN dark_stores ds ON ds.id = si.dark_store_id
+            WHERE si.vegetable_id = ? AND ds.procurement_mode = 'centralized'");
         $distSt->execute([$veg['id']]);
         $distributed = (float)$distSt->fetchColumn();
         $total = (float)$veg['stock'] + $distributed;

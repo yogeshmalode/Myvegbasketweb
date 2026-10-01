@@ -36,16 +36,27 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['update_store'])) {
     exit;
 }
 
-$q = $pdo->prepare("SELECT a.id, a.username, a.role, a.dark_store_id, a.created_at, ds.name AS store_name
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['toggle_can_procure'])) {
+    require_csrf();
+    $userId = (int)($_POST['user_id'] ?? 0);
+    if ($userId > 0) {
+        $pdo->prepare("UPDATE admins SET can_procure = 1 - can_procure WHERE id = ?")->execute([$userId]);
+        $_SESSION['flash'] = ['type' => 'success', 'message' => 'Independent procurement right updated.'];
+    }
+    header('Location: users.php');
+    exit;
+}
+
+$q = $pdo->prepare("SELECT a.id, a.username, a.role, a.dark_store_id, a.can_procure, a.created_at, ds.name AS store_name, ds.procurement_mode
     FROM admins a LEFT JOIN dark_stores ds ON ds.id = a.dark_store_id ORDER BY a.id");
 $q->execute();
 $users = $q->fetchAll();
-$stores = $pdo->query("SELECT id, name FROM dark_stores WHERE is_active = 1 ORDER BY name")->fetchAll();
+$stores = $pdo->query("SELECT id, name, procurement_mode FROM dark_stores WHERE is_active = 1 ORDER BY name")->fetchAll();
 $flash = $_SESSION['flash'] ?? null;
 unset($_SESSION['flash']);
 include __DIR__ . '/includes/admin_header.php';
 ?>
-<div class="section-head" style="text-align:left;margin-top:0"><h2 style="display:block">Staff &amp; Admin Users</h2><p>Create separate accounts instead of sharing the admin password. Staff/Delivery accounts can be tied to one store so they only see that store's orders, billing, and inventory — Admin accounts always see every store.</p></div>
+<div class="section-head" style="text-align:left;margin-top:0"><h2 style="display:block">Staff &amp; Admin Users</h2><p>Create separate accounts instead of sharing the admin password. Staff/Delivery accounts can be tied to one store so they only see that store's orders, billing, and inventory — Admin accounts always see every store. If a staff member's store is set to "Independent" (Stores page), you can additionally grant them <strong>Can Procure</strong> rights so they alone can buy stock for that store directly on the Store Procurement page.</p></div>
 <?php if ($flash): ?><div class="alert alert-<?= h($flash['type']) ?>"><?= h($flash['message']) ?></div><?php endif; ?>
 <div class="form-card" style="max-width:560px">
   <form method="post">
@@ -66,7 +77,7 @@ include __DIR__ . '/includes/admin_header.php';
       <select name="dark_store_id">
         <option value="">All stores (not restricted)</option>
         <?php foreach ($stores as $s): ?>
-          <option value="<?= $s['id'] ?>"><?= h($s['name']) ?></option>
+          <option value="<?= $s['id'] ?>"><?= h($s['name']) ?><?= $s['procurement_mode'] === 'independent' ? ' (Independent)' : '' ?></option>
         <?php endforeach; ?>
       </select>
     </div>
@@ -75,7 +86,7 @@ include __DIR__ . '/includes/admin_header.php';
 </div>
 <div class="table-wrap" style="margin-top:25px">
   <table>
-    <tr><th>Username</th><th>Role</th><th>Store</th><th>Created</th></tr>
+    <tr><th>Username</th><th>Role</th><th>Store</th><th>Can Procure</th><th>Created</th></tr>
     <?php foreach ($users as $u): ?>
       <tr>
         <td><?= h($u['username']) ?></td>
@@ -91,10 +102,24 @@ include __DIR__ . '/includes/admin_header.php';
               <select name="dark_store_id" style="padding:4px 6px;">
                 <option value="">All stores</option>
                 <?php foreach ($stores as $s): ?>
-                  <option value="<?= $s['id'] ?>" <?= (int)$u['dark_store_id'] === (int)$s['id'] ? 'selected' : '' ?>><?= h($s['name']) ?></option>
+                  <option value="<?= $s['id'] ?>" <?= (int)$u['dark_store_id'] === (int)$s['id'] ? 'selected' : '' ?>><?= h($s['name']) ?><?= $s['procurement_mode'] === 'independent' ? ' (Independent)' : '' ?></option>
                 <?php endforeach; ?>
               </select>
               <button class="btn" style="padding:4px 10px; font-size:0.78rem;">Save</button>
+            </form>
+          <?php endif; ?>
+        </td>
+        <td>
+          <?php if ($u['role'] === 'admin'): ?>
+            <span style="color:#5B6656;">—</span>
+          <?php elseif ($u['procurement_mode'] !== 'independent'): ?>
+            <span style="color:#5B6656;" title="Only meaningful when this user's store is set to Independent mode">Store not independent</span>
+          <?php else: ?>
+            <form method="post" style="display:inline;">
+              <input type="hidden" name="csrf_token" value="<?= h(csrf_token()) ?>">
+              <input type="hidden" name="toggle_can_procure" value="1">
+              <input type="hidden" name="user_id" value="<?= $u['id'] ?>">
+              <button class="btn" style="padding:4px 10px; font-size:0.78rem; <?= $u['can_procure'] ? 'background:#DCEEDB;color:#1F4D36;' : '' ?>"><?= $u['can_procure'] ? '✅ Granted' : 'Grant' ?></button>
             </form>
           <?php endif; ?>
         </td>

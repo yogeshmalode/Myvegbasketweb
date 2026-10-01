@@ -62,6 +62,7 @@ $current_page = basename($_SERVER['PHP_SELF']);
         ['procurement.php','🧾','Procurement'],
         ['daily_procurement_dashboard.php','📈','Daily Procurement'],
         ['stock_transfer.php','🚛','Stock Transfer'],
+        ['store_procurement.php','🏪','Store Procurement'],
         ['reports.php','▥','Reports (P&L)'],
       ],
       'Administration' => [
@@ -71,7 +72,12 @@ $current_page = basename($_SERVER['PHP_SELF']);
     ];
     $roleAllowedPages = is_admin_role() ? null : get_role_allowed_pages($pdo, admin_role());
     foreach ($navGroups as $groupLabel => $items):
-      $visibleItems = array_filter($items, function($item) use ($roleAllowedPages) {
+      $visibleItems = array_filter($items, function($item) use ($roleAllowedPages, $pdo) {
+        // Store Procurement is a per-user grant (admins.can_procure + the
+        // user's own store being Independent), not a role-wide permission —
+        // it gets its own check instead of the role_page_permissions list.
+        if ($item[0] === 'store_procurement.php') return can_access_store_procurement($pdo);
+
         // Buying/distribution is a central, admin-only job under the
         // centralized-procurement model — never show these to staff/delivery
         // even if role_page_permissions were ever edited to include them.

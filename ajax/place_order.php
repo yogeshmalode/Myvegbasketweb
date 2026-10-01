@@ -152,6 +152,10 @@ try {
 // and saved above, so there's no need to call dispatch_order_to_dark_store()
 // here too — doing so would just re-geocode the same address a second time.
 
+// Hand this order to the least-busy packer at the resolved store right
+// away, instead of making an admin pick someone from a dropdown manually.
+auto_assign_picker_for_order($pdo, $orderId, $darkStoreId);
+
 // The coupon (if any) has now been spent on this order — clear it so it
 // doesn't silently carry over onto whatever the person orders next.
 unset($_SESSION['applied_coupon_code']);

@@ -27,14 +27,24 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['toggle_store'])) {
     redirect('dark_stores.php');
 }
 
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['toggle_procurement_mode'])) {
+    require_csrf();
+    $id = (int)($_POST['store_id'] ?? 0);
+    if ($id > 0) {
+        $pdo->prepare("UPDATE dark_stores SET procurement_mode = IF(procurement_mode = 'independent', 'centralized', 'independent') WHERE id = ?")->execute([$id]);
+        $_SESSION['flash'] = ['type' => 'success', 'message' => 'Procurement mode updated.'];
+    }
+    redirect('dark_stores.php');
+}
+
 $stores = $pdo->query('SELECT ds.*, (SELECT COUNT(*) FROM riders r WHERE r.dark_store_id = ds.id) AS rider_count FROM dark_stores ds ORDER BY ds.name')->fetchAll();
 include __DIR__ . '/includes/admin_header.php';
 ?>
-<div class="section-head"><h2>Stores</h2><p>Your physical store/fulfilment locations. Orders are auto-assigned to whichever active store is geographically closest, riders are allocated per store, and each store can have its own staff logins (Users page) and independently-tracked stock for products set to "Per-Store" mode (Add/Edit Vegetable page).</p></div>
+<div class="section-head"><h2>Stores</h2><p>Your physical store/fulfilment locations. Orders are auto-assigned to whichever active store is geographically closest, riders are allocated per store, and each store can have its own staff logins (Users page) and independently-tracked stock for products set to "Per-Store" mode (Add/Edit Vegetable page). A store's <strong>Procurement Mode</strong> controls how it gets stock: <strong>Centralized</strong> (default) only ever receives stock via admin's Stock Transfer page; <strong>Independent</strong> lets its designated owner buy stock directly for that store alone on the Store Procurement page (Users page → "Can Procure").</p></div>
 <?php if(!empty($_SESSION['flash'])){ echo '<div class="alert alert-'.h($_SESSION['flash']['type']).'">'.h($_SESSION['flash']['message']).'</div>'; unset($_SESSION['flash']); } ?>
 <div style="display:flex; gap:20px; align-items:flex-start;">
   <div style="flex:1;">
-    <div class="table-wrap"><table><thead><tr><th>#</th><th>Name</th><th>Lat</th><th>Lng</th><th>Service Radius (km)</th><th>Riders</th><th>Active</th><th></th></tr></thead><tbody>
+    <div class="table-wrap"><table><thead><tr><th>#</th><th>Name</th><th>Lat</th><th>Lng</th><th>Service Radius (km)</th><th>Riders</th><th>Active</th><th>Procurement Mode</th><th></th></tr></thead><tbody>
       <?php foreach($stores as $s): ?>
         <tr>
           <td><?= $s['id'] ?></td>
@@ -45,15 +55,26 @@ include __DIR__ . '/includes/admin_header.php';
           <td><?= (int)$s['rider_count'] ?></td>
           <td><?= $s['is_active'] ? 'Yes' : 'No' ?></td>
           <td>
+            <span class="badge-soft <?= $s['procurement_mode'] === 'independent' ? 'warning' : 'info' ?>" style="display:inline-block; padding:4px 10px; border-radius:999px; font-size:0.72rem; font-weight:700; <?= $s['procurement_mode'] === 'independent' ? 'background:#fff4dc;color:#aa6b00;' : 'background:#edf3ff;color:#1457d6;' ?>">
+              <?= $s['procurement_mode'] === 'independent' ? 'Independent' : 'Centralized' ?>
+            </span>
+          </td>
+          <td>
             <form method="post" style="display:inline;">
               <input type="hidden" name="csrf_token" value="<?= h(csrf_token()) ?>">
               <input type="hidden" name="toggle_store" value="1">
               <input type="hidden" name="store_id" value="<?= $s['id'] ?>">
               <button class="btn"><?= $s['is_active'] ? 'Deactivate' : 'Activate' ?></button>
             </form>
+            <form method="post" style="display:inline;" onsubmit="return confirm('<?= $s['procurement_mode'] === 'independent' ? 'Switch this store back to centralized buying (its owner loses independent procurement access)?' : 'Make this store independent (its designated owner can then buy stock for it directly, outside the central pool)?' ?>');">
+              <input type="hidden" name="csrf_token" value="<?= h(csrf_token()) ?>">
+              <input type="hidden" name="toggle_procurement_mode" value="1">
+              <input type="hidden" name="store_id" value="<?= $s['id'] ?>">
+              <button class="btn"><?= $s['procurement_mode'] === 'independent' ? 'Make Centralized' : 'Make Independent' ?></button>
+            </form>
           </td>
         </tr>
-      <?php endforeach; if(empty($stores)) echo '<tr><td colspan="8" style="text-align:center;color:#5B6656;">No dark stores yet.</td></tr>'; ?>
+      <?php endforeach; if(empty($stores)) echo '<tr><td colspan="9" style="text-align:center;color:#5B6656;">No dark stores yet.</td></tr>'; ?>
     </tbody></table></div>
   </div>
   <aside style="width:340px;"><div class="form-card"><h3>Add dark store</h3>

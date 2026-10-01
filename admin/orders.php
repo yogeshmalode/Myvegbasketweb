@@ -467,6 +467,11 @@ function render_order_card($o, $itemsByOrder, $colorMap, $actionsHtml, $orderSta
       <?php if (!empty($o['rider_name'])): ?>
         <div class="order-card-sub">🛵 <?= h($o['rider_name']) ?><?= $o['rider_phone'] ? ' · <a href="tel:' . h($o['rider_phone']) . '">📞 Call</a>' : '' ?></div>
       <?php endif; ?>
+      <?php if (!empty($o['dark_store_name'])): ?>
+        <div class="order-card-sub">🏬 <?= h($o['dark_store_name']) ?></div>
+      <?php else: ?>
+        <div class="order-card-sub" style="color:#b35c00;">🏬 Store not auto-assigned yet</div>
+      <?php endif; ?>
       <span class="order-card-badge" style="<?= status_color_style($status, $colorMap) ?>"><?= h($orderStatusOptions[$status] ?? ucfirst($status)) ?></span>
       <?php if (!empty($itemsByOrder[$o['id']])): ?>
         <details class="order-card-items">
@@ -595,20 +600,21 @@ function render_picker_block($o, $pickerAdmins) {
   <div class="table-wrap">
     <table class="orders-table" id="completed-table">
       <thead>
-        <tr><th>#</th><th>Customer</th><th>Delivered</th><th>Total</th><th>Invoice</th></tr>
+        <tr><th>#</th><th>Customer</th><th>Store</th><th>Delivered</th><th>Total</th><th>Invoice</th></tr>
       </thead>
       <tbody>
         <?php foreach ($tabs['completed']['orders'] as $o): ?>
           <tr data-search="<?= h(strtolower('#' . $o['id'] . ' ' . $o['customer_name'])) ?>">
             <td><?= $o['id'] ?></td>
             <td><?= h($o['customer_name']) ?><br><small style="color:#5B6656;"><?= h($o['email']) ?></small></td>
+            <td><?= h($o['dark_store_name'] ?? '—') ?></td>
             <td><?= $o['delivered_at'] ? format_ist($o['delivered_at'], 'd M Y, h:i A') : '—' ?></td>
             <td>₹<?= number_format($o['total_amount'], 2) ?></td>
             <td><a class="btn" href="export_orders_pdf.php?id=<?= $o['id'] ?>" target="_blank">⬇ Invoice</a></td>
           </tr>
         <?php endforeach; ?>
         <?php if (empty($tabs['completed']['orders'])): ?>
-          <tr><td colspan="5" style="text-align:center; color:#5B6656;">No completed orders yet.</td></tr>
+          <tr><td colspan="6" style="text-align:center; color:#5B6656;">No completed orders yet.</td></tr>
         <?php endif; ?>
       </tbody>
     </table>
@@ -629,6 +635,9 @@ function render_picker_block($o, $pickerAdmins) {
         </div>
         <div class="order-card-customer"><?= h($o['customer_name']) ?></div>
         <div class="order-card-sub">📞 <?= h($o['phone']) ?></div>
+        <?php if (!empty($o['dark_store_name'])): ?>
+          <div class="order-card-sub">🏬 <?= h($o['dark_store_name']) ?></div>
+        <?php endif; ?>
         <span class="order-card-badge" style="<?= status_color_style(normalize_order_status($o['order_status']) === 'cancelled' ? 'cancelled' : 'failed', $colorMap) ?>">
           <?= normalize_order_status($o['order_status']) === 'cancelled' ? 'Cancelled' : 'Payment Failed' ?>
         </span>
