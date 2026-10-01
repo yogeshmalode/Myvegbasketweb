@@ -65,6 +65,10 @@ try {
         $pdo->prepare("UPDATE orders SET rider_id = NULL, order_status = 'ready_for_pickup', updated_at = NOW() WHERE id = ?")->execute([$orderId]);
         $pdo->prepare("UPDATE riders SET availability_status = 'available' WHERE id = ?")->execute([$riderId]);
         $pdo->commit();
+        // The rider is free again — immediately hand them the next queued
+        // order at their dark store instead of leaving them idle until an
+        // admin manually clicks Auto-Assign.
+        auto_assign_next_order_to_rider($pdo, $riderId, $orderId);
         echo json_encode(['success' => true, 'status' => 'ready_for_pickup', 'retry_assignment' => true]);
         exit;
     }
@@ -104,6 +108,9 @@ try {
         $ins = $pdo->prepare('INSERT INTO delivery_confirmations (order_id, rider_id, confirmed_by, method, note) VALUES (?, ?, ?, ?, ?)');
         $ins->execute([$orderId, $riderId, $rider['name'] ?? 'Rider', 'rider_app', 'Delivered from rider dashboard']);
         $pdo->commit();
+        // Rider just finished a delivery and is free — pull them straight
+        // into the next waiting order at their dark store automatically.
+        auto_assign_next_order_to_rider($pdo, $riderId);
         echo json_encode(['success' => true, 'status' => 'delivered']);
         exit;
     }

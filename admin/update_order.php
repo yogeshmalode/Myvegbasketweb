@@ -40,6 +40,9 @@ if ($id && $type === 'payment' && in_array($value, $allowedPaymentValues, true))
             $stmt->execute($params);
             if (in_array($normalized, ['delivered', 'cancelled'], true) && !empty($order['rider_id'])) {
                 $pdo->prepare("UPDATE riders SET availability_status = 'available' WHERE id = ?")->execute([(int)$order['rider_id']]);
+                // Rider just freed up — immediately hand them the next
+                // queued order at their dark store automatically.
+                auto_assign_next_order_to_rider($pdo, (int)$order['rider_id']);
             }
             $_SESSION['flash'] = ['type' => 'success', 'message' => "Order #$id status set to " . str_replace('_', ' ', $normalized) . "."];
             $ok = true;

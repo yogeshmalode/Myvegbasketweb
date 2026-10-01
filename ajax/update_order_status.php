@@ -49,11 +49,20 @@ try {
     $st = $pdo->prepare('UPDATE orders SET ' . implode(', ', $updateFields) . ' WHERE id = ?');
     $st->execute($params);
 
+    $freedRiderId = null;
     if (in_array($status, ['delivered', 'cancelled'], true) && !empty($order['rider_id'])) {
         $pdo->prepare("UPDATE riders SET availability_status = 'available' WHERE id = ?")->execute([(int)$order['rider_id']]);
+        $freedRiderId = (int)$order['rider_id'];
     }
 
     $pdo->commit();
+
+    // The rider is free again — immediately hand them the next queued
+    // order at their dark store instead of leaving them idle until an
+    // admin manually clicks Auto-Assign.
+    if ($freedRiderId) {
+        auto_assign_next_order_to_rider($pdo, $freedRiderId);
+    }
 
     if (in_array($status, ['processing', 'ready_for_pickup', 'assigning_rider', 'delivery_partner_assigned', 'out_for_delivery', 'arriving_soon', 'delivered'], true)) {
         send_order_alert("Order #$id status: $status", ["Order #$id changed from $currentStatus to $status."]);

@@ -70,6 +70,11 @@ try {
         $pdo->prepare("UPDATE riders SET availability_status = 'busy' WHERE id = ?")->execute([$riderId]);
     }
     $pdo->commit();
+    // The previous rider is free again — immediately hand them the next
+    // queued order at their dark store instead of leaving them idle.
+    if ($previousRiderId && $previousRiderId !== $riderId) {
+        auto_assign_next_order_to_rider($pdo, $previousRiderId);
+    }
     send_order_alert("Order #$orderId rider assigned", ["Order #$orderId was assigned to rider #$riderId and is waiting for pickup confirmation."]);
     echo json_encode(['success'=>true, 'rider_id' => $riderId, 'status' => 'delivery_partner_assigned']);
 } catch (Exception $e) {

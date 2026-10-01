@@ -8,6 +8,7 @@
       <sourceFolder url="file://$MODULE_DIR$/vegbaskets/system" isTestSource="false" packagePrefix="CodeIgniter\" />
       <sourceFolder url="file://$MODULE_DIR$/vegbaskets/tests/system" isTestSource="true" packagePrefix="CodeIgniter\" />
       <sourceFolder url="file://$MODULE_DIR$/vegbaskets/utils" isTestSource="true" packagePrefix="Utils\" />
+      <sourceFolder url="file://$MODULE_DIR$/lib" isTestSource="false" packagePrefix="PHPMailer" />
       <excludeFolder url="file://$MODULE_DIR$/vegbaskets/vendor/codeigniter/coding-standard" />
       <excludeFolder url="file://$MODULE_DIR$/vegbaskets/vendor/composer" />
       <excludeFolder url="file://$MODULE_DIR$/vegbaskets/vendor/doctrine/annotations" />

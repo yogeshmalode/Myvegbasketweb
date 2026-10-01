@@ -8,7 +8,7 @@ define('DB_HOST', 'localhost');
 define('DB_NAME', 'u437666696_Vegbasket');
 define('DB_USER', 'u437666696_yogesh');
 define('DB_PASS', 'Python@9753');
-//define('DB_NAME', 'vegbasket');
+//define('DB_NAME', 'vegbasket_test');
 //define('DB_USER', 'root');
 //define('DB_PASS', '');
 
@@ -547,6 +547,80 @@ function allocate_nearest_available_rider($pdo, $darkStoreId) {
 
     $best['distance_km'] = round($bestDistanceKm, 3);
     return $best;
+}
+
+// Called right after a rider is freed back to 'available' (order delivered,
+// cancelled, or rejected by the rider). Instead of leaving the rider idle
+// until an admin manually clicks Auto-Assign again, immediately try to hand
+// them the oldest order still waiting in "Ready for Dispatch" at their own
+// dark store — this is what makes the queue drain on its own instead of
+// piling up in the Ready for Dispatch tab.
+function auto_assign_next_order_to_rider($pdo, $riderId, $excludeOrderId = null) {
+    $riderId = (int)$riderId;
+    if ($riderId <= 0) return null;
+
+    try {
+        $riderSt = $pdo->prepare("SELECT id, is_active, availability_status, dark_store_id FROM riders WHERE id = ?");
+        $riderSt->execute([$riderId]);
+        $rider = $riderSt->fetch();
+    } catch (PDOException $e) {
+        return null;
+    }
+    if (!$rider || !$rider['is_active'] || $rider['availability_status'] !== 'available' || empty($rider['dark_store_id'])) {
+        return null;
+    }
+
+    try {
+        $sql = "
+            SELECT id, address_lat, address_lng, dark_store_id, order_status
+            FROM orders
+            WHERE dark_store_id = ?
+              AND order_status IN ('ready_for_pickup', 'assigning_rider')
+              AND rider_id IS NULL
+        ";
+        $params = [$rider['dark_store_id']];
+        if ($excludeOrderId) {
+            $sql .= " AND id != ?";
+            $params[] = (int)$excludeOrderId;
+        }
+        $sql .= " ORDER BY created_at ASC LIMIT 1";
+        $orderSt = $pdo->prepare($sql);
+        $orderSt->execute($params);
+        $order = $orderSt->fetch();
+    } catch (PDOException $e) {
+        return null;
+    }
+    if (!$order) return null;
+
+    try {
+        $pdo->beginTransaction();
+        // Re-check the order hasn't been grabbed by someone else and the
+        // rider hasn't gone busy in the meantime (two riders freeing up at
+        // once, or an admin manually assigning, could both race here).
+        $lockOrder = $pdo->prepare("SELECT id, rider_id, order_status FROM orders WHERE id = ? FOR UPDATE");
+        $lockOrder->execute([$order['id']]);
+        $freshOrder = $lockOrder->fetch();
+        $lockRider = $pdo->prepare("SELECT id, availability_status FROM riders WHERE id = ? FOR UPDATE");
+        $lockRider->execute([$riderId]);
+        $freshRider = $lockRider->fetch();
+
+        if (!$freshOrder || !empty($freshOrder['rider_id']) || !in_array($freshOrder['order_status'], ['ready_for_pickup', 'assigning_rider'], true)
+            || !$freshRider || $freshRider['availability_status'] !== 'available') {
+            $pdo->rollBack();
+            return null;
+        }
+
+        $pdo->prepare("UPDATE orders SET rider_id = ?, order_status = 'delivery_partner_assigned', updated_at = NOW() WHERE id = ?")
+            ->execute([$riderId, $order['id']]);
+        $pdo->prepare("UPDATE riders SET availability_status = 'busy' WHERE id = ?")->execute([$riderId]);
+        $pdo->commit();
+
+        send_order_alert("Order #{$order['id']} rider assigned", ["Order #{$order['id']} was auto-assigned to rider #$riderId as soon as they became available."]);
+        return $order['id'];
+    } catch (Exception $e) {
+        if ($pdo->inTransaction()) $pdo->rollBack();
+        return null;
+    }
 }
 
 // 10-Minute ETA Calculator: Store Packing time (fixed ~2-3 min band,
