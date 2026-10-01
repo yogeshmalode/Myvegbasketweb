@@ -1,0 +1,14 @@
+﻿php : [Thu Oct  1 15:45:51 2026] PHP Warning:  Module "mysqli" is already loaded in Unknown on line 0
+At line:3 char:1
++ php -S 127.0.0.1:8088 2>&1 | Out-File -FilePath "C:\Users\yoges\Phpst ...
++ ~~~~~~~~~~~~~~~~~~~~~~~~~~
+    + CategoryInfo          : NotSpecified: ([Thu Oct  1 15:...known on line 0:String) [], RemoteException
+    + FullyQualifiedErrorId : NativeCommandError
+ 
+[Thu Oct  1 15:45:51 2026] PHP 8.1.5 Development Server (http://127.0.0.1:8088) started
+[Thu Oct  1 15:46:00 2026] 127.0.0.1:51879 Accepted
+[Thu Oct  1 15:46:00 2026] 127.0.0.1:51879 [200]: GET /index.php
+[Thu Oct  1 15:46:00 2026] 127.0.0.1:51879 Closing
+[Thu Oct  1 15:59:11 2026] 127.0.0.1:64813 Accepted
+[Thu Oct  1 15:59:11 2026] 127.0.0.1:64813 [200]: GET /index.php?category=Flower
+[Thu Oct  1 15:59:11 2026] 127.0.0.1:64813 Closing
