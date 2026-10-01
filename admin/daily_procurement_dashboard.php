@@ -1,21 +1,12 @@
 <?php
 require_once __DIR__ . '/includes/auth.php';
+require_role('admin');
 $page_title = 'Daily Procurement & Pricing Dashboard';
 
-// Same per-store context pattern as billing.php/wastage.php: a restricted
-// staff login always receives inward stock into their own store; an
-// unrestricted admin can switch which store this delivery is for
-// (remembered in session) so per_store products land in the right pool.
+// Centralized buying model: admin always buys into the shared/central pool.
+// Stock only ever reaches a specific store via an explicit Stock Transfer
+// (stock_transfer.php) — see that page for the central -> store move.
 $allStores = $pdo->query("SELECT id, name FROM dark_stores WHERE is_active = 1 ORDER BY name")->fetchAll();
-if (isset($_GET['set_store']) && session_store_id() === null) {
-    $_SESSION['procurement_store_id'] = (int)$_GET['set_store'] ?: null;
-    header('Location: daily_procurement_dashboard.php');
-    exit;
-}
-$procStoreId = session_store_id();
-if ($procStoreId === null) {
-    $procStoreId = $_SESSION['procurement_store_id'] ?? (isset($allStores[0]) ? (int)$allStores[0]['id'] : null);
-}
 
 function read_xlsx_simple($filepath) {
     if (!class_exists('ZipArchive')) return null;
@@ -191,7 +182,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                         $sourceType = 'mandi';
                     }
 
-                    $stmt = $pdo->prepare("INSERT INTO procurement_inward (vegetable_id, source_type, source_name, purchase_date, raw_weight_kg, usable_weight_kg, wastage_kg, mandi_rate_per_kg, total_cost, notes, dark_store_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)");
+                    $stmt = $pdo->prepare("INSERT INTO procurement_inward (vegetable_id, source_type, source_name, purchase_date, raw_weight_kg, usable_weight_kg, wastage_kg, mandi_rate_per_kg, total_cost, notes) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)");
                     $stmt->execute([
                         $vegId,
                         $sourceType,
@@ -203,10 +194,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                         $rate,
                         $usable * $rate,
                         trim((string)($data['notes'] ?? '')) ?: null,
-                        $procStoreId,
                     ]);
 
-                    apply_stock_delta($pdo, $vegId, $usable, $procStoreId);
+                    // Buying always lands in the central pool — a store only
+                    // gets stock via an explicit Stock Transfer afterwards.
+                    apply_stock_delta($pdo, $vegId, $usable, null);
 
                     if ($sellingPrice > 0) {
                         $pdo->prepare("UPDATE vegetables SET sale_price = ?, price = ? WHERE id = ?")->execute([$sellingPrice, $sellingPrice, $vegId]);
@@ -245,7 +237,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 $rate = (float)($row['mandi_rate_per_kg'] ?? 0);
                 $totalCost = $usable * $rate;
 
-                $stmt = $pdo->prepare("INSERT INTO procurement_inward (vegetable_id, source_type, source_name, purchase_date, raw_weight_kg, usable_weight_kg, wastage_kg, mandi_rate_per_kg, total_cost, notes, dark_store_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)");
+                $stmt = $pdo->prepare("INSERT INTO procurement_inward (vegetable_id, source_type, source_name, purchase_date, raw_weight_kg, usable_weight_kg, wastage_kg, mandi_rate_per_kg, total_cost, notes) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)");
                 $stmt->execute([
                     $vegId,
                     in_array(($row['source_type'] ?? 'mandi'), ['mandi','farmer','direct'], true) ? $row['source_type'] : 'mandi',
@@ -257,10 +249,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     $rate,
                     $totalCost,
                     trim((string)($row['notes'] ?? '')) ?: null,
-                    $procStoreId,
                 ]);
 
-                apply_stock_delta($pdo, $vegId, $usable, $procStoreId);
+                // Buying always lands in the central pool — a store only
+                // gets stock via an explicit Stock Transfer afterwards.
+                apply_stock_delta($pdo, $vegId, $usable, null);
             }
         }
 
@@ -309,28 +302,24 @@ $vegetables = $pdo->query("SELECT v.*, COALESCE(od.active_order_qty, 0) AS activ
     WHERE v.is_active = 1
     ORDER BY v.category, v.name")->fetchAll();
 
-// For per_store products, v.stock isn't the live number for the store this
-// delivery will land in — recompute against the active store's own pool so
-// the suggested purchase quantity on screen reflects reality.
+// For per_store products, "available stock" to cover demand is both what's
+// still sitting in the central pool (not yet sent to any store) AND what's
+// already been transferred out to stores — all of it was already bought,
+// just not necessarily sold yet.
 foreach ($vegetables as &$veg) {
     if ($veg['stock_mode'] === 'per_store') {
-        $veg['stock'] = get_effective_stock($pdo, (int)$veg['id'], $procStoreId);
-        $veg['suggested_purchase_qty'] = max((float)$veg['active_order_qty'] + (float)$veg['min_buffer_stock'] - $veg['stock'], 0);
+        $distSt = $pdo->prepare("SELECT COALESCE(SUM(stock),0) FROM store_inventory WHERE vegetable_id = ?");
+        $distSt->execute([$veg['id']]);
+        $distributed = (float)$distSt->fetchColumn();
+        $total = (float)$veg['stock'] + $distributed;
+        $veg['stock'] = $total;
+        $veg['suggested_purchase_qty'] = max((float)$veg['active_order_qty'] + (float)$veg['min_buffer_stock'] - $total, 0);
     }
 }
 unset($veg);
 
-$restrictedStoreId = session_store_id();
-$piq = "SELECT pi.*, v.name AS vegetable_name, v.unit, ds.name AS store_name FROM procurement_inward pi JOIN vegetables v ON v.id = pi.vegetable_id LEFT JOIN dark_stores ds ON ds.id = pi.dark_store_id";
-$piParams = [];
-if ($restrictedStoreId !== null) {
-    $piq .= " WHERE pi.dark_store_id = ? OR pi.dark_store_id IS NULL";
-    $piParams[] = $restrictedStoreId;
-}
-$piq .= " ORDER BY pi.id DESC LIMIT 20";
-$piStmt = $pdo->prepare($piq);
-$piStmt->execute($piParams);
-$purchaseRows = $piStmt->fetchAll();
+$piq = "SELECT pi.*, v.name AS vegetable_name, v.unit FROM procurement_inward pi JOIN vegetables v ON v.id = pi.vegetable_id ORDER BY pi.id DESC LIMIT 20";
+$purchaseRows = $pdo->query($piq)->fetchAll();
 
 include __DIR__ . '/includes/admin_header.php';
 ?>
@@ -361,15 +350,9 @@ include __DIR__ . '/includes/admin_header.php';
   <div class="admin-page-heading" style="margin-top:0;">
     <div>
       <h1>Daily Procurement & Pricing Dashboard</h1>
-      <p>D2C fruit and vegetable operations dashboard.</p>
+      <p>D2C fruit and vegetable operations dashboard. Buying here always adds to the central stock pool — use <a href="stock_transfer.php" style="color:#1f6f3d; font-weight:700;">Stock Transfer</a> to send quantities out to a specific store.</p>
     </div>
   </div>
-
-  <?php if (!is_store_restricted() && count($allStores) > 1): ?>
-  <div class="admin-panel" style="margin-bottom:0;display:flex;align-items:center;gap:10px;padding:10px 14px"><label style="font-weight:700;font-size:13px">Receiving stock for store:</label><select onchange="window.location.href='daily_procurement_dashboard.php?set_store='+this.value" style="height:32px;border:1px solid #d8e1dc;border-radius:7px;padding:0 8px"><?php foreach ($allStores as $s): ?><option value="<?= $s['id'] ?>" <?= ((int)$s['id'] === (int)$procStoreId) ? 'selected' : '' ?>><?= h($s['name']) ?></option><?php endforeach; ?></select></div>
-  <?php elseif (is_store_restricted()): ?>
-  <div class="admin-panel" style="margin-bottom:0;padding:10px 14px;font-size:13px;font-weight:700">Receiving stock for store: <?php $curS = array_values(array_filter($allStores, fn($s) => (int)$s['id'] === (int)$procStoreId)); echo h($curS[0]['name'] ?? 'Your store'); ?></div>
-  <?php endif; ?>
 
   <?php if ($flash): ?>
     <div class="alert alert-<?= $flash['type'] ?>"><?= h($flash['message']) ?></div>
@@ -541,7 +524,6 @@ include __DIR__ . '/includes/admin_header.php';
               <th>Wastage</th>
               <th>Rate</th>
               <th>Cost</th>
-              <?php if (!is_store_restricted()): ?><th>Store</th><?php endif; ?>
               <th>Actions</th>
             </tr>
           </thead>
@@ -556,7 +538,6 @@ include __DIR__ . '/includes/admin_header.php';
                 <td><?= number_format((float)$row['wastage_kg'], 2) ?> kg</td>
                 <td>₹<?= number_format((float)$row['mandi_rate_per_kg'], 2) ?></td>
                 <td>₹<?= number_format((float)$row['total_cost'], 2) ?></td>
-                <?php if (!is_store_restricted()): ?><td><?= h($row['store_name'] ?? '—') ?></td><?php endif; ?>
                 <td>
                   <form method="post" onsubmit="return confirm('Delete this inward entry and subtract <?= number_format((float)$row['usable_weight_kg'], 2) ?> kg back out of stock?');">
                     <input type="hidden" name="action" value="delete_inward">
@@ -567,7 +548,7 @@ include __DIR__ . '/includes/admin_header.php';
                 </td>
               </tr>
             <?php endforeach; ?>
-            <?php if (!$purchaseRows): ?><tr><td colspan="10" style="text-align:center; color:#68736f;">No purchase inward entries yet.</td></tr><?php endif; ?>
+            <?php if (!$purchaseRows): ?><tr><td colspan="9" style="text-align:center; color:#68736f;">No purchase inward entries yet.</td></tr><?php endif; ?>
           </tbody>
         </table>
       </div>

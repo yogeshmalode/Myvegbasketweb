@@ -889,11 +889,14 @@ function ensure_management_schema($pdo) {
             // Sensible first-run defaults: Staff get day-to-day operational
             // pages; Delivery gets strictly delivery tracking/management
             // pages. The admin can adjust these anytime from Role Permissions.
+            // Buying (procurement) is a central/admin-only job — stores only
+            // receive stock via a Stock Transfer from the admin, then sell/
+            // waste it — so those two pages are intentionally left out here.
             $defaultPerms = [
                 'staff' => [
                     'dashboard.php', 'billing.php', 'vegetables.php', 'categories.php', 'inventory.php',
                     'orders.php', 'wastage.php', 'offers.php', 'subscriptions.php',
-                    'catalog_pricing.php', 'procurement.php', 'daily_procurement_dashboard.php',
+                    'catalog_pricing.php',
                 ],
                 'delivery' => [
                     'dashboard.php', 'orders.php', 'deliveries.php', 'riders.php',
@@ -907,6 +910,32 @@ function ensure_management_schema($pdo) {
                     $insPerm->execute([$role, $page]);
                 }
             }
+        }
+
+        // ---- One-time migrations table: for schema/config changes that
+        // must run exactly once, even on installs that already seeded data
+        // above (so changing the defaults doesn't retroactively apply). ----
+        $pdo->exec("CREATE TABLE IF NOT EXISTS app_migrations (
+            name VARCHAR(100) PRIMARY KEY,
+            applied_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        ) ENGINE=InnoDB");
+        $migrationApplied = function ($name) use ($pdo) {
+            $s = $pdo->prepare("SELECT 1 FROM app_migrations WHERE name = ?");
+            $s->execute([$name]);
+            return (bool)$s->fetchColumn();
+        };
+        $markMigrationApplied = function ($name) use ($pdo) {
+            $pdo->prepare("INSERT IGNORE INTO app_migrations (name) VALUES (?)")->execute([$name]);
+        };
+
+        // Centralized procurement model: buying stock is now an admin-only
+        // job (admin buys into a central pool, then explicitly transfers
+        // quantities out to each store via Stock Transfer). Revoke any
+        // already-seeded staff access to the two procurement pages so this
+        // takes effect immediately on upgrade, not just for fresh installs.
+        if (!$migrationApplied('centralize_procurement_2026_10')) {
+            $pdo->exec("DELETE FROM role_page_permissions WHERE role = 'staff' AND page IN ('procurement.php', 'daily_procurement_dashboard.php')");
+            $markMigrationApplied('centralize_procurement_2026_10');
         }
 
         // ---- Product categories: a proper managed list instead of free-
@@ -1280,10 +1309,30 @@ function ensure_management_schema($pdo) {
             KEY idx_procurement_inward_veg (vegetable_id),
             CONSTRAINT fk_procurement_inward_veg FOREIGN KEY (vegetable_id) REFERENCES vegetables(id) ON DELETE CASCADE
         ) ENGINE=InnoDB");
-        // Which store received this delivery — so inward stock lands in the
-        // right store's pool for per_store products, same as every other
-        // stock-moving action this session (billing, wastage, checkout).
+        // Kept for backward compatibility with older per-store inward
+        // entries. Under the centralized-procurement model all new buying
+        // always targets the central pool (NULL) — stock only reaches a
+        // specific store via a logged Stock Transfer (see stock_transfers).
         if (!$hasColumn('procurement_inward', 'dark_store_id')) $pdo->exec("ALTER TABLE procurement_inward ADD COLUMN dark_store_id INT DEFAULT NULL");
+
+        // ---- Stock Transfers: admin moves purchased stock out of the
+        // central pool into a specific store's own pool (store_inventory),
+        // for per_store products only. This is the ONLY way a store's stock
+        // increases under the centralized-buying model — stores themselves
+        // only sell (billing) and record wastage from what they were sent.
+        $pdo->exec("CREATE TABLE IF NOT EXISTS stock_transfers (
+            id INT AUTO_INCREMENT PRIMARY KEY,
+            vegetable_id INT NOT NULL,
+            dark_store_id INT NOT NULL,
+            quantity DECIMAL(10,2) NOT NULL,
+            notes VARCHAR(255) DEFAULT NULL,
+            created_by INT DEFAULT NULL,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            KEY idx_stock_transfers_veg (vegetable_id),
+            KEY idx_stock_transfers_store (dark_store_id),
+            CONSTRAINT fk_stock_transfers_veg FOREIGN KEY (vegetable_id) REFERENCES vegetables(id) ON DELETE CASCADE,
+            CONSTRAINT fk_stock_transfers_store FOREIGN KEY (dark_store_id) REFERENCES dark_stores(id) ON DELETE CASCADE
+        ) ENGINE=InnoDB");
 
         $pdo->exec("CREATE TABLE IF NOT EXISTS dynamic_prices (
             id INT AUTO_INCREMENT PRIMARY KEY,

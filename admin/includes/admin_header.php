@@ -61,6 +61,7 @@ $current_page = basename($_SERVER['PHP_SELF']);
         ['wastage.php','♜','Wastage'],
         ['procurement.php','🧾','Procurement'],
         ['daily_procurement_dashboard.php','📈','Daily Procurement'],
+        ['stock_transfer.php','🚛','Stock Transfer'],
         ['reports.php','▥','Reports (P&L)'],
       ],
       'Administration' => [
@@ -71,7 +72,11 @@ $current_page = basename($_SERVER['PHP_SELF']);
     $roleAllowedPages = is_admin_role() ? null : get_role_allowed_pages($pdo, admin_role());
     foreach ($navGroups as $groupLabel => $items):
       $visibleItems = array_filter($items, function($item) use ($roleAllowedPages) {
-        if (($item[0]==='users.php' || $item[0]==='management_check.php' || $item[0]==='role_permissions.php') && !is_admin_role()) return false;
+        // Buying/distribution is a central, admin-only job under the
+        // centralized-procurement model — never show these to staff/delivery
+        // even if role_page_permissions were ever edited to include them.
+        $adminOnlyPages = ['users.php', 'management_check.php', 'role_permissions.php', 'daily_procurement_dashboard.php', 'stock_transfer.php'];
+        if (in_array($item[0], $adminOnlyPages, true) && !is_admin_role()) return false;
         if ($roleAllowedPages !== null && !in_array($item[0], rbac_always_allowed_pages(), true) && !in_array($item[0], $roleAllowedPages, true)) return false;
         return true;
       });
