@@ -787,7 +787,7 @@ function ensure_management_schema($pdo) {
             // pages. The admin can adjust these anytime from Role Permissions.
             $defaultPerms = [
                 'staff' => [
-                    'dashboard.php', 'billing.php', 'vegetables.php', 'inventory.php',
+                    'dashboard.php', 'billing.php', 'vegetables.php', 'categories.php', 'inventory.php',
                     'orders.php', 'wastage.php', 'offers.php', 'subscriptions.php',
                     'catalog_pricing.php', 'procurement.php', 'daily_procurement_dashboard.php',
                 ],
@@ -801,6 +801,39 @@ function ensure_management_schema($pdo) {
             foreach ($defaultPerms as $role => $pages) {
                 foreach ($pages as $page) {
                     $insPerm->execute([$role, $page]);
+                }
+            }
+        }
+
+        // ---- Product categories: a proper managed list instead of free-
+        // text typing on the Add/Edit Vegetable form (which caused near-
+        // duplicate categories like "Vegetable" vs "Vegetables" that each
+        // got their own storefront filter chip). ----
+        $pdo->exec("CREATE TABLE IF NOT EXISTS categories (
+            id INT AUTO_INCREMENT PRIMARY KEY,
+            name VARCHAR(100) NOT NULL,
+            sort_order INT NOT NULL DEFAULT 0,
+            is_active TINYINT(1) NOT NULL DEFAULT 1,
+            created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            UNIQUE KEY uniq_category_name (name)
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci");
+        if ($hasTable('vegetables')) {
+            // First-run seed: pull in whatever categories already exist on
+            // products so nothing disappears from the storefront filters.
+            $catCount = (int)$pdo->query("SELECT COUNT(*) FROM categories")->fetchColumn();
+            if ($catCount === 0) {
+                $existingCats = $pdo->query("SELECT DISTINCT category FROM vegetables WHERE category IS NOT NULL AND category <> '' ORDER BY category")->fetchAll(PDO::FETCH_COLUMN);
+                $insCat = $pdo->prepare("INSERT IGNORE INTO categories (name, sort_order) VALUES (?, ?)");
+                $order = 0;
+                foreach ($existingCats as $catName) {
+                    $insCat->execute([$catName, $order++]);
+                }
+                if (empty($existingCats)) {
+                    // Brand-new install with no products yet — give it a
+                    // sensible starting point instead of an empty dropdown.
+                    foreach (['Vegetable', 'Fruit', 'Leafy Greens', 'Flower'] as $i => $catName) {
+                        $insCat->execute([$catName, $i]);
+                    }
                 }
             }
         }

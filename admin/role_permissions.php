@@ -10,6 +10,7 @@ $allPages = [
     'dashboard.php' => 'Dashboard',
     'billing.php' => 'Billing (POS)',
     'vegetables.php' => 'Vegetables',
+    'categories.php' => 'Categories',
     'inventory.php' => 'Inventory',
     'orders.php' => 'Orders',
     'wastage.php' => 'Wastage',

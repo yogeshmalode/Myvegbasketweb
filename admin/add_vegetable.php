@@ -53,6 +53,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     }
 }
 
+$categoryOptions = $pdo->query("SELECT name FROM categories WHERE is_active = 1 ORDER BY sort_order ASC, name ASC")->fetchAll(PDO::FETCH_COLUMN);
+
 include __DIR__ . '/includes/admin_header.php';
 ?>
 
@@ -121,7 +123,17 @@ include __DIR__ . '/includes/admin_header.php';
       </div>
       <div class="form-group" style="flex:1;">
         <label for="category">Category</label>
-        <input type="text" id="category" name="category" value="<?= h($_POST['category'] ?? 'Vegetable') ?>">
+        <select id="category" name="category">
+          <?php
+            $selectedCat = $_POST['category'] ?? 'Vegetable';
+            $catList = $categoryOptions;
+            if ($selectedCat !== '' && !in_array($selectedCat, $catList, true)) { $catList[] = $selectedCat; }
+          ?>
+          <?php foreach ($catList as $catOpt): ?>
+            <option value="<?= h($catOpt) ?>" <?= $catOpt === $selectedCat ? 'selected' : '' ?>><?= h($catOpt) ?></option>
+          <?php endforeach; ?>
+        </select>
+        <div style="margin-top:6px; font-size:0.78rem;"><a href="categories.php">+ Manage categories</a></div>
       </div>
     </div>
     <div class="form-group">

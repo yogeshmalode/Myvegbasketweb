@@ -50,6 +50,7 @@ $current_page = basename($_SERVER['PHP_SELF']);
       ],
       'Catalog & Pricing' => [
         ['vegetables.php','♧','Vegetables'],
+        ['categories.php','🏷','Categories'],
         ['catalog_pricing.php','⚡','Catalog & Live Pricing'],
         ['offers.php','🎁','Offers'],
         ['subscriptions.php','♻','Subscriptions'],
