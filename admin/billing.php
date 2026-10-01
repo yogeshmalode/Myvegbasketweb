@@ -123,17 +123,30 @@ if($_SERVER['REQUEST_METHOD']==='POST' && isset($_POST['checkout'])){
 
             $up=$pdo->prepare("UPDATE vegetables SET stock = stock - ? WHERE id = ? AND stock >= ?");
             $mv=$pdo->prepare("INSERT INTO inventory_movements (vegetable_id,movement_type,quantity,reference_id,notes,created_by) VALUES (?,'sale',?,?,?,?)");
+            $preCheck=$pdo->prepare("SELECT stock FROM vegetables WHERE id = ? FOR UPDATE");
+            $verify=$pdo->prepare("SELECT stock FROM vegetables WHERE id = ?");
 
             foreach($linesToSave as $line){
+                // Re-read the live stock right before this specific update
+                // (instead of trusting the "before_stock" snapshot taken
+                // earlier) — this matters when the same vegetable appears
+                // as more than one cart line (e.g. two different pack-size
+                // variants of the same item), since an earlier line in this
+                // same checkout may have already decremented it.
+                $preCheck->execute([$line['veg_id']]);
+                $beforeStock=(float)($preCheck->fetchColumn() ?? 0);
+                if($beforeStock < (float)$line['base_qty']){
+                    throw new Exception('Insufficient stock for '.$line['name'].'.');
+                }
+
                 $updateResult=$up->execute([$line['base_qty'],$line['veg_id'],$line['base_qty']]);
-                if($updateResult === false){
+                if($updateResult === false || $up->rowCount() === 0){
                     throw new Exception('Stock changed during checkout. Please retry.');
                 }
 
-                $verify=$pdo->prepare("SELECT stock FROM vegetables WHERE id = ?");
                 $verify->execute([$line['veg_id']]);
                 $afterStock=(float)($verify->fetchColumn() ?? 0);
-                $expectedAfter = $line['before_stock'] - $line['base_qty'];
+                $expectedAfter = $beforeStock - $line['base_qty'];
                 if($afterStock < 0 || abs($afterStock - $expectedAfter) > 0.01){
                     throw new Exception('Stock changed during checkout. Please retry.');
                 }
@@ -208,7 +221,7 @@ $cart=$_SESSION['billing_cart']??[];$lines=[];$subtotal=0;if($cart){$qItem=$pdo-
 <section class="admin-panel"><div class="admin-panel-head"><h2>Select Products</h2></div><div class="billing-search"><input id="billSearch" type="search" placeholder="⌕ Search products by name..."></div><div class="billing-product-list">
 <?php foreach($products as $v):$price=($v['sale_price']!==null&&$v['sale_price']<$v['price'])?$v['sale_price']:$v['price'];?><div class="billing-row" data-name="<?=h(strtolower($v['name']))?>"><div class="billing-thumb"><?=bill_icon($v['name'])?></div><div><div class="billing-name"><?=h($v['name'])?></div><div class="billing-meta">₹<?=number_format($price,2)?> / <?=h($v['unit'])?> · <?=$v['stock']?> available</div></div><form method="post" style="display:flex;gap:5px;align-items:center;flex-wrap:wrap"><input type="hidden" name="csrf_token" value="<?=h(csrf_token())?>"><input type="hidden" name="vegetable_id" value="<?=$v['id']?>"><?php if(!empty($productVariants[$v['id']])): ?><select name="variant_id" class="variant-select" style="height:31px;border:1px solid #d8e1dc;border-radius:7px;padding:0 5px;margin-right:5px"><option value="">— No pack (custom weight) —</option><?php foreach($productVariants[$v['id']] as $vv): ?><option value="<?=$vv['id']?>"><?=h($vv['label'])?> — ₹<?=number_format($vv['price'],2)?></option><?php endforeach; ?></select><?php endif; ?><select name="sale_mode" class="sale-mode" data-price-per-kg="<?=h((string)$price)?>" style="height:31px;border:1px solid #d8e1dc;border-radius:7px;padding:0 5px"><option value="weight">Weight (g)</option><option value="price">Price (₹)</option></select><input type="number" name="sale_value" class="sale-value" min="0" step="0.01" value="250" style="width:72px;height:31px;border:1px solid #d8e1dc;border-radius:7px;padding:0 5px"><button class="billing-add" name="add_item" value="1">＋</button></form></div><?php endforeach;?></div></section>
 <section class="admin-panel"><div class="admin-panel-head"><h2>Current Bill</h2><span style="font-size:11px;color:#df2e24;font-weight:700"><?=count($lines)?> item(s)</span></div><div class="billing-cart">
-<?php if($lines):?><table class="billing-cart-table"><thead><tr><th>Product</th><th>Qty</th><th>Price</th><th>Total</th></tr></thead><tbody><?php foreach($lines as $x):?><tr><td><?=bill_icon($x['v']['name'])?> <?=h($x['v']['name'])?></td><td><?=$x['qty']?> <?=h($x['unit'] ?? $x['v']['unit'])?></td><td>₹<?=number_format($x['price'],2)?></td><td>₹<?=number_format($x['line'],2)?></td></tr><?php endforeach;?></tbody></table>
+<?php if($lines):?><div class="billing-cart-items"><table class="billing-cart-table"><thead><tr><th>Product</th><th>Qty</th><th>Price</th><th>Total</th></tr></thead><tbody><?php foreach($lines as $x):?><tr><td><?=bill_icon($x['v']['name'])?> <?=h($x['v']['name'])?></td><td><?=$x['qty']?> <?=h($x['unit'] ?? $x['v']['unit'])?></td><td>₹<?=number_format($x['price'],2)?></td><td>₹<?=number_format($x['line'],2)?></td></tr><?php endforeach;?></tbody></table></div>
 <div class="billing-summary"><div class="billing-summary-line"><span>Subtotal</span><strong>₹<?=number_format($subtotal,2)?></strong></div></div>
 <form method="post"><input type="hidden" name="csrf_token" value="<?=h(csrf_token())?>"><input type="hidden" name="checkout" value="1"><div class="admin-form-grid"><div class="admin-field"><label>Customer</label><input name="customer_name" value="Walk-in Customer" required></div><div class="admin-field"><label>Phone</label><input name="phone" value="0000000000"></div><div class="admin-field"><label>Email</label><input type="email" name="email" value="walkin@local"></div><div class="admin-field"><label>Address</label><input name="address" value="Store counter"></div><div class="admin-field"><label>Discount (%)</label><input id="discount" type="number" name="discount_percent" min="0" max="100" step=".01" value="0"></div><div class="admin-field"><label>Payment</label><select name="payment_method"><option value="cash">Cash Payment</option><option value="upi_qr">UPI Payment</option></select></div></div><div class="billing-summary"><div class="billing-summary-line"><span>Discount</span><strong id="discountValue">- ₹0.00</strong></div><div class="billing-total"><span>Total Payable</span><strong id="grandTotal">₹<?=number_format($subtotal,2)?></strong></div></div><div class="payment-grid"><button type="submit" name="checkout" value="1" class="active">Checkout & Create Bill</button><a class="admin-btn" href="billing.php?clear=1">Clear</a></div></form><?php else:?><div class="admin-empty">Your bill is empty.<br>Add products from the left.</div><?php endif;?></div></section></div>
 <script>const bs=document.getElementById('billSearch');bs?.addEventListener('input',()=>{const q=bs.value.toLowerCase();document.querySelectorAll('.billing-row').forEach(r=>r.style.display=r.dataset.name.includes(q)?'':'none')});document.querySelectorAll('.billing-row form').forEach(form=>{const variantSelect=form.querySelector('.variant-select');const saleMode=form.querySelector('.sale-mode');const saleValue=form.querySelector('.sale-value');if(!saleMode||!saleValue)return;function syncVariantState(){const usingVariant=variantSelect && variantSelect.value !== '';if(usingVariant){saleMode.disabled=true;saleValue.step='1';saleValue.value='1';saleValue.title='Number of packs';}else{saleMode.disabled=false;saleValue.step='0.01';saleValue.title='';}}variantSelect?.addEventListener('change',syncVariantState);syncVariantState();});const d=document.getElementById('discount'),dv=document.getElementById('discountValue'),gt=document.getElementById('grandTotal'),sub=<?=json_encode($subtotal)?>;function calc(){const p=Math.min(100,Math.max(0,parseFloat(d?.value||0)));const x=sub*p/100;dv.textContent='- ₹'+x.toFixed(2);gt.textContent='₹'+(sub-x).toFixed(2)}d?.addEventListener('input',calc);</script>
