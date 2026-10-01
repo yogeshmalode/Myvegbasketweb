@@ -1318,6 +1318,12 @@ function veg_emoji($name) {
         'apple' => '🍎', 'banana' => '🍌', 'mango' => '🥭', 'chikoo' => '🥭', 'chikku' => '🥭', 'sapota' => '🥭', 'orange' => '🍊',
         'grapes' => '🍇', 'papaya' => '🫐', 'watermelon' => '🍉', 'pomegranate' => '🍎',
         'guava' => '🍈', 'pineapple' => '🍍',
+        // Flowers
+        'rose' => '🌹', 'lotus' => '🪷', 'marigold' => '🌼', 'sunflower' => '🌻', 'hibiscus' => '🌺',
+        'jasmine' => '🌼', 'periwinkle' => '💜', 'chrysanthemum' => '🌼', 'plumeria' => '🌼', 'frangipani' => '🌼',
+        'tuberose' => '🌼', 'oleander' => '🌺', 'daisy' => '🌼', 'bougainvillea' => '🌺', 'crossandra' => '🌺',
+        'datura' => '🌼', 'gulmohar' => '🌼', 'tulip' => '🌷', 'lily' => '🪷', 'dahlia' => '🌼',
+        'orchid' => '🌸', 'balsam' => '🌼', 'lavender' => '🪻', 'passionflower' => '🌼', 'bluebell' => '🔵',
         // Dairy
         'milk' => '🥛',
         // Leafy greens
@@ -1421,7 +1427,7 @@ function veg_thumb_html($veg) {
 
             $relative = '/img/' . $file;
             return '<img src="' . BASE_URL . $relative . '" alt="' . h($veg['name']) . '" loading="lazy" decoding="async" '
-                 . 'style="width:100%; height:100%; object-fit:cover; display:block; border-radius:10px;">';
+                 . 'style="width:100%; height:100%; object-fit:contain; display:block; border-radius:10px; background:#fff; padding:6px; box-sizing:border-box;">';
         }
 
         return null;
@@ -1437,7 +1443,7 @@ function veg_thumb_html($veg) {
             $relative = "/img/$fileName.$ext";
             if (file_exists(__DIR__ . $relative)) {
                 return '<img src="' . BASE_URL . $relative . '" alt="' . h($veg['name']) . '" loading="lazy" decoding="async" '
-                     . 'style="width:100%; height:100%; object-fit:cover; display:block; border-radius:10px;">';
+                     . 'style="width:100%; height:100%; object-fit:contain; display:block; border-radius:10px; background:#fff; padding:6px; box-sizing:border-box;">';
             }
         }
     }
@@ -1446,7 +1452,7 @@ function veg_thumb_html($veg) {
         $relative = "/assets/images/$slug.$ext";
         if (file_exists(__DIR__ . $relative)) {
             return '<img src="' . BASE_URL . $relative . '" alt="' . h($veg['name']) . '" loading="lazy" decoding="async" '
-                 . 'style="width:100%; height:100%; object-fit:cover; display:block; border-radius:10px;">';
+                 . 'style="width:100%; height:100%; object-fit:contain; display:block; border-radius:10px; background:#fff; padding:6px; box-sizing:border-box;">';
         }
     }
 
@@ -1456,8 +1462,8 @@ function veg_thumb_html($veg) {
         $fallback = veg_emoji($veg['name']);
         return '<img src="' . h($remote) . '" alt="' . h($veg['name']) . '" loading="lazy" decoding="async" referrerpolicy="no-referrer" '
              . 'onerror="this.style.display=\'none\';this.nextElementSibling.style.display=\'flex\';" '
-             . 'style="width:100%; height:100%; object-fit:cover; display:block; border-radius:10px;">'
-             . '<span aria-hidden="true" style="display:none; width:100%; height:100%; align-items:center; justify-content:center; font-size:3.4rem;">'
+             . 'style="width:100%; height:100%; object-fit:contain; display:block; border-radius:10px; background:#fff; padding:6px; box-sizing:border-box;">'
+             . '<span aria-hidden="true" style="display:none; width:100%; height:100%; align-items:center; justify-content:center; font-size:3.4rem; background:#fff; border-radius:10px;">'
              . $fallback . '</span>';
     }
 
