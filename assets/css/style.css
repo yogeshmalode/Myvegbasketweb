@@ -281,6 +281,37 @@ h1,h2,h3,h4{ font-family:var(--font-display); margin:0; color:var(--leaf-dark); 
 }
 .chip.active, .chip:hover{ border-color:var(--leaf); color:var(--leaf-dark); background:var(--leaf-light); }
 
+/* ---------------- Category tiles (image-based nav) ------ */
+.category-tile-row{
+  display:flex; flex-wrap:wrap; gap:18px; justify-content:center;
+  margin-bottom:36px;
+}
+.category-tile{
+  display:flex; flex-direction:column; align-items:center; gap:8px;
+  width:108px; padding:10px 8px 12px;
+  border-radius:16px; border:2px solid transparent;
+  background:var(--leaf-light);
+  transition:transform .18s ease, box-shadow .18s ease, border-color .18s ease;
+}
+.category-tile:hover{ transform:translateY(-3px); box-shadow:var(--shadow-card); }
+.category-tile.active{
+  border-color:var(--carrot); background:#fff; box-shadow:var(--shadow-pop);
+}
+.category-tile-img{
+  width:76px; height:76px; border-radius:12px;
+  display:flex; align-items:center; justify-content:center;
+  background:#fff; overflow:hidden;
+}
+.category-tile-label{
+  font-family:var(--font-display); font-weight:700; font-size:0.82rem;
+  text-align:center; color:var(--leaf-dark); line-height:1.2;
+}
+.category-tile.active .category-tile-label{ color:var(--carrot); }
+@media (max-width:600px){
+  .category-tile{ width:84px; }
+  .category-tile-img{ width:60px; height:60px; }
+}
+
 /* ---------------- Vegetable grid / stall cards ---------- */
 .veg-grid{
   display:grid;
