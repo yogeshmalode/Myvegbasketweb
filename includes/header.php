@@ -100,6 +100,7 @@ $__canonical = SITE_URL . strtok($_SERVER['REQUEST_URI'] ?? '/', '?');
       <a href="<?= BASE_URL ?>/index.php" class="nav-link">Shop</a>
       <a href="<?= BASE_URL ?>/offers.php" class="nav-link">🎉 Offers</a>
       <a href="<?= BASE_URL ?>/track_order.php" class="nav-link">📍 Track Order</a>
+      <a href="<?= BASE_URL ?>/enquiry.php" class="nav-link">💬 Enquire Now</a>
       <?php if (is_customer_logged_in()): $__cust = current_customer(); ?>
         <div id="accountMenu" style="position:relative;">
           <button type="button" id="accountMenuBtn" onclick="event.stopPropagation(); var d=document.getElementById('accountDropdown'); d.style.display = (d.style.display==='block') ? 'none' : 'block';" style="display:flex; align-items:center; gap:9px; background:rgba(255,255,255,0.12); border:1px solid rgba(255,255,255,0.3); color:#fff; padding:6px 14px 6px 6px; border-radius:999px; font-family:inherit; font-weight:600; font-size:0.9rem; cursor:pointer;">
@@ -150,6 +151,7 @@ $__canonical = SITE_URL . strtok($_SERVER['REQUEST_URI'] ?? '/', '?');
     <a href="<?= BASE_URL ?>/index.php" style="display:block; padding:12px 4px; color:#fff; text-decoration:none; font-weight:600; border-bottom:1px solid rgba(255,255,255,0.1);">🛒 Shop</a>
     <a href="<?= BASE_URL ?>/offers.php" style="display:block; padding:12px 4px; color:#fff; text-decoration:none; font-weight:600; border-bottom:1px solid rgba(255,255,255,0.1);">🎉 Offers</a>
     <a href="<?= BASE_URL ?>/track_order.php" style="display:block; padding:12px 4px; color:#fff; text-decoration:none; font-weight:600; border-bottom:1px solid rgba(255,255,255,0.1);">📍 Track Order</a>
+    <a href="<?= BASE_URL ?>/enquiry.php" style="display:block; padding:12px 4px; color:#fff; text-decoration:none; font-weight:600; border-bottom:1px solid rgba(255,255,255,0.1);">💬 Enquire Now</a>
     <?php if (is_customer_logged_in()): ?>
       <a href="<?= BASE_URL ?>/my_account.php" style="display:block; padding:12px 4px; color:#fff; text-decoration:none; font-weight:600; border-bottom:1px solid rgba(255,255,255,0.1);">🧾 My Orders</a>
       <a href="<?= BASE_URL ?>/logout.php" style="display:block; padding:12px 4px; color:#FFB4A8; text-decoration:none; font-weight:600; border-bottom:1px solid rgba(255,255,255,0.1);">🚪 Log out</a>

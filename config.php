@@ -51,6 +51,25 @@ define('ADMIN_ALERT_EMAIL', 'myvegbasketcare@gmail.com');
 // Turn email alerts on/off (set to false if your host doesn't support mail())
 define('ADMIN_ALERT_EMAIL_ENABLED', true);
 
+// ---- SMTP settings (Gmail) ----
+// Sends alert emails via Gmail's SMTP server through PHPMailer instead of
+// PHP's built-in mail() — mail() silently fails on localhost/XAMPP and on
+// many shared hosts with no local MTA configured, so this is what actually
+// makes the "bot"-like instant alert reliable.
+//
+// Setup (one time):
+//   1. Use a Gmail account (can be the same as ADMIN_ALERT_EMAIL or another one).
+//   2. Turn on 2-Step Verification: https://myaccount.google.com/security
+//   3. Create an App Password: https://myaccount.google.com/apppasswords
+//      (choose app "Mail", device "Other" -> name it "MyVegBasket")
+//   4. Paste that 16-character app password below (NOT your normal Gmail password).
+define('SMTP_ENABLED', true);
+define('SMTP_HOST', 'smtp.gmail.com');
+define('SMTP_PORT', 587);
+define('SMTP_USERNAME', 'myvegbasketcare@gmail.com');
+define('SMTP_APP_PASSWORD', 'PASTE_YOUR_16_CHAR_GMAIL_APP_PASSWORD_HERE');
+define('SMTP_FROM_NAME', 'MyVegBasket Alerts');
+
 // ---- Site settings ----
 define('SITE_NAME', 'MyVegBasket');
 define('SITE_CURRENCY', '₹');
@@ -1082,15 +1101,25 @@ function redirect($url) {
 }
 
 // Sends a plain-text email to ADMIN_ALERT_EMAIL whenever a new order comes in
-// (or a customer confirms they've paid). Uses PHP's built-in mail() function,
-// which most shared hosts (Hostinger, etc.) support out of the box.
-// If your host blocks mail(), set ADMIN_ALERT_EMAIL_ENABLED to false in
-// config.php and rely on the admin/orders.php dashboard instead.
+// (or a customer confirms they've paid). Tries reliable Gmail SMTP via
+// PHPMailer first (see SMTP_* constants above); falls back to PHP's
+// built-in mail() if SMTP isn't configured, since some hosts support that
+// out of the box. If your host blocks both, set ADMIN_ALERT_EMAIL_ENABLED
+// to false and rely on the admin/orders.php dashboard instead.
 function send_order_alert($subject, $lines) {
+    $body = implode("\n", $lines);
+
+    // WhatsApp auto-send (no customer/admin login needed) will be wired up
+    // here later — see send_whatsapp_alert() below, currently a no-op stub.
+    send_whatsapp_alert($subject . "\n\n" . $body);
+
     if (!defined('ADMIN_ALERT_EMAIL_ENABLED') || !ADMIN_ALERT_EMAIL_ENABLED) return false;
     if (!defined('ADMIN_ALERT_EMAIL') || !ADMIN_ALERT_EMAIL) return false;
 
-    $body = implode("\n", $lines);
+    if (send_email_via_smtp(ADMIN_ALERT_EMAIL, $subject, $body)) {
+        return true;
+    }
+
     $headers = 'From: ' . SITE_NAME . ' <no-reply@' . preg_replace('/^www\./', '', $_SERVER['HTTP_HOST'] ?? 'localhost') . ">\r\n" .
                "Content-Type: text/plain; charset=UTF-8\r\n";
 
@@ -1098,6 +1127,52 @@ function send_order_alert($subject, $lines) {
     // want a failed email to break order placement.
     return @mail(ADMIN_ALERT_EMAIL, $subject, $body, $headers);
 }
+
+// Sends a plain-text email through Gmail's SMTP server using PHPMailer
+// (bundled in lib/PHPMailer, no Composer needed). Returns true on success,
+// false if SMTP isn't configured or the send fails — callers should fall
+// back to mail() in that case so an alert is never silently lost.
+function send_email_via_smtp($to, $subject, $body) {
+    if (!defined('SMTP_ENABLED') || !SMTP_ENABLED) return false;
+    if (!defined('SMTP_APP_PASSWORD') || SMTP_APP_PASSWORD === '' || SMTP_APP_PASSWORD === 'PASTE_YOUR_16_CHAR_GMAIL_APP_PASSWORD_HERE') return false;
+
+    require_once __DIR__ . '/lib/PHPMailer/Exception.php';
+    require_once __DIR__ . '/lib/PHPMailer/PHPMailer.php';
+    require_once __DIR__ . '/lib/PHPMailer/SMTP.php';
+
+    $mail = new PHPMailer\PHPMailer\PHPMailer(true);
+    try {
+        $mail->isSMTP();
+        $mail->Host       = SMTP_HOST;
+        $mail->SMTPAuth   = true;
+        $mail->Username   = SMTP_USERNAME;
+        $mail->Password   = SMTP_APP_PASSWORD;
+        $mail->SMTPSecure = PHPMailer\PHPMailer\PHPMailer::ENCRYPTION_STARTTLS;
+        $mail->Port       = SMTP_PORT;
+        $mail->Timeout    = 10;
+
+        $mail->setFrom(SMTP_USERNAME, SMTP_FROM_NAME);
+        $mail->addAddress($to);
+        $mail->isHTML(false);
+        $mail->Subject = $subject;
+        $mail->Body    = $body;
+
+        return $mail->send();
+    } catch (Exception $e) {
+        return false;
+    }
+}
+
+// ---- WhatsApp alerts (pending integration) ----
+// Placeholder only — the CallMeBot integration was removed at the user's
+// request. Replace this function body with whichever WhatsApp sending
+// method is chosen later (Meta Cloud API, Gupshup, Twilio, etc.). Keeping
+// the function + its call site in send_order_alert() above means no other
+// file needs to change once a real provider is wired in.
+function send_whatsapp_alert($message) {
+    return false;
+}
+
 
 // Looks up latitude/longitude for a text address using OpenStreetMap's free
 // Nominatim geocoder (no API key needed). Used once per order to place a pin
