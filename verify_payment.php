@@ -37,21 +37,35 @@ if (!hash_equals($expected_signature, $razorpay_signature)) {
 }
 
 // ---- Signature valid: record the order ----
+// Resolve the dark store BEFORE the stock transaction (same reasoning as
+// ajax/place_order.php) so per_store-mode products deduct from the right
+// store's pool at the moment of sale, not after the fact.
+$geo = geocode_address($address);
+$darkStoreId = null;
+$etaMinutes = null;
+if ($geo) {
+    $nearestStore = find_nearest_dark_store($pdo, $geo['lat'], $geo['lng']);
+    if ($nearestStore) {
+        $darkStoreId = (int)$nearestStore['id'];
+        $eta = estimate_delivery_eta($nearestStore['lat'], $nearestStore['lng'], $geo['lat'], $geo['lng']);
+        $etaMinutes = $eta['total_minutes'];
+    }
+}
+
 try {
     $pdo->beginTransaction();
 
     $total = cart_total();
 
     $stmt = $pdo->prepare("INSERT INTO orders
-        (customer_name, email, phone, address, total_amount, razorpay_order_id, razorpay_payment_id, payment_status, order_status)
-        VALUES (?, ?, ?, ?, ?, ?, ?, 'paid', 'placed')");
-    $stmt->execute([$name, $email, $phone, $address, $total, $razorpay_order_id, $razorpay_payment_id]);
+        (customer_name, email, phone, address, address_lat, address_lng, total_amount, razorpay_order_id, razorpay_payment_id, payment_status, order_status, dark_store_id, eta_minutes)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'paid', 'placed', ?, ?)");
+    $stmt->execute([$name, $email, $phone, $address, $geo['lat'] ?? null, $geo['lng'] ?? null, $total, $razorpay_order_id, $razorpay_payment_id, $darkStoreId, $etaMinutes]);
     $orderId = $pdo->lastInsertId();
 
     $itemStmt = $pdo->prepare("INSERT INTO order_items (order_id, vegetable_id, name, price, quantity, subtotal, cost_price)
         VALUES (?, ?, ?, ?, ?, ?, ?)");
     $lockStmt = $pdo->prepare("SELECT id, name, stock, cost_price FROM vegetables WHERE id = ? FOR UPDATE");
-    $stockStmt = $pdo->prepare("UPDATE vegetables SET stock = stock - ? WHERE id = ? AND stock >= ?");
     $movementStmt = $pdo->prepare("INSERT INTO inventory_movements (vegetable_id,movement_type,quantity,reference_id,notes) VALUES (?,'sale',?,?,?)");
 
     foreach ($cart as $item) {
@@ -71,19 +85,10 @@ try {
             $baseQty = round((float)$item['qty'] * $unitFraction, 4);
         }
 
-        $beforeStock = (float)($product['stock'] ?? 0);
-        if ($beforeStock < $baseQty) {
-            throw new RuntimeException('Insufficient stock for ' . ($item['name'] ?? 'an item') . '.');
-        }
-
         $subtotal = $item['price'] * $item['qty'];
         $itemStmt->execute([$orderId, $item['id'], $item['name'], $item['price'], $item['qty'], $subtotal, $product['cost_price']]);
-        $stockStmt->execute([$baseQty, $item['id'], $baseQty]);
-        $verifyStmt = $pdo->prepare("SELECT stock FROM vegetables WHERE id = ?");
-        $verifyStmt->execute([(int)$item['id']]);
-        $afterStock = (float)($verifyStmt->fetchColumn() ?? 0);
-        $expectedAfter = $beforeStock - $baseQty;
-        if ($afterStock < 0 || abs($afterStock - $expectedAfter) > 0.01) {
+
+        if (!apply_stock_delta($pdo, (int)$item['id'], -$baseQty, $darkStoreId)) {
             throw new RuntimeException('Stock changed while placing the order. Please retry.');
         }
         $movementStmt->execute([(int)$item['id'], -(float)$baseQty, $orderId, 'Razorpay checkout']);
@@ -96,8 +101,8 @@ try {
     exit;
 }
 
-// Best-effort dark-store routing + ETA (never blocks checkout on failure).
-dispatch_order_to_dark_store($pdo, $orderId);
+// dark_store_id/eta_minutes/address_lat/address_lng were already resolved
+// and saved above — no need to call dispatch_order_to_dark_store() here too.
 
 // Clear the cart now that the order is placed
 unset($_SESSION['cart'], $_SESSION['pending_razorpay_order_id']);

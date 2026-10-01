@@ -20,6 +20,16 @@ $stmt = $pdo->prepare($sql);
 $stmt->execute($params);
 $vegetables = $stmt->fetchAll();
 
+// Patch displayed stock for per_store products to the TOTAL across every
+// store (see get_storefront_display_stock() in config.php for why) — the
+// shop doesn't know which store will fulfil this order until checkout.
+foreach ($vegetables as &$vegRow) {
+    if (($vegRow['stock_mode'] ?? 'shared') === 'per_store') {
+        $vegRow['stock'] = get_storefront_display_stock($pdo, $vegRow['id'], $vegRow['stock_mode'], $vegRow['stock']);
+    }
+}
+unset($vegRow);
+
 $categories = $pdo->query("SELECT DISTINCT category FROM vegetables ORDER BY category")->fetchAll(PDO::FETCH_COLUMN);
 
 $variantsByVeg = get_variants_by_vegetable($pdo, array_column($vegetables, 'id'));

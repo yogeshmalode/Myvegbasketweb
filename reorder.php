@@ -37,7 +37,14 @@ foreach ($items as $item) {
         $veg = $vegStmt->fetch();
     }
 
-    if (!$veg || $veg['stock'] <= 0) {
+    if (!$veg) {
+        $skipped[] = $item['name'];
+        continue;
+    }
+    // Per_store products have no single global stock number here either —
+    // same reasoning as add_to_cart.php/index.php.
+    $veg['stock'] = get_storefront_display_stock($pdo, $veg['id'], $veg['stock_mode'] ?? 'shared', $veg['stock']);
+    if ($veg['stock'] <= 0) {
         $skipped[] = $item['name'];
         continue;
     }

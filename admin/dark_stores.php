@@ -30,7 +30,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['toggle_store'])) {
 $stores = $pdo->query('SELECT ds.*, (SELECT COUNT(*) FROM riders r WHERE r.dark_store_id = ds.id) AS rider_count FROM dark_stores ds ORDER BY ds.name')->fetchAll();
 include __DIR__ . '/includes/admin_header.php';
 ?>
-<div class="section-head"><h2>Dark Stores</h2><p>Fulfilment hubs used for nearest-store routing and rider allocation. Orders are auto-assigned to whichever active hub is geographically closest.</p></div>
+<div class="section-head"><h2>Stores</h2><p>Your physical store/fulfilment locations. Orders are auto-assigned to whichever active store is geographically closest, riders are allocated per store, and each store can have its own staff logins (Users page) and independently-tracked stock for products set to "Per-Store" mode (Add/Edit Vegetable page).</p></div>
 <?php if(!empty($_SESSION['flash'])){ echo '<div class="alert alert-'.h($_SESSION['flash']['type']).'">'.h($_SESSION['flash']['message']).'</div>'; unset($_SESSION['flash']); } ?>
 <div style="display:flex; gap:20px; align-items:flex-start;">
   <div style="flex:1;">

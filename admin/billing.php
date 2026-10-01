@@ -2,6 +2,24 @@
 require_once __DIR__ . '/includes/auth.php';
 require_role(['admin','staff']);
 $page_title='Billing'; $order=null; $items=[];
+
+// Multi-store context: a restricted staff login always bills against their
+// own store. An unrestricted admin can switch which store this POS
+// terminal is selling for (remembered in session across add/remove/
+// checkout requests) via ?set_store=ID. Every bill gets tagged with this
+// store so per-store products deduct the right store's stock, and so
+// Reports/Dashboard can break sales down by store later.
+$allStores = $pdo->query("SELECT id, name FROM dark_stores WHERE is_active = 1 ORDER BY name")->fetchAll();
+if (isset($_GET['set_store']) && session_store_id() === null) {
+    $_SESSION['billing_store_id'] = (int)$_GET['set_store'] ?: null;
+    header('Location: billing.php');
+    exit;
+}
+$posStoreId = session_store_id();
+if ($posStoreId === null) {
+    $posStoreId = $_SESSION['billing_store_id'] ?? (isset($allStores[0]) ? (int)$allStores[0]['id'] : null);
+}
+
 function bill_icon($name){$n=strtolower($name);if(strpos($n,'tomato')!==false)return '🍅';if(strpos($n,'potato')!==false)return '🥔';if(strpos($n,'onion')!==false)return '🧅';if(strpos($n,'carrot')!==false)return '🥕';if(strpos($n,'cucumber')!==false)return '🥒';if(strpos($n,'capsicum')!==false)return '🫑';return '🥬';}
 if(isset($_GET['receipt'])){ $rid=(int)$_GET['receipt'];$st=$pdo->prepare("SELECT * FROM orders WHERE id=?");$st->execute([$rid]);$ro=$st->fetch();if(!$ro)exit('Receipt not found.');$it=$pdo->prepare("SELECT * FROM order_items WHERE order_id=?");$it->execute([$rid]);$ri=$it->fetchAll();$sub=array_sum(array_column($ri,'subtotal'));$discount=(float)$ro['discount_amount'];?><!doctype html><html><head><meta charset="utf-8"><title>Receipt #<?=$rid?></title><link rel="stylesheet" href="../assets/css/style.css"><link rel="stylesheet" href="admin.css"><style>@media print{.no-print{display:none!important}}body{padding:30px;background:#f7f9f8}.receipt{max-width:620px;margin:auto;background:#fff;padding:28px;border:1px solid #e3e9e5;border-radius:14px}.receipt-header{display:flex;align-items:center;gap:14px;padding-bottom:12px;margin-bottom:8px;border-bottom:1px solid #edf0ee}.receipt-logo{width:74px;height:74px;object-fit:contain;border-radius:12px;background:#f3f8f4;padding:10px}.receipt-brand h2{margin:0;font-size:28px;line-height:1.1;color:#183329}.receipt-brand small{display:block;color:#5d6963;margin-top:4px}.receipt table{width:100%;border-collapse:collapse}.receipt th,.receipt td{padding:10px;border-bottom:1px solid #edf0ee;text-align:left}.receipt-summary{margin-top:8px}.receipt-summary p{margin:4px 0}.receipt-meta{margin:14px 0 10px;color:#42524d}.receipt-meta strong{display:block;color:#17231f}.receipt-total{font-size:18px;color:#103328}</style></head><body><div class="receipt"><div class="receipt-header"><img class="receipt-logo" src="../assets/images/logo-icon.png" alt="<?=h(SITE_NAME)?> logo"><div class="receipt-brand"><h2><?=h(SITE_NAME)?></h2><small>Fresh groceries &amp; daily delivery</small></div></div><div class="receipt-meta"><strong>Bill #<?=$rid?></strong><span><?=h(format_ist($ro['created_at']))?></span></div><p><?=h($ro['customer_name'])?><br><?=h($ro['phone'])?></p><table><tr><th>Item</th><th>Qty</th><th>Total</th></tr><?php foreach($ri as $r):?><tr><td><?=h($r['name'])?></td><td><?=$r['quantity']?></td><td>₹<?=number_format($r['subtotal'],2)?></td></tr><?php endforeach;?></table><div class="receipt-summary"><p>Subtotal: ₹<?=number_format($sub,2)?></p><p>Discount (<?=number_format($sub>0?$discount/$sub*100:0,2)?>%): -₹<?=number_format($discount,2)?></p><p class="receipt-total"><strong>Total: ₹<?=number_format($ro['total_amount'],2)?></strong></p></div><button class="admin-btn admin-btn-primary no-print" onclick="window.print()">Print Receipt</button> <a class="admin-btn no-print" href="billing.php">New Bill</a></div></body></html><?php exit; }
 if($_SERVER['REQUEST_METHOD']==='POST' && isset($_POST['checkout'])){
@@ -67,7 +85,7 @@ if($_SERVER['REQUEST_METHOD']==='POST' && isset($_POST['checkout'])){
                     }
                 }
 
-                if((float)$product['stock'] < (float)$baseQty) {
+                if(get_effective_stock($pdo, $vegId, $posStoreId) < (float)$baseQty) {
                     throw new Exception('Insufficient stock for '.($entry['name'] ?? $product['name']).'.');
                 }
 
@@ -97,8 +115,8 @@ if($_SERVER['REQUEST_METHOD']==='POST' && isset($_POST['checkout'])){
             // source='pos' keeps this walk-in counter sale out of the online
             // delivery lifecycle tabs in admin/orders.php (no rider/dispatch
             // needed) — it gets its own dedicated "POS Bills" tab instead.
-            $st=$pdo->prepare("INSERT INTO orders (customer_name,email,phone,address,total_amount,payment_method,payment_status,order_status,discount_amount,source) VALUES (?,?,?,?,?,?, 'paid','placed',?,'pos')");
-            $st->execute([$name,$email,$phone,$address,$total,$payment,$discount]);
+            $st=$pdo->prepare("INSERT INTO orders (customer_name,email,phone,address,total_amount,payment_method,payment_status,order_status,discount_amount,source,dark_store_id) VALUES (?,?,?,?,?,?, 'paid','placed',?,'pos',?)");
+            $st->execute([$name,$email,$phone,$address,$total,$payment,$discount,$posStoreId]);
             $oid=$pdo->lastInsertId();
 
             $hasVariantCols=false;
@@ -124,33 +142,15 @@ if($_SERVER['REQUEST_METHOD']==='POST' && isset($_POST['checkout'])){
                 }
             }
 
-            $up=$pdo->prepare("UPDATE vegetables SET stock = stock - ? WHERE id = ? AND stock >= ?");
             $mv=$pdo->prepare("INSERT INTO inventory_movements (vegetable_id,movement_type,quantity,reference_id,notes,created_by) VALUES (?,'sale',?,?,?,?)");
-            $preCheck=$pdo->prepare("SELECT stock FROM vegetables WHERE id = ? FOR UPDATE");
-            $verify=$pdo->prepare("SELECT stock FROM vegetables WHERE id = ?");
 
             foreach($linesToSave as $line){
-                // Re-read the live stock right before this specific update
-                // (instead of trusting the "before_stock" snapshot taken
-                // earlier) — this matters when the same vegetable appears
-                // as more than one cart line (e.g. two different pack-size
-                // variants of the same item), since an earlier line in this
-                // same checkout may have already decremented it.
-                $preCheck->execute([$line['veg_id']]);
-                $beforeStock=(float)($preCheck->fetchColumn() ?? 0);
-                if($beforeStock < (float)$line['base_qty']){
-                    throw new Exception('Insufficient stock for '.$line['name'].'.');
-                }
-
-                $updateResult=$up->execute([$line['base_qty'],$line['veg_id'],$line['base_qty']]);
-                if($updateResult === false || $up->rowCount() === 0){
-                    throw new Exception('Stock changed during checkout. Please retry.');
-                }
-
-                $verify->execute([$line['veg_id']]);
-                $afterStock=(float)($verify->fetchColumn() ?? 0);
-                $expectedAfter = $beforeStock - $line['base_qty'];
-                if($afterStock < 0 || abs($afterStock - $expectedAfter) > 0.01){
+                // apply_stock_delta routes to the right pool for this
+                // product (store_inventory for per_store products, the
+                // shared vegetables.stock column otherwise) and atomically
+                // rejects the change if stock isn't actually enough —
+                // catching the case where another sale beat us to it.
+                if (!apply_stock_delta($pdo, $line['veg_id'], -(float)$line['base_qty'], $posStoreId)) {
                     throw new Exception('Stock changed during checkout. Please retry.');
                 }
 
@@ -183,11 +183,12 @@ if($_SERVER['REQUEST_METHOD']==='POST' && isset($_POST['add_item'])){require_csr
     }
 
     // compute max allowed packs if variant
-    $maxAllow = (float)$v['stock'];
+    $effStock = get_effective_stock($pdo, $v['id'], $posStoreId);
+    $maxAllow = $effStock;
     if($variant){
         $frac = size_fraction_of_base_unit($variant['label'],$v['unit']);
         if($frac!==null && $frac>0){
-            $maxAllow = (float)floor($v['stock'] / $frac);
+            $maxAllow = (float)floor($effStock / $frac);
         }
     }
     if($maxAllow < 0.01){ $_SESSION['flash']=['type'=>'error','message'=>'Insufficient stock.']; header('Location: billing.php'); exit; }
@@ -209,7 +210,15 @@ if(isset($_GET['remove'])){
     header('Location: billing.php');
     exit;
 }
-$q=$pdo->prepare("SELECT id,name,unit,price,sale_price,stock FROM vegetables WHERE is_active=1 AND stock>0 ORDER BY name");$q->execute();$products=$q->fetchAll();$productVariantsRaw = get_variants_by_vegetable($pdo, array_column($products,'id'));// Deduplicate variants by label (keep lowest price for repeated labels)
+$q=$pdo->prepare("SELECT v.id,v.name,v.unit,v.price,v.sale_price,
+        CASE WHEN v.stock_mode='per_store' THEN COALESCE(si.stock,0) ELSE v.stock END AS stock
+    FROM vegetables v
+    LEFT JOIN store_inventory si ON si.vegetable_id = v.id AND si.dark_store_id = ?
+    WHERE v.is_active=1
+    HAVING stock>0
+    ORDER BY v.name");
+$q->execute([$posStoreId]);
+$products=$q->fetchAll();$productVariantsRaw = get_variants_by_vegetable($pdo, array_column($products,'id'));// Deduplicate variants by label (keep lowest price for repeated labels)
 $productVariants = [];
 foreach ($productVariantsRaw as $vid => $variantsList) {
     $map = [];
@@ -226,6 +235,11 @@ $cart=$_SESSION['billing_cart']??[];$lines=[];$subtotal=0;if($cart){$qItem=$pdo-
 ?>
 <div class="admin-page-heading"><div><h1>Billing (POS)</h1><p>Create bills and manage customer purchases.</p></div><a class="admin-btn" href="billing.php?clear=1">Clear Cart</a></div>
 <?php if($flash):?><div class="admin-alert admin-alert-<?=h($flash['type'])?>"><?=h($flash['message'])?><?php if($order):?> <a href="billing.php?receipt=<?=$order?>">Print receipt</a><?php endif;?></div><?php endif;?>
+<?php if(!is_store_restricted() && count($allStores) > 1): ?>
+<div class="admin-panel" style="margin-bottom:12px;display:flex;align-items:center;gap:10px;padding:10px 14px"><label style="font-weight:700;font-size:13px">Billing for store:</label><select onchange="window.location.href='billing.php?set_store='+this.value" style="height:32px;border:1px solid #d8e1dc;border-radius:7px;padding:0 8px"><?php foreach($allStores as $s): ?><option value="<?=$s['id']?>" <?=((int)$s['id']===(int)$posStoreId)?'selected':''?>><?=h($s['name'])?></option><?php endforeach; ?></select></div>
+<?php elseif(is_store_restricted()): ?>
+<div class="admin-panel" style="margin-bottom:12px;padding:10px 14px;font-size:13px;font-weight:700">Billing for store: <?php $curS=array_values(array_filter($allStores,fn($s)=>(int)$s['id']===(int)$posStoreId)); echo h($curS[0]['name'] ?? 'Your store'); ?></div>
+<?php endif; ?>
 <div class="billing-grid">
 <section class="admin-panel"><div class="admin-panel-head"><h2>Select Products</h2></div><div class="billing-search"><input id="billSearch" type="search" placeholder="⌕ Search products by name..."></div><div class="billing-product-list">
 <?php foreach($products as $v):$price=($v['sale_price']!==null&&$v['sale_price']<$v['price'])?$v['sale_price']:$v['price'];?><div class="billing-row" data-name="<?=h(strtolower($v['name']))?>"><div class="billing-thumb"><?=bill_icon($v['name'])?></div><div><div class="billing-name"><?=h($v['name'])?></div><div class="billing-meta">₹<?=number_format($price,2)?> / <?=h($v['unit'])?> · <?=$v['stock']?> available</div></div><form method="post" style="display:flex;gap:5px;align-items:center;flex-wrap:wrap"><input type="hidden" name="csrf_token" value="<?=h(csrf_token())?>"><input type="hidden" name="vegetable_id" value="<?=$v['id']?>"><?php if(!empty($productVariants[$v['id']])): ?><select name="variant_id" class="variant-select" style="height:31px;border:1px solid #d8e1dc;border-radius:7px;padding:0 5px;margin-right:5px"><option value="">— No pack (custom weight) —</option><?php foreach($productVariants[$v['id']] as $vv): ?><option value="<?=$vv['id']?>"><?=h($vv['label'])?> — ₹<?=number_format($vv['price'],2)?></option><?php endforeach; ?></select><?php endif; ?><select name="sale_mode" class="sale-mode" data-price-per-kg="<?=h((string)$price)?>" style="height:31px;border:1px solid #d8e1dc;border-radius:7px;padding:0 5px"><option value="weight">Weight (g)</option><option value="price">Price (₹)</option></select><input type="number" name="sale_value" class="sale-value" min="0" step="0.01" value="250" style="width:72px;height:31px;border:1px solid #d8e1dc;border-radius:7px;padding:0 5px"><button class="billing-add" name="add_item" value="1">＋</button></form></div><?php endforeach;?></div></section>

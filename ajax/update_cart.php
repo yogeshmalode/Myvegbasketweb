@@ -17,10 +17,10 @@ if ($qty <= 0) {
 } else {
     // clamp to available stock (tracked at the base product level)
     $vegId = $_SESSION['cart'][$key]['id'];
-        $stmt = $pdo->prepare("SELECT stock, unit FROM vegetables WHERE id = ?");
+        $stmt = $pdo->prepare("SELECT stock, stock_mode, unit FROM vegetables WHERE id = ?");
     $stmt->execute([$vegId]);
         $row = $stmt->fetch();
-        $stock = $row ? (float)$row['stock'] : 0;
+        $stock = $row ? get_storefront_display_stock($pdo, $vegId, $row['stock_mode'] ?? 'shared', $row['stock']) : 0;
         $max = $stock;
         if (!empty($_SESSION['cart'][$key]['variant_id'])) {
             $variantId = (int)$_SESSION['cart'][$key]['variant_id'];

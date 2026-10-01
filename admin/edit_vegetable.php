@@ -22,9 +22,16 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $supplier_name = trim($_POST['supplier_name'] ?? '');
     $sale_price  = trim($_POST['sale_price'] ?? '') !== '' ? (float)$_POST['sale_price'] : null;
     $unit        = trim($_POST['unit'] ?? 'kg');
-    $stock       = (int)($_POST['stock'] ?? 0);
     $category    = trim($_POST['category'] ?? 'Vegetable');
     $is_active   = isset($_POST['is_active']) ? 1 : 0;
+    $stock_mode  = in_array($_POST['stock_mode'] ?? '', ['shared', 'per_store'], true) ? $_POST['stock_mode'] : 'shared';
+    $storeStockInput = $_POST['store_stock'] ?? [];
+    if ($stock_mode === 'per_store') {
+        $stock = 0.0;
+        foreach ($storeStockInput as $v) { $stock += max(0, (float)$v); }
+    } else {
+        $stock = (float)($_POST['stock'] ?? 0);
+    }
 
     $variantLabels = $_POST['variant_label'] ?? [];
     $variantPrices = $_POST['variant_price'] ?? [];
@@ -59,8 +66,16 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
         try {
         $pdo->beginTransaction();
-        $stmt = $pdo->prepare("UPDATE vegetables SET name=?, name_mr=?, description=?, price=?, sale_price=?, unit=?, stock=?, supplier_name=?, cost_price=?, category=?, is_active=?, image_path=? WHERE id=?");
-        $stmt->execute([$name, $name_mr ?: null, $description, $price, $sale_price, $unit, $stock, $supplier_name ?: null, $cost_price, $category, $is_active, $newImagePath, $id]);
+        $stmt = $pdo->prepare("UPDATE vegetables SET name=?, name_mr=?, description=?, price=?, sale_price=?, unit=?, stock=?, stock_mode=?, supplier_name=?, cost_price=?, category=?, is_active=?, image_path=? WHERE id=?");
+        $stmt->execute([$name, $name_mr ?: null, $description, $price, $sale_price, $unit, $stock, $stock_mode, $supplier_name ?: null, $cost_price, $category, $is_active, $newImagePath, $id]);
+
+        if ($stock_mode === 'per_store') {
+            $storeStockStmt = $pdo->prepare("INSERT INTO store_inventory (dark_store_id, vegetable_id, stock) VALUES (?, ?, ?)
+                ON DUPLICATE KEY UPDATE stock = VALUES(stock)");
+            foreach ($storeStockInput as $storeId => $qty) {
+                $storeStockStmt->execute([(int)$storeId, $id, max(0, (float)$qty)]);
+            }
+        }
 
         // Simplest way to keep variants in sync with the form: replace the
         // whole set rather than trying to diff old vs new rows.
@@ -87,6 +102,13 @@ $existingVariants->execute([$id]);
 $existingVariants = $existingVariants->fetchAll();
 
 $categoryOptions = $pdo->query("SELECT name FROM categories WHERE is_active = 1 ORDER BY sort_order ASC, name ASC")->fetchAll(PDO::FETCH_COLUMN);
+$allStores = $pdo->query("SELECT id, name FROM dark_stores WHERE is_active = 1 ORDER BY name")->fetchAll();
+$storeStocks = [];
+if (($veg['stock_mode'] ?? 'shared') === 'per_store') {
+    $ssStmt = $pdo->prepare("SELECT dark_store_id, stock FROM store_inventory WHERE vegetable_id = ?");
+    $ssStmt->execute([$id]);
+    foreach ($ssStmt->fetchAll() as $row) { $storeStocks[(int)$row['dark_store_id']] = (float)$row['stock']; }
+}
 
 include __DIR__ . '/includes/admin_header.php';
 ?>
@@ -157,11 +179,34 @@ include __DIR__ . '/includes/admin_header.php';
         <input type="text" id="supplier_name" name="supplier_name" maxlength="120" value="<?= h($veg['supplier_name'] ?? ($_POST['supplier_name'] ?? '')) ?>">
       </div>
     </div>
-    <div style="display:flex; gap:14px;">
-      <div class="form-group" style="flex:1;">
+    <div class="form-group">
+      <label>Stock mode</label>
+      <div style="display:flex; gap:18px; align-items:center; margin-bottom:8px;">
+        <label style="width:auto; display:inline-flex; align-items:center; gap:6px; font-weight:400;">
+          <input type="radio" name="stock_mode" value="shared" <?= ($veg['stock_mode'] ?? 'shared') === 'shared' ? 'checked' : '' ?> onchange="toggleStockMode()" style="width:auto;"> Shared (one stock number for all stores)
+        </label>
+        <label style="width:auto; display:inline-flex; align-items:center; gap:6px; font-weight:400;">
+          <input type="radio" name="stock_mode" value="per_store" <?= ($veg['stock_mode'] ?? 'shared') === 'per_store' ? 'checked' : '' ?> onchange="toggleStockMode()" style="width:auto;"> Per-Store (track separately per store)
+        </label>
+      </div>
+      <div id="sharedStockWrap" class="form-group" style="margin-bottom:0; display:<?= ($veg['stock_mode'] ?? 'shared') === 'per_store' ? 'none' : 'block' ?>;">
         <label for="stock">Stock quantity</label>
         <input type="number" id="stock" name="stock" min="0" value="<?= h($veg['stock']) ?>">
       </div>
+      <div id="perStoreStockWrap" style="display:<?= ($veg['stock_mode'] ?? 'shared') === 'per_store' ? 'block' : 'none' ?>;">
+        <p style="color:#5B6656; font-size:0.82rem; margin:2px 0 10px;">A sale, wastage entry, or restock at one store won't affect another store's number.</p>
+        <?php foreach ($allStores as $s): ?>
+          <div class="form-group" style="margin-bottom:8px;">
+            <label style="font-weight:400;"><?= h($s['name']) ?></label>
+            <input type="number" name="store_stock[<?= $s['id'] ?>]" min="0" step="0.001" value="<?= h($storeStocks[$s['id']] ?? 0) ?>">
+          </div>
+        <?php endforeach; ?>
+        <?php if (empty($allStores)): ?>
+          <p style="color:#9A2E24; font-size:0.82rem;">No stores set up yet — add one on the Stores page first.</p>
+        <?php endif; ?>
+      </div>
+    </div>
+    <div style="display:flex; gap:14px;">
       <div class="form-group" style="flex:1;">
         <label for="category">Category</label>
         <select id="category" name="category">
@@ -207,6 +252,12 @@ include __DIR__ . '/includes/admin_header.php';
 </div>
 
 <script>
+  function toggleStockMode() {
+    const perStore = document.querySelector('input[name="stock_mode"]:checked').value === 'per_store';
+    document.getElementById('sharedStockWrap').style.display = perStore ? 'none' : 'block';
+    document.getElementById('perStoreStockWrap').style.display = perStore ? 'block' : 'none';
+  }
+
   function previewVegImage(input) {
     const wrap = document.getElementById('imagePreviewWrap');
     const img = document.getElementById('imagePreview');

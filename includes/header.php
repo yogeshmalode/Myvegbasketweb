@@ -148,6 +148,7 @@ $__canonical = SITE_URL . strtok($_SERVER['REQUEST_URI'] ?? '/', '?');
   <!-- Mobile menu panel: only ever visible on narrow screens (the toggle
        button itself is hidden on desktop), so this never affects desktop -->
   <div id="mobileMenuPanel" style="display:none; background:#1F4D36; border-top:1px solid rgba(255,255,255,0.15); padding:8px 20px 16px;">
+    <button type="button" id="installAppBtnMobile" style="display:none; width:100%; align-items:center; gap:8px; background:#E8934A; color:#1F2A17; border:none; padding:12px 4px; border-radius:8px; font-weight:700; font-size:0.95rem; cursor:pointer; font-family:inherit; margin-bottom:8px; text-align:left; justify-content:flex-start; padding-left:12px;">⬇ Install App</button>
     <a href="<?= BASE_URL ?>/index.php" style="display:block; padding:12px 4px; color:#fff; text-decoration:none; font-weight:600; border-bottom:1px solid rgba(255,255,255,0.1);">🛒 Shop</a>
     <a href="<?= BASE_URL ?>/offers.php" style="display:block; padding:12px 4px; color:#fff; text-decoration:none; font-weight:600; border-bottom:1px solid rgba(255,255,255,0.1);">🎉 Offers</a>
     <a href="<?= BASE_URL ?>/track_order.php" style="display:block; padding:12px 4px; color:#fff; text-decoration:none; font-weight:600; border-bottom:1px solid rgba(255,255,255,0.1);">📍 Track Order</a>
@@ -178,12 +179,14 @@ $__canonical = SITE_URL . strtok($_SERVER['REQUEST_URI'] ?? '/', '?');
   })();
 </script>
 
-<!-- iOS "Add to Home Screen" instructions (iOS has no automatic install prompt) -->
+<!-- "Add to Home Screen" instructions fallback — shown when the browser
+     either has no native install prompt (iOS Safari, some Android browsers)
+     or hasn't fired beforeinstallprompt yet (Chrome has its own engagement
+     heuristics and may delay/skip it entirely). -->
 <div id="iosInstallOverlay" style="display:none; position:fixed; inset:0; background:rgba(20,30,20,0.55); z-index:999; align-items:center; justify-content:center;">
   <div style="background:#fff; border-radius:18px; padding:26px 24px; max-width:320px; width:90%; box-shadow:0 20px 50px rgba(0,0,0,0.3); text-align:center;">
     <h3 style="margin:0 0 14px;">Install MyVegBasket</h3>
-    <p style="color:#26301F; margin:0 0 8px;">Tap the <strong>Share</strong> button <span style="font-size:1.1rem;">⬆️</span> in Safari's toolbar,</p>
-    <p style="color:#26301F; margin:0 0 20px;">then choose <strong>"Add to Home Screen."</strong></p>
+    <p id="installInstructionsText" style="color:#26301F; margin:0 0 20px;">Tap the <strong>Share</strong> button <span style="font-size:1.1rem;">⬆️</span> in Safari's toolbar, then choose <strong>"Add to Home Screen."</strong></p>
     <a href="#" id="iosInstallClose" style="color:#3F8B52; font-weight:700; text-decoration:none;">Got it</a>
   </div>
 </div>
@@ -191,7 +194,10 @@ $__canonical = SITE_URL . strtok($_SERVER['REQUEST_URI'] ?? '/', '?');
 <script>
   (function () {
     const installBtn = document.getElementById('installAppBtn');
+    const installBtnMobile = document.getElementById('installAppBtnMobile');
+    const allInstallBtns = [installBtn, installBtnMobile].filter(Boolean);
     const iosOverlay  = document.getElementById('iosInstallOverlay');
+    const instructionsText = document.getElementById('installInstructionsText');
     let deferredPrompt = null;
 
     const isStandalone = window.matchMedia('(display-mode: standalone)').matches || window.navigator.standalone === true;
@@ -202,42 +208,60 @@ $__canonical = SITE_URL . strtok($_SERVER['REQUEST_URI'] ?? '/', '?');
       return;
     }
 
-    if (isIOS) {
-      // iOS/Safari never fires beforeinstallprompt — show the button anyway
-      // and explain the manual Share -> Add to Home Screen steps on tap.
-      installBtn.style.display = 'flex';
-      installBtn.addEventListener('click', () => {
-        iosOverlay.style.display = 'flex';
-      });
-      document.getElementById('iosInstallClose')?.addEventListener('click', (e) => {
-        e.preventDefault();
-        iosOverlay.style.display = 'none';
-      });
-      iosOverlay.addEventListener('click', (e) => {
-        if (e.target === iosOverlay) iosOverlay.style.display = 'none';
-      });
-      return;
+    function showInstallButtons() {
+      allInstallBtns.forEach(btn => { btn.style.display = 'flex'; });
+    }
+    function hideInstallButtons() {
+      allInstallBtns.forEach(btn => { btn.style.display = 'none'; });
     }
 
-    // Chrome/Edge/Android: the browser tells us when the site is actually
-    // installable via this event — only show the button once that fires.
+    async function handleInstallClick() {
+      if (deferredPrompt) {
+        deferredPrompt.prompt();
+        await deferredPrompt.userChoice;
+        deferredPrompt = null;
+        hideInstallButtons();
+        return;
+      }
+      // No native prompt available (iOS, or Chrome hasn't offered one yet) —
+      // fall back to manual "Add to Home Screen" instructions so the option
+      // is never a dead end for the user.
+      if (!isIOS) {
+        instructionsText.innerHTML = 'Open your browser menu <strong>(⋮ or ⋯)</strong> and tap <strong>"Install app"</strong> or <strong>"Add to Home screen."</strong>';
+      }
+      iosOverlay.style.display = 'flex';
+    }
+
+    allInstallBtns.forEach(btn => btn.addEventListener('click', handleInstallClick));
+
+    document.getElementById('iosInstallClose')?.addEventListener('click', (e) => {
+      e.preventDefault();
+      iosOverlay.style.display = 'none';
+    });
+    iosOverlay.addEventListener('click', (e) => {
+      if (e.target === iosOverlay) iosOverlay.style.display = 'none';
+    });
+
+    // Chrome/Edge/Android: capture the real install prompt whenever it fires
+    // so the click handler above can use it instead of the manual fallback.
     window.addEventListener('beforeinstallprompt', (e) => {
       e.preventDefault();
       deferredPrompt = e;
-      installBtn.style.display = 'flex';
+      showInstallButtons();
     });
 
-    installBtn.addEventListener('click', async () => {
-      if (!deferredPrompt) return;
-      deferredPrompt.prompt();
-      await deferredPrompt.userChoice;
-      deferredPrompt = null;
-      installBtn.style.display = 'none';
-    });
+    window.addEventListener('appinstalled', hideInstallButtons);
 
-    window.addEventListener('appinstalled', () => {
-      installBtn.style.display = 'none';
-    });
+    // Always show the Install App option — on iOS immediately (Safari never
+    // fires beforeinstallprompt), and everywhere else after a short delay so
+    // the button isn't permanently invisible for users/browsers where the
+    // native prompt event never arrives (it'll just open the manual
+    // instructions overlay for those cases instead of doing nothing).
+    if (isIOS) {
+      showInstallButtons();
+    } else {
+      setTimeout(showInstallButtons, 1200);
+    }
   })();
 </script>
 

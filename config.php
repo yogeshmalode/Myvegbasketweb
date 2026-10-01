@@ -167,6 +167,19 @@ function is_admin_role() {
     return admin_role() === 'admin';
 }
 
+// Which dark store (physical location) the logged-in admin/staff session is
+// restricted to, or null if they can see/act on every store — true for role
+// 'admin' always, and also for staff/delivery accounts not yet assigned to
+// a specific store (keeps older single-store installs working unchanged).
+function session_store_id() {
+    if (admin_role() === 'admin') return null;
+    $id = $_SESSION['admin_store_id'] ?? null;
+    return $id ? (int)$id : null;
+}
+function is_store_restricted() {
+    return session_store_id() !== null;
+}
+
 // Pages every logged-in admin user can always reach, regardless of role,
 // so nobody gets locked out of their own dashboard or the logout link.
 function rbac_always_allowed_pages() {
@@ -483,6 +496,89 @@ function estimate_eta_minutes($distanceKm) {
 }
 
 // =========================================================================
+// Multi-store stock: products in stock_mode='shared' always use the single
+// vegetables.stock column (unchanged, original behaviour). Products in
+// stock_mode='per_store' keep an independent number per dark store in
+// store_inventory — a sale/wastage/purchase at Store A never touches
+// Store B's count for that product.
+// =========================================================================
+
+// Current available stock for a product, store-aware. $darkStoreId is
+// ignored for shared-mode products (and for per_store ones with no store
+// given, which falls back to 0 since there's no single "the" stock then).
+function get_effective_stock($pdo, $vegId, $darkStoreId = null) {
+    $st = $pdo->prepare("SELECT stock, stock_mode FROM vegetables WHERE id = ?");
+    $st->execute([$vegId]);
+    $row = $st->fetch();
+    if (!$row) return 0.0;
+    if (($row['stock_mode'] ?? 'shared') !== 'per_store' || empty($darkStoreId)) {
+        return (float)$row['stock'];
+    }
+    $storeSt = $pdo->prepare("SELECT stock FROM store_inventory WHERE dark_store_id = ? AND vegetable_id = ?");
+    $storeSt->execute([$darkStoreId, $vegId]);
+    $stock = $storeSt->fetchColumn();
+    return $stock !== false ? (float)$stock : 0.0;
+}
+
+// The public storefront (shop listing, add-to-cart cap, cart page) doesn't
+// know which dark store an order will be fulfilled from until checkout
+// resolves the delivery address — so it can't show one store's exact stock
+// number. Instead it shows/caps against the TOTAL available across every
+// store for per_store products (summed from store_inventory), or the plain
+// shared vegetables.stock otherwise. This is only ever a display/soft-cap
+// value — apply_stock_delta() still does the real, store-specific,
+// race-safe check at the moment of actual checkout.
+function get_storefront_display_stock($pdo, $vegId, $stockMode, $sharedStock) {
+    if (($stockMode ?? 'shared') !== 'per_store') {
+        return (float)$sharedStock;
+    }
+    $st = $pdo->prepare("SELECT COALESCE(SUM(stock),0) FROM store_inventory WHERE vegetable_id = ?");
+    $st->execute([$vegId]);
+    return (float)$st->fetchColumn();
+}
+
+// Atomically applies a stock change (negative = sale/wastage deduction,
+// positive = purchase/return/restock) to the correct pool for this product
+// — store_inventory if it's a per_store product and a store was given,
+// otherwise the shared vegetables.stock column. Returns true if applied,
+// false if it would have gone negative (never lets stock dip below 0),
+// unless $clamp is true, in which case it clamps to exactly 0 instead of
+// rejecting (used when reversing/undoing a previous stock-adding entry,
+// where "can't go below 0" should just mean "stop at 0", not fail).
+function apply_stock_delta($pdo, $vegId, $delta, $darkStoreId = null, $clamp = false) {
+    $modeSt = $pdo->prepare("SELECT stock_mode FROM vegetables WHERE id = ? FOR UPDATE");
+    $modeSt->execute([$vegId]);
+    $mode = $modeSt->fetchColumn();
+    $isPerStore = ($mode === 'per_store') && !empty($darkStoreId);
+
+    if (!$isPerStore) {
+        if ($clamp) {
+            $pdo->prepare("UPDATE vegetables SET stock = GREATEST(stock + ?, 0) WHERE id = ?")->execute([$delta, $vegId]);
+            return true;
+        }
+        $upd = $pdo->prepare("UPDATE vegetables SET stock = stock + ? WHERE id = ? AND stock + ? >= 0");
+        $upd->execute([$delta, $vegId, $delta]);
+        return $upd->rowCount() > 0;
+    }
+
+    // Make sure a row exists for this store/product pair before locking it.
+    $pdo->prepare("INSERT IGNORE INTO store_inventory (dark_store_id, vegetable_id, stock) VALUES (?, ?, 0)")
+        ->execute([$darkStoreId, $vegId]);
+    $lockSt = $pdo->prepare("SELECT stock FROM store_inventory WHERE dark_store_id = ? AND vegetable_id = ? FOR UPDATE");
+    $lockSt->execute([$darkStoreId, $vegId]);
+    $current = $lockSt->fetchColumn();
+    if ($current === false) return false;
+    if ((float)$current + $delta < 0) {
+        if (!$clamp) return false;
+        $delta = -(float)$current;
+    }
+
+    $upd = $pdo->prepare("UPDATE store_inventory SET stock = stock + ? WHERE dark_store_id = ? AND vegetable_id = ?");
+    $upd->execute([$delta, $darkStoreId, $vegId]);
+    return true;
+}
+
+// =========================================================================
 // Quick-commerce dispatch: Dark Store geofencing, rider allocation, ETA
 // =========================================================================
 
@@ -770,6 +866,14 @@ function ensure_management_schema($pdo) {
                 $pdo->exec("ALTER TABLE admins MODIFY COLUMN role ENUM('admin','staff','delivery') NOT NULL DEFAULT 'admin'");
             }
         }
+        if ($hasTable('admins') && !$hasColumn('admins', 'dark_store_id')) {
+            // Multi-store staff restriction: a staff/delivery login tied to
+            // one specific store only sees that store's orders/billing/
+            // inventory. NULL means "all stores" — always true for role
+            // admin, and also the default for staff/delivery on older
+            // single-store installs so nothing breaks on upgrade.
+            $pdo->exec("ALTER TABLE admins ADD COLUMN dark_store_id INT DEFAULT NULL");
+        }
 
         // ---- Role-Based Access Control: which admin/*.php pages each
         // non-admin role is allowed to open. Admin always has full access
@@ -845,6 +949,13 @@ function ensure_management_schema($pdo) {
             // Vegetable page instead of having to edit veg_thumb_html()'s
             // hardcoded filename map every time a new product is added.
             if (!$hasColumn('vegetables', 'image_path')) $pdo->exec("ALTER TABLE vegetables ADD COLUMN image_path VARCHAR(255) DEFAULT NULL");
+
+            // Multi-store stock mode: 'shared' (default) keeps every existing
+            // product working exactly as before — one stock number used by
+            // every store/POS terminal. 'per_store' opts a product into
+            // independent stock per store (tracked in store_inventory below),
+            // for products an owner wants managed separately at each location.
+            if (!$hasColumn('vegetables', 'stock_mode')) $pdo->exec("ALTER TABLE vegetables ADD COLUMN stock_mode ENUM('shared','per_store') NOT NULL DEFAULT 'shared'");
 
             // Critical fix: older installs created `stock` as INT, which
             // silently rounds fractional weight-based deductions (e.g. 0.25 kg
@@ -951,6 +1062,20 @@ function ensure_management_schema($pdo) {
             $seedStore->execute([STORE_NAME, STORE_LAT, STORE_LNG]);
         }
 
+        // Per-store stock for products set to stock_mode='per_store' above.
+        // Products left on 'shared' never touch this table — they keep using
+        // the single vegetables.stock column exactly as every existing
+        // install already does, so nothing breaks on upgrade.
+        $pdo->exec("CREATE TABLE IF NOT EXISTS store_inventory (
+            id INT AUTO_INCREMENT PRIMARY KEY,
+            dark_store_id INT NOT NULL,
+            vegetable_id INT NOT NULL,
+            stock DECIMAL(10,3) NOT NULL DEFAULT 0,
+            updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+            UNIQUE KEY uniq_store_veg (dark_store_id, vegetable_id),
+            FOREIGN KEY (vegetable_id) REFERENCES vegetables(id) ON DELETE CASCADE
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4");
+
         $pdo->exec("CREATE TABLE IF NOT EXISTS wastage (
             id INT AUTO_INCREMENT PRIMARY KEY,
             vegetable_id INT NOT NULL,
@@ -962,6 +1087,11 @@ function ensure_management_schema($pdo) {
             FOREIGN KEY (vegetable_id) REFERENCES vegetables(id) ON DELETE RESTRICT,
             FOREIGN KEY (created_by) REFERENCES admins(id) ON DELETE SET NULL
         ) ENGINE=InnoDB");
+        // Which store this spoilage/damage happened at, so per-store stock
+        // gets reduced from the right pool and Reports can break wastage
+        // loss down by store. NULL on old rows = recorded before multi-store
+        // existed (treated as "unknown store" everywhere it's shown).
+        if (!$hasColumn('wastage', 'dark_store_id')) $pdo->exec("ALTER TABLE wastage ADD COLUMN dark_store_id INT DEFAULT NULL");
         $pdo->exec("CREATE TABLE IF NOT EXISTS inventory_movements (
             id INT AUTO_INCREMENT PRIMARY KEY,
             vegetable_id INT NOT NULL,
@@ -1150,6 +1280,10 @@ function ensure_management_schema($pdo) {
             KEY idx_procurement_inward_veg (vegetable_id),
             CONSTRAINT fk_procurement_inward_veg FOREIGN KEY (vegetable_id) REFERENCES vegetables(id) ON DELETE CASCADE
         ) ENGINE=InnoDB");
+        // Which store received this delivery — so inward stock lands in the
+        // right store's pool for per_store products, same as every other
+        // stock-moving action this session (billing, wastage, checkout).
+        if (!$hasColumn('procurement_inward', 'dark_store_id')) $pdo->exec("ALTER TABLE procurement_inward ADD COLUMN dark_store_id INT DEFAULT NULL");
 
         $pdo->exec("CREATE TABLE IF NOT EXISTS dynamic_prices (
             id INT AUTO_INCREMENT PRIMARY KEY,

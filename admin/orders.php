@@ -5,14 +5,28 @@ $page_title = 'Orders';
 $flash = $_SESSION['flash'] ?? null;
 unset($_SESSION['flash']);
 
-$orders = $pdo->query("
+// Staff/delivery accounts tied to one store only ever see that store's
+// orders (plus any order whose store couldn't be auto-resolved yet, e.g.
+// geocoding failed) — Admin role always sees every order across all stores.
+$restrictedStoreId = session_store_id();
+$orderParams = [];
+$orderWhere = '';
+if ($restrictedStoreId !== null) {
+    $orderWhere = 'WHERE o.dark_store_id = ? OR o.dark_store_id IS NULL';
+    $orderParams[] = $restrictedStoreId;
+}
+
+$ordersSt = $pdo->prepare("
     SELECT o.*, r.name AS rider_name, r.phone AS rider_phone, ds.name AS dark_store_name, pk.username AS assigned_picker_name
     FROM orders o
     LEFT JOIN riders r ON r.id = o.rider_id
     LEFT JOIN dark_stores ds ON ds.id = o.dark_store_id
     LEFT JOIN admins pk ON pk.id = o.assigned_picker_id
+    $orderWhere
     ORDER BY o.created_at DESC
-")->fetchAll();
+");
+$ordersSt->execute($orderParams);
+$orders = $ordersSt->fetchAll();
 
 $riders = $pdo->query("SELECT id, name FROM riders WHERE is_active = 1 ORDER BY name")->fetchAll();
 

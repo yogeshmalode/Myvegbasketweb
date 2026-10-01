@@ -9,6 +9,20 @@ if (!preg_match('/^\d{4}-\d{2}-\d{2}$/', $start)) $start = date('Y-m-01');
 if (!preg_match('/^\d{4}-\d{2}-\d{2}$/', $end)) $end = date('Y-m-d');
 if ($start > $end) { $tmp = $start; $start = $end; $end = $tmp; }
 
+// Store filter: a restricted staff login is always locked to their own
+// store's numbers; an unrestricted admin can pick a specific store or
+// leave it on "All Stores" (the historical, pre-multi-store behavior).
+$allStores = $pdo->query("SELECT id, name FROM dark_stores WHERE is_active = 1 ORDER BY name")->fetchAll();
+$restrictedStoreId = session_store_id();
+$storeFilter = $restrictedStoreId;
+if ($restrictedStoreId === null && isset($_GET['store']) && $_GET['store'] !== '') {
+    $storeFilter = (int)$_GET['store'];
+}
+$storeCondOrders = $storeFilter !== null ? " AND o.dark_store_id = ?" : "";
+$storeCondOrdersUnaliased = $storeFilter !== null ? " AND dark_store_id = ?" : "";
+$storeCondWastage = $storeFilter !== null ? " AND w.dark_store_id = ?" : "";
+$storeParam = $storeFilter !== null ? [$storeFilter] : [];
+
 // A "paid" order whose order_status is 'cancelled' was refunded/voided and must
 // NOT be counted as real revenue — this condition is applied consistently to
 // every query below (previously the summary cards counted cancelled-but-paid
@@ -19,32 +33,32 @@ $paidNotCancelled = "payment_status='paid' AND order_status<>'cancelled'";
 // paid: items − discount + delivery charge) instead of re-deriving it from
 // order_items.subtotal, which omits delivery charge and discounts entirely and
 // was understating/overstating real sales.
-$st = $pdo->prepare("SELECT COALESCE(SUM(total_amount),0) revenue, COUNT(*) orders FROM orders WHERE $paidNotCancelled AND DATE(created_at) BETWEEN ? AND ?");
-$st->execute([$start, $end]);
+$st = $pdo->prepare("SELECT COALESCE(SUM(total_amount),0) revenue, COUNT(*) orders FROM orders WHERE $paidNotCancelled AND DATE(created_at) BETWEEN ? AND ?$storeCondOrdersUnaliased");
+$st->execute(array_merge([$start, $end], $storeParam));
 $r = $st->fetch();
 $revenue = (float)$r['revenue'];
 $orderCount = (int)$r['orders'];
 
-$ct = $pdo->prepare("SELECT COALESCE(SUM(oi.quantity*oi.cost_price),0) cost FROM orders o JOIN order_items oi ON oi.order_id=o.id WHERE o.$paidNotCancelled AND DATE(o.created_at) BETWEEN ? AND ?");
-$ct->execute([$start, $end]);
+$ct = $pdo->prepare("SELECT COALESCE(SUM(oi.quantity*oi.cost_price),0) cost FROM orders o JOIN order_items oi ON oi.order_id=o.id WHERE o.$paidNotCancelled AND DATE(o.created_at) BETWEEN ? AND ?$storeCondOrders");
+$ct->execute(array_merge([$start, $end], $storeParam));
 $cost = (float)$ct->fetchColumn();
 
-$w = $pdo->prepare("SELECT COALESCE(SUM(w.quantity*v.cost_price),0) loss FROM wastage w JOIN vegetables v ON v.id=w.vegetable_id WHERE DATE(w.created_at) BETWEEN ? AND ?");
-$w->execute([$start, $end]);
+$w = $pdo->prepare("SELECT COALESCE(SUM(w.quantity*v.cost_price),0) loss FROM wastage w JOIN vegetables v ON v.id=w.vegetable_id WHERE DATE(w.created_at) BETWEEN ? AND ?$storeCondWastage");
+$w->execute(array_merge([$start, $end], $storeParam));
 $waste = (float)$w->fetchColumn();
 
 // Refunds actually paid back out on orders that were NOT cancelled (e.g. a
 // partial refund for a damaged/missing item on an otherwise completed order).
 // Cancelled orders are already excluded from revenue above, so including them
 // here too would double-count the loss.
-$rf = $pdo->prepare("SELECT COALESCE(SUM(refund_amount),0) FROM orders WHERE refund_status='processed' AND order_status<>'cancelled' AND DATE(created_at) BETWEEN ? AND ?");
-$rf->execute([$start, $end]);
+$rf = $pdo->prepare("SELECT COALESCE(SUM(refund_amount),0) FROM orders WHERE refund_status='processed' AND order_status<>'cancelled' AND DATE(created_at) BETWEEN ? AND ?$storeCondOrdersUnaliased");
+$rf->execute(array_merge([$start, $end], $storeParam));
 $refundsProcessed = (float)$rf->fetchColumn();
 
 // Refunds promised but not yet paid out — shown as a heads-up, not deducted
 // from profit yet since the money hasn't left the business.
-$pr = $pdo->prepare("SELECT COUNT(*) cnt, COALESCE(SUM(refund_amount),0) amt FROM orders WHERE refund_status='requested' AND DATE(created_at) BETWEEN ? AND ?");
-$pr->execute([$start, $end]);
+$pr = $pdo->prepare("SELECT COUNT(*) cnt, COALESCE(SUM(refund_amount),0) amt FROM orders WHERE refund_status='requested' AND DATE(created_at) BETWEEN ? AND ?$storeCondOrdersUnaliased");
+$pr->execute(array_merge([$start, $end], $storeParam));
 $pendingRefund = $pr->fetch();
 
 $gross = $revenue - $cost;
@@ -52,13 +66,13 @@ $net = $gross - $waste - $refundsProcessed;
 $margin = $revenue > 0 ? ($net / $revenue) * 100 : 0;
 $aov = $orderCount > 0 ? $revenue / $orderCount : 0;
 
-$top = $pdo->prepare("SELECT oi.name,SUM(oi.subtotal) amount,SUM(oi.quantity) qty FROM orders o JOIN order_items oi ON oi.order_id=o.id WHERE o.$paidNotCancelled AND DATE(o.created_at) BETWEEN ? AND ? GROUP BY oi.vegetable_id,oi.name ORDER BY amount DESC LIMIT 5");
-$top->execute([$start, $end]);
+$top = $pdo->prepare("SELECT oi.name,SUM(oi.subtotal) amount,SUM(oi.quantity) qty FROM orders o JOIN order_items oi ON oi.order_id=o.id WHERE o.$paidNotCancelled AND DATE(o.created_at) BETWEEN ? AND ?$storeCondOrders GROUP BY oi.vegetable_id,oi.name ORDER BY amount DESC LIMIT 5");
+$top->execute(array_merge([$start, $end], $storeParam));
 $topProducts = $top->fetchAll();
 
 // Online vs POS (billing counter) revenue split — one query instead of two.
-$src = $pdo->prepare("SELECT source, COALESCE(SUM(total_amount),0) revenue, COUNT(*) orders FROM orders WHERE $paidNotCancelled AND DATE(created_at) BETWEEN ? AND ? GROUP BY source");
-$src->execute([$start, $end]);
+$src = $pdo->prepare("SELECT source, COALESCE(SUM(total_amount),0) revenue, COUNT(*) orders FROM orders WHERE $paidNotCancelled AND DATE(created_at) BETWEEN ? AND ?$storeCondOrdersUnaliased GROUP BY source");
+$src->execute(array_merge([$start, $end], $storeParam));
 $bySource = ['online' => ['revenue' => 0.0, 'orders' => 0], 'pos' => ['revenue' => 0.0, 'orders' => 0]];
 foreach ($src->fetchAll() as $row) {
     $bySource[$row['source']] = ['revenue' => (float)$row['revenue'], 'orders' => (int)$row['orders']];
@@ -68,13 +82,13 @@ foreach ($src->fetchAll() as $row) {
 // one query PER DAY, up to 31 of them, and silently stopped at day 31 for any
 // longer range even though the axis labels kept showing the full selected end
 // date).
-$cq = $pdo->prepare("SELECT DATE(created_at) d, SUM(total_amount) total FROM orders WHERE $paidNotCancelled AND DATE(created_at) BETWEEN ? AND ? GROUP BY DATE(created_at)");
-$cq->execute([$start, $end]);
+$cq = $pdo->prepare("SELECT DATE(created_at) d, SUM(total_amount) total FROM orders WHERE $paidNotCancelled AND DATE(created_at) BETWEEN ? AND ?$storeCondOrdersUnaliased GROUP BY DATE(created_at)");
+$cq->execute(array_merge([$start, $end], $storeParam));
 $byDay = [];
 foreach ($cq->fetchAll() as $row) { $byDay[$row['d']] = (float)$row['total']; }
 
-$ccq = $pdo->prepare("SELECT DATE(o.created_at) d, SUM(oi.quantity*oi.cost_price) total FROM orders o JOIN order_items oi ON oi.order_id=o.id WHERE o.$paidNotCancelled AND DATE(o.created_at) BETWEEN ? AND ? GROUP BY DATE(o.created_at)");
-$ccq->execute([$start, $end]);
+$ccq = $pdo->prepare("SELECT DATE(o.created_at) d, SUM(oi.quantity*oi.cost_price) total FROM orders o JOIN order_items oi ON oi.order_id=o.id WHERE o.$paidNotCancelled AND DATE(o.created_at) BETWEEN ? AND ?$storeCondOrders GROUP BY DATE(o.created_at)");
+$ccq->execute(array_merge([$start, $end], $storeParam));
 $costByDay = [];
 foreach ($ccq->fetchAll() as $row) { $costByDay[$row['d']] = (float)$row['total']; }
 
@@ -135,7 +149,7 @@ $posPct = $bySource['pos']['revenue'] / $splitTotal * 100;
 include __DIR__ . '/includes/admin_header.php';
 ?>
 <div class="admin-page-heading"><div><h1>Reports (P&amp;L)</h1><p>Analyze your business performance and profits for a selected time frame.</p></div><a class="admin-btn" href="export_orders.php?start=<?=h($start)?>&end=<?=h($end)?>">⇩ Download Report</a></div>
-<form class="admin-filter-bar report-filter" method="get"><div class="admin-field"><label>Start Date</label><input type="date" name="start" value="<?=h($start)?>"></div><span style="padding-bottom:10px;color:#7a8580;font-size:12px">to</span><div class="admin-field"><label>End Date</label><input type="date" name="end" value="<?=h($end)?>"></div><button class="admin-btn admin-btn-primary" type="submit">Filter</button></form>
+<form class="admin-filter-bar report-filter" method="get"><div class="admin-field"><label>Start Date</label><input type="date" name="start" value="<?=h($start)?>"></div><span style="padding-bottom:10px;color:#7a8580;font-size:12px">to</span><div class="admin-field"><label>End Date</label><input type="date" name="end" value="<?=h($end)?>"></div><?php if(is_store_restricted()):?><?php $curS=array_values(array_filter($allStores,fn($s)=>(int)$s['id']===(int)$storeFilter)); ?><div class="admin-field"><label>Store</label><input type="text" value="<?=h($curS[0]['name'] ?? 'Your store')?>" disabled style="background:#f3f6f4"></div><?php elseif(count($allStores) > 1): ?><div class="admin-field"><label>Store</label><select name="store"><option value="">All Stores</option><?php foreach($allStores as $s):?><option value="<?=$s['id']?>" <?=((int)$s['id']===(int)$storeFilter)?'selected':''?>><?=h($s['name'])?></option><?php endforeach;?></select></div><?php endif;?><button class="admin-btn admin-btn-primary" type="submit">Filter</button></form>
 <?php if ((int)$pendingRefund['cnt'] > 0): ?>
 <div class="admin-alert admin-alert-error" style="margin-bottom:18px">⚠ <?=number_format((int)$pendingRefund['cnt'])?> refund request(s) worth ₹<?=number_format((float)$pendingRefund['amt'],2)?> are still pending in this period — not yet deducted from profit below. <a href="orders.php" style="color:inherit;text-decoration:underline;font-weight:800">Review in Exceptions tab →</a></div>
 <?php endif; ?>

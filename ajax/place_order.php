@@ -62,19 +62,38 @@ $total = $subtotal - $discountAmount + $deliveryCharge;
 // simply left null for them.
 $customerId = $_SESSION['customer_id'] ?? null;
 
+// Resolve which dark store this order belongs to BEFORE the stock
+// transaction starts (not after, like dispatch_order_to_dark_store() used
+// to do) — per_store-mode products need to know the target store at the
+// exact moment stock gets deducted, not later. Geocoding failure here is
+// still non-fatal: $darkStoreId just stays null and per_store items fall
+// back to treating that line as "no store stock available" (same as a
+// product variant that's out of stock), while shared-mode products are
+// completely unaffected either way.
+$geo = geocode_address($address);
+$darkStoreId = null;
+$etaMinutes = null;
+if ($geo) {
+    $nearestStore = find_nearest_dark_store($pdo, $geo['lat'], $geo['lng']);
+    if ($nearestStore) {
+        $darkStoreId = (int)$nearestStore['id'];
+        $eta = estimate_delivery_eta($nearestStore['lat'], $nearestStore['lng'], $geo['lat'], $geo['lng']);
+        $etaMinutes = $eta['total_minutes'];
+    }
+}
+
 try {
     $pdo->beginTransaction();
 
     $stmt = $pdo->prepare("INSERT INTO orders
-        (customer_id, customer_name, email, phone, address, delivery_date, delivery_slot, total_amount, coupon_code, discount_amount, payment_method, payment_status, order_status)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'upi_qr', 'awaiting_verification', 'placed')");
-    $stmt->execute([$customerId, $name, $email, $phone, $address, $deliveryDate, $deliverySlot, $total, $couponCode, $discountAmount]);
+        (customer_id, customer_name, email, phone, address, address_lat, address_lng, delivery_date, delivery_slot, total_amount, coupon_code, discount_amount, payment_method, payment_status, order_status, dark_store_id, eta_minutes)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'upi_qr', 'awaiting_verification', 'placed', ?, ?)");
+    $stmt->execute([$customerId, $name, $email, $phone, $address, $geo['lat'] ?? null, $geo['lng'] ?? null, $deliveryDate, $deliverySlot, $total, $couponCode, $discountAmount, $darkStoreId, $etaMinutes]);
     $orderId = $pdo->lastInsertId();
 
     $itemStmt  = $pdo->prepare("INSERT INTO order_items (order_id, vegetable_id, vegetable_variant_id, variant_label, name, price, quantity, subtotal, cost_price)
         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)");
     $lockStmt = $pdo->prepare("SELECT id, name, unit, stock, cost_price FROM vegetables WHERE id = ? FOR UPDATE");
-    $stockStmt = $pdo->prepare("UPDATE vegetables SET stock = stock - ? WHERE id = ? AND stock >= ?");
     $movementStmt = $pdo->prepare("INSERT INTO inventory_movements (vegetable_id,movement_type,quantity,reference_id,notes) VALUES (?,'sale',?,?,?)");
 
     $itemLines = [];
@@ -95,11 +114,6 @@ try {
             $baseQty = round((float)$item['qty'] * $unitFraction, 4);
         }
 
-        $beforeStock = (float)($product['stock'] ?? 0);
-        if ($beforeStock < $baseQty) {
-            throw new RuntimeException('Insufficient stock for ' . ($item['name'] ?? 'an item') . '.');
-        }
-
         $lineSubtotal = $item['price'] * $item['qty'];
         $variantId = $item['variant_id'] ?? null;
         $itemStmt->execute([
@@ -114,12 +128,11 @@ try {
             $product['cost_price'],
         ]);
 
-        $stockStmt->execute([$baseQty, $item['id'], $baseQty]);
-        $verifyStmt = $pdo->prepare("SELECT stock FROM vegetables WHERE id = ?");
-        $verifyStmt->execute([(int)$item['id']]);
-        $afterStock = (float)($verifyStmt->fetchColumn() ?? 0);
-        $expectedAfter = $beforeStock - $baseQty;
-        if ($afterStock < 0 || abs($afterStock - $expectedAfter) > 0.01) {
+        // apply_stock_delta() deducts from store_inventory for a
+        // per_store-mode product (using the $darkStoreId resolved above)
+        // or the shared vegetables.stock column otherwise, atomically
+        // rejecting the change if there isn't actually enough left.
+        if (!apply_stock_delta($pdo, (int)$item['id'], -$baseQty, $darkStoreId)) {
             throw new RuntimeException('Stock changed while placing the order. Please try again.');
         }
 
@@ -135,8 +148,9 @@ try {
     exit;
 }
 
-// Best-effort dark-store routing + ETA (never blocks checkout on failure).
-dispatch_order_to_dark_store($pdo, $orderId);
+// dark_store_id/eta_minutes/address_lat/address_lng were already resolved
+// and saved above, so there's no need to call dispatch_order_to_dark_store()
+// here too — doing so would just re-geocode the same address a second time.
 
 // The coupon (if any) has now been spent on this order — clear it so it
 // doesn't silently carry over onto whatever the person orders next.

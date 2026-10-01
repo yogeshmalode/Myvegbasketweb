@@ -20,6 +20,13 @@ if (!$veg) {
     exit;
 }
 
+// Per_store products have no single global stock number — the shop doesn't
+// know which store will fulfil this order until checkout resolves the
+// delivery address, so cap against the TOTAL across every store instead
+// (apply_stock_delta() still enforces the real per-store limit at checkout).
+$displayStock = get_storefront_display_stock($pdo, $veg['id'], $veg['stock_mode'] ?? 'shared', $veg['stock']);
+$veg['stock'] = $displayStock;
+
 // If a size/weight variant was picked, look it up and make sure it really
 // belongs to this product — never trust price/label from the client.
 $variant = null;

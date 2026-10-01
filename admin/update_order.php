@@ -5,6 +5,22 @@ $id    = (int)($_GET['id'] ?? 0);
 $type  = $_GET['type'] ?? '';
 $value = $_GET['value'] ?? '';
 
+// A store-restricted staff/delivery login can only act on orders belonging
+// to their own store (or one whose store hasn't been auto-resolved yet) —
+// otherwise someone could bypass the orders.php list filter by guessing an
+// order id from another store's URL.
+$restrictedStoreId = session_store_id();
+if ($id && $restrictedStoreId !== null) {
+    $ownerCheck = $pdo->prepare("SELECT dark_store_id FROM orders WHERE id = ?");
+    $ownerCheck->execute([$id]);
+    $ownerStore = $ownerCheck->fetchColumn();
+    if ($ownerStore !== false && $ownerStore !== null && (int)$ownerStore !== $restrictedStoreId) {
+        $_SESSION['flash'] = ['type' => 'error', 'message' => "Order #$id belongs to a different store."];
+        header('Location: orders.php');
+        exit;
+    }
+}
+
 $allowedPaymentValues = ['pending', 'awaiting_verification', 'paid', 'failed'];
 $allowedOrderValues   = array_keys(get_order_status_options());
 
