@@ -1392,7 +1392,45 @@ function veg_thumb_html($veg) {
         'lettuce' => 'Raw lettuce.jpg',
     ];
 
-    $candidates = array_values(array_unique(array_filter([$slug, $localAliasMap[$slug] ?? null])));
+    $candidates = array_values(array_unique(array_filter([
+        $slug,
+        $localAliasMap[$slug] ?? null,
+        strtolower(preg_replace('/[^a-z0-9]+/i', '', (string)$veg['name'])),
+        strtolower(preg_replace('/[^a-z0-9]+/i', '', (string)($localAliasMap[$slug] ?? $veg['name']))),
+    ])));
+
+    $matchLocalImage = function($directory) use ($candidates, $veg) {
+        if (!is_dir($directory)) {
+            return null;
+        }
+
+        foreach (scandir($directory) as $file) {
+            if ($file === '.' || $file === '..') {
+                continue;
+            }
+
+            $ext = strtolower(pathinfo($file, PATHINFO_EXTENSION));
+            if (!in_array($ext, ['jpg', 'jpeg', 'png', 'webp'], true)) {
+                continue;
+            }
+
+            $normalized = strtolower(preg_replace('/[^a-z0-9]+/i', '', pathinfo($file, PATHINFO_FILENAME)));
+            if (!in_array($normalized, $candidates, true)) {
+                continue;
+            }
+
+            $relative = '/img/' . $file;
+            return '<img src="' . BASE_URL . $relative . '" alt="' . h($veg['name']) . '" loading="lazy" decoding="async" '
+                 . 'style="width:100%; height:100%; object-fit:cover; display:block; border-radius:10px;">';
+        }
+
+        return null;
+    };
+
+    $localMatch = $matchLocalImage(__DIR__ . '/img');
+    if ($localMatch !== null) {
+        return $localMatch;
+    }
 
     foreach (['jpg', 'jpeg', 'png', 'webp'] as $ext) {
         foreach ($candidates as $fileName) {
