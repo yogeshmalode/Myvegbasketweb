@@ -97,6 +97,31 @@ function resolve_bulk_vegetable_id($pdo, $value) {
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     require_csrf();
 
+    // A standalone "Delete" button on the Recent Inward Entries table posts
+    // here with action=delete_inward — handle it separately from the big
+    // multi-tab manual-entry/bulk-upload form below, which also reaches
+    // this same POST block but never sets an explicit action.
+    if (($_POST['action'] ?? '') === 'delete_inward') {
+        $delId = (int)($_POST['id'] ?? 0);
+        if ($delId > 0) {
+            // Reverse this entry's effect on stock before removing it, same
+            // principle as restock_cancelled_order() for regular orders —
+            // otherwise live stock stays inflated by the usable weight that
+            // was added when this (possibly mistaken) entry was first saved.
+            $row = $pdo->prepare('SELECT vegetable_id, usable_weight_kg FROM procurement_inward WHERE id = ?');
+            $row->execute([$delId]);
+            $entry = $row->fetch();
+            if ($entry) {
+                $pdo->prepare('UPDATE vegetables SET stock = GREATEST(stock - ?, 0) WHERE id = ?')
+                    ->execute([(float)$entry['usable_weight_kg'], (int)$entry['vegetable_id']]);
+                $pdo->prepare('DELETE FROM procurement_inward WHERE id = ?')->execute([$delId]);
+                $_SESSION['flash'] = ['type' => 'success', 'message' => 'Inward entry deleted and stock adjusted back.'];
+            }
+        }
+        header('Location: daily_procurement_dashboard.php');
+        exit;
+    }
+
     $bulkUploadError = '';
     $bulkUploadMessage = '';
     $purchaseRows = $_POST['purchase'] ?? [];
@@ -140,6 +165,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
                     $raw = (float)($data['raw_weight_kg'] ?? $data['raw_weight'] ?? 0);
                     $usable = (float)($data['usable_weight_kg'] ?? $data['usable_weight'] ?? 0);
+                    if ($raw <= 0 && $usable <= 0) {
+                        continue;
+                    }
                     $rate = (float)($data['mandi_rate_per_kg'] ?? $data['mandi_rate'] ?? $data['rate_per_kg'] ?? 0);
                     $sellingPrice = isset($data['selling_price']) ? (float)$data['selling_price'] : 0;
                     $sourceType = strtolower(trim((string)($data['source_type'] ?? 'mandi')));
@@ -189,6 +217,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
                 $raw = (float)($row['raw_weight_kg'] ?? 0);
                 $usable = (float)($row['usable_weight_kg'] ?? 0);
+
+                // The Manual Entry table lists EVERY active vegetable with
+                // raw/usable weight defaulted to 0, but the whole page is one
+                // <form> — so saving a purchase for just 1-2 items was
+                // silently inserting a zero-weight "ghost" procurement_inward
+                // row for every other vegetable too. Skip untouched rows.
+                if ($raw <= 0 && $usable <= 0) continue;
+
                 $wastage = max($raw - $usable, 0);
                 $rate = (float)($row['mandi_rate_per_kg'] ?? 0);
                 $totalCost = $usable * $rate;
@@ -462,6 +498,7 @@ include __DIR__ . '/includes/admin_header.php';
               <th>Wastage</th>
               <th>Rate</th>
               <th>Cost</th>
+              <th>Actions</th>
             </tr>
           </thead>
           <tbody>
@@ -475,9 +512,17 @@ include __DIR__ . '/includes/admin_header.php';
                 <td><?= number_format((float)$row['wastage_kg'], 2) ?> kg</td>
                 <td>₹<?= number_format((float)$row['mandi_rate_per_kg'], 2) ?></td>
                 <td>₹<?= number_format((float)$row['total_cost'], 2) ?></td>
+                <td>
+                  <form method="post" onsubmit="return confirm('Delete this inward entry and subtract <?= number_format((float)$row['usable_weight_kg'], 2) ?> kg back out of stock?');">
+                    <input type="hidden" name="action" value="delete_inward">
+                    <input type="hidden" name="id" value="<?= (int)$row['id'] ?>">
+                    <input type="hidden" name="csrf_token" value="<?= h(csrf_token()) ?>">
+                    <button type="submit" class="btn" style="background:#fce8e6; color:#9A2E24; border:1px solid #f4cfc9; min-height:30px; padding:0 10px; font-size:0.72rem; border-radius:8px;">🗑 Delete</button>
+                  </form>
+                </td>
               </tr>
             <?php endforeach; ?>
-            <?php if (!$purchaseRows): ?><tr><td colspan="8" style="text-align:center; color:#68736f;">No purchase inward entries yet.</td></tr><?php endif; ?>
+            <?php if (!$purchaseRows): ?><tr><td colspan="9" style="text-align:center; color:#68736f;">No purchase inward entries yet.</td></tr><?php endif; ?>
           </tbody>
         </table>
       </div>

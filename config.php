@@ -790,7 +790,6 @@ function ensure_management_schema($pdo) {
                     'dashboard.php', 'billing.php', 'vegetables.php', 'inventory.php',
                     'orders.php', 'wastage.php', 'offers.php', 'subscriptions.php',
                     'catalog_pricing.php', 'procurement.php', 'daily_procurement_dashboard.php',
-                    'fulfillment.php',
                 ],
                 'delivery' => [
                     'dashboard.php', 'delivery.php', 'deliveries.php', 'riders.php',

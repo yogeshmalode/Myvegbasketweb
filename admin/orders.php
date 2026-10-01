@@ -6,14 +6,22 @@ $flash = $_SESSION['flash'] ?? null;
 unset($_SESSION['flash']);
 
 $orders = $pdo->query("
-    SELECT o.*, r.name AS rider_name, r.phone AS rider_phone, ds.name AS dark_store_name
+    SELECT o.*, r.name AS rider_name, r.phone AS rider_phone, ds.name AS dark_store_name, pk.username AS assigned_picker_name
     FROM orders o
     LEFT JOIN riders r ON r.id = o.rider_id
     LEFT JOIN dark_stores ds ON ds.id = o.dark_store_id
+    LEFT JOIN admins pk ON pk.id = o.assigned_picker_id
     ORDER BY o.created_at DESC
 ")->fetchAll();
 
 $riders = $pdo->query("SELECT id, name FROM riders WHERE is_active = 1 ORDER BY name")->fetchAll();
+
+// Packers/pickers (same pool used by the old standalone Fulfillment Center
+// page, now folded into the New/Processing tabs below so packer assignment
+// and the batch picking sheet can be done without leaving this page).
+$pickerAdmins = $pdo->query("SELECT id, username FROM admins WHERE role IN ('admin','staff') ORDER BY username")->fetchAll();
+$pickerMap = [];
+foreach ($pickerAdmins as $pk) { $pickerMap[(int)$pk['id']] = $pk['username']; }
 
 // Pull every order's line items in one query and group them by order_id,
 // so the admin can see exactly which vegetables (and how much of each)
@@ -178,6 +186,22 @@ include __DIR__ . '/includes/admin_header.php';
   .order-tab-panel { display: none; }
   .order-tab-panel.active { display: block; }
 
+  /* ---- Picking toolbar + packer assignment (merged from Fulfillment Center) ---- */
+  .picking-toolbar {
+    display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap;
+    background: #fff; border: 1px solid #dfe8df; border-radius: 14px; padding: 10px 16px; margin-bottom: 14px;
+    box-shadow: 0 6px 16px rgba(18, 52, 40, 0.04);
+  }
+  .picking-toolbar span { font-size: 0.8rem; font-weight: 700; color: #4a5a52; }
+  .picking-toolbar .btn { min-height: 36px; padding: 0 14px; border-radius: 999px; font-weight: 800; font-size: 0.78rem; border: 1px solid #0c5a42; background: #0c5a42; color: #fff; cursor: pointer; }
+  .picking-toolbar .btn:disabled { opacity: 0.45; cursor: not-allowed; }
+  .order-card-select { position: absolute; top: 14px; left: 14px; width: 17px; height: 17px; cursor: pointer; }
+  .order-card.has-select { position: relative; padding-left: 36px; }
+  .order-card-picker { margin-top: 8px; display: flex; gap: 6px; align-items: center; flex-wrap: wrap; }
+  .order-card-picker select { min-height: 32px; border-radius: 8px; border: 1px solid #d5dfd7; font-size: 0.74rem; padding: 0 6px; flex: 1; min-width: 120px; }
+  .order-card-picker .btn { min-height: 32px; padding: 0 10px; font-size: 0.72rem; }
+  .order-card-picker-note { font-size: 0.7rem; color: #1c5f46; font-weight: 700; margin-top: 4px; }
+
   /* ---- Kanban card grid ---- */
   .order-card-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(290px, 1fr)); gap: 14px; }
   .order-card {
@@ -263,6 +287,11 @@ include __DIR__ . '/includes/admin_header.php';
   <?php $first = false; endforeach; ?>
 </div>
 
+<div class="picking-toolbar">
+  <span id="pickingSelectionSummary">Select orders in New / Processing to build a batch picking sheet</span>
+  <button class="btn" id="genPickingBtn" type="button" disabled onclick="generatePickingSheet()">📋 Generate Picking Sheet</button>
+</div>
+
 <script>
 const CSRF_TOKEN = '<?= h(csrf_token()) ?>';
 
@@ -326,10 +355,53 @@ function filterPos() {
     row.style.display = row.dataset.search.includes(q) ? '' : 'none';
   });
 }
+
+// ---- Packer assignment + batch picking sheet (merged from the old
+// standalone Fulfillment Center page so this is all trackable from one
+// place instead of two separate dashboards going out of sync). ----
+const PICKER_MAP = <?= json_encode($pickerMap) ?>;
+
+function selectedPickOrderIds() {
+  return Array.from(document.querySelectorAll('.order-card-select:checked')).map(cb => cb.value);
+}
+
+function updatePickingSelectionSummary() {
+  const ids = selectedPickOrderIds();
+  const summary = document.getElementById('pickingSelectionSummary');
+  const btn = document.getElementById('genPickingBtn');
+  if (summary) summary.textContent = ids.length ? ids.length + ' order(s) selected for picking' : 'Select orders in New / Processing to build a batch picking sheet';
+  if (btn) btn.disabled = ids.length === 0;
+}
+
+function generatePickingSheet() {
+  const ids = selectedPickOrderIds();
+  if (!ids.length) { alert('Select at least one order to generate a picking sheet.'); return; }
+  window.open('picking_sheet.php?orders=' + encodeURIComponent(ids.join(',')), '_blank');
+}
+
+function assignPicker(orderId) {
+  const select = document.getElementById('picker-' + orderId);
+  const pickerId = select ? select.value : '';
+  if (!pickerId) { alert('Please select a packer first.'); return; }
+  const btn = document.getElementById('picker-btn-' + orderId);
+  if (btn) { btn.disabled = true; btn.textContent = 'Saving...'; }
+  fetch('../ajax/assign_picker.php', {
+    method: 'POST', headers: {'Content-Type':'application/json'},
+    body: JSON.stringify({ order_id: orderId, picker_id: Number(pickerId), csrf_token: CSRF_TOKEN })
+  }).then(r => r.json()).then(data => {
+    if (!data.success) throw new Error(data.error || 'Unable to assign packer');
+    const note = document.getElementById('picker-note-' + orderId);
+    if (note) note.textContent = '📦 Packer: ' + (PICKER_MAP[pickerId] || 'Assigned');
+  }).catch(err => {
+    alert(err.message || 'Failed to assign packer.');
+  }).finally(() => {
+    if (btn) { btn.disabled = false; btn.textContent = 'Assign'; }
+  });
+}
 </script>
 
 <?php
-function render_order_card($o, $itemsByOrder, $colorMap, $actionsHtml, $orderStatusOptions) {
+function render_order_card($o, $itemsByOrder, $colorMap, $actionsHtml, $orderStatusOptions, $pickerHtml = '', $enablePickSelect = false) {
     $status = normalize_order_status($o['order_status']);
     $urgentClass = '';
     if (in_array($status, ['out_for_delivery', 'arriving_soon'], true) && $o['eta_minutes'] !== null && $o['updated_at']) {
@@ -338,7 +410,10 @@ function render_order_card($o, $itemsByOrder, $colorMap, $actionsHtml, $orderSta
         elseif ($minutesSince > (float)$o['eta_minutes'] * 0.7) $urgentClass = 'warn';
     }
     ?>
-    <div class="order-card <?= $urgentClass ?>">
+    <div class="order-card <?= $urgentClass ?> <?= $enablePickSelect ? 'has-select' : '' ?>">
+      <?php if ($enablePickSelect): ?>
+        <input type="checkbox" class="order-card-select" value="<?= $o['id'] ?>" onchange="updatePickingSelectionSummary()" title="Select for batch picking sheet">
+      <?php endif; ?>
       <div class="order-card-top">
         <span class="order-card-id">#<?= $o['id'] ?></span>
         <span class="order-card-time"><?= format_ist($o['created_at'], 'd M, h:i A') ?></span>
@@ -360,12 +435,25 @@ function render_order_card($o, $itemsByOrder, $colorMap, $actionsHtml, $orderSta
           <?php endforeach; ?>
         </details>
       <?php endif; ?>
+      <?= $pickerHtml ?>
       <div class="order-card-total">₹<?= number_format($o['total_amount'], 2) ?></div>
       <div class="order-card-actions">
         <?= $actionsHtml ?>
       </div>
     </div>
     <?php
+}
+
+function render_picker_block($o, $pickerAdmins) {
+    $orderId = (int)$o['id'];
+    $html = '<div class="order-card-picker"><select id="picker-' . $orderId . '"><option value="">— Select packer —</option>';
+    foreach ($pickerAdmins as $pk) {
+        $sel = (int)($o['assigned_picker_id'] ?? 0) === (int)$pk['id'] ? 'selected' : '';
+        $html .= '<option value="' . $pk['id'] . '" ' . $sel . '>' . h($pk['username']) . '</option>';
+    }
+    $html .= '</select><button class="btn" id="picker-btn-' . $orderId . '" type="button" onclick="assignPicker(' . $orderId . ')">Assign</button></div>';
+    $html .= '<div class="order-card-picker-note" id="picker-note-' . $orderId . '">' . (!empty($o['assigned_picker_name']) ? '📦 Packer: ' . h($o['assigned_picker_name']) : '') . '</div>';
+    return $html;
 }
 ?>
 
@@ -384,7 +472,7 @@ function render_order_card($o, $itemsByOrder, $colorMap, $actionsHtml, $orderSta
           $actions .= '<button class="btn" onclick="setOrderStatus(' . $o['id'] . ", 'processing')\">▶ Start Processing</button>";
       }
       $actions .= '<button class="btn danger" onclick="if(confirm(\'Cancel order #' . $o['id'] . "')) setOrderStatus(" . $o['id'] . ", 'cancelled')\">✕ Cancel</button>";
-      render_order_card($o, $itemsByOrder, $colorMap, $actions, $orderStatusOptions);
+      render_order_card($o, $itemsByOrder, $colorMap, $actions, $orderStatusOptions, render_picker_block($o, $pickerAdmins), true);
     endforeach; ?>
   </div>
 </div>
@@ -399,7 +487,7 @@ function render_order_card($o, $itemsByOrder, $colorMap, $actionsHtml, $orderSta
       $actions = '<a class="btn" href="export_orders_pdf.php?id=' . $o['id'] . '" target="_blank">🖨 Print Packing Slip</a>';
       $actions .= '<button class="btn primary" onclick="setOrderStatus(' . $o['id'] . ", 'ready_for_pickup')\">✅ Ready for Dispatch</button>";
       $actions .= '<button class="btn danger" onclick="if(confirm(\'Cancel order #' . $o['id'] . "')) setOrderStatus(" . $o['id'] . ", 'cancelled')\">✕ Cancel</button>";
-      render_order_card($o, $itemsByOrder, $colorMap, $actions, $orderStatusOptions);
+      render_order_card($o, $itemsByOrder, $colorMap, $actions, $orderStatusOptions, render_picker_block($o, $pickerAdmins), true);
     endforeach; ?>
   </div>
 </div>

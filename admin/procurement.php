@@ -147,6 +147,139 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 exit;
             }
         }
+        // ---- Edit / update actions ----
+        if ($action === 'update_vendor') {
+            $id = (int)($_POST['id'] ?? 0);
+            $name = trim((string)($_POST['name'] ?? ''));
+            $type = in_array($_POST['type'] ?? 'vendor', ['farmer','vendor','aggregator'], true) ? $_POST['type'] : 'vendor';
+            $phone = trim((string)($_POST['phone'] ?? ''));
+            $address = trim((string)($_POST['address'] ?? ''));
+            $payment_terms = trim((string)($_POST['payment_terms'] ?? ''));
+            $status = in_array($_POST['status'] ?? 'active', ['active','inactive'], true) ? $_POST['status'] : 'active';
+            if ($id <= 0 || $name === '') { $errors[] = 'Vendor/farmer name is required.'; }
+            if (empty($errors)) {
+                $stmt = $pdo->prepare('UPDATE vendors SET name=?, type=?, phone=?, address=?, payment_terms=?, status=? WHERE id=?');
+                $stmt->execute([$name, $type, $phone !== '' ? $phone : null, $address !== '' ? $address : null, $payment_terms !== '' ? $payment_terms : null, $status, $id]);
+                $_SESSION['flash'] = ['type' => 'success', 'message' => 'Vendor updated.'];
+                header('Location: procurement.php'); exit;
+            }
+        }
+
+        if ($action === 'delete_vendor') {
+            $id = (int)($_POST['id'] ?? 0);
+            if ($id > 0) {
+                $pdo->prepare('DELETE FROM vendors WHERE id = ?')->execute([$id]);
+                $_SESSION['flash'] = ['type' => 'success', 'message' => 'Vendor deleted.'];
+            }
+            header('Location: procurement.php'); exit;
+        }
+
+        if ($action === 'update_farmer') {
+            $id = (int)($_POST['id'] ?? 0);
+            $name = trim((string)($_POST['name'] ?? ''));
+            $phone = trim((string)($_POST['phone'] ?? ''));
+            $village = trim((string)($_POST['village'] ?? ''));
+            $address = trim((string)($_POST['address'] ?? ''));
+            $payment_terms = trim((string)($_POST['payment_terms'] ?? ''));
+            $status = in_array($_POST['status'] ?? 'active', ['active','inactive'], true) ? $_POST['status'] : 'active';
+            if ($id <= 0 || $name === '') { $errors[] = 'Farmer name is required.'; }
+            if (empty($errors)) {
+                $stmt = $pdo->prepare('UPDATE farmers SET name=?, phone=?, village=?, address=?, payment_terms=?, status=? WHERE id=?');
+                $stmt->execute([$name, $phone !== '' ? $phone : null, $village !== '' ? $village : null, $address !== '' ? $address : null, $payment_terms !== '' ? $payment_terms : null, $status, $id]);
+                $_SESSION['flash'] = ['type' => 'success', 'message' => 'Farmer updated.'];
+                header('Location: procurement.php'); exit;
+            }
+        }
+
+        if ($action === 'delete_farmer') {
+            $id = (int)($_POST['id'] ?? 0);
+            if ($id > 0) {
+                $pdo->prepare('DELETE FROM farmers WHERE id = ?')->execute([$id]);
+                $_SESSION['flash'] = ['type' => 'success', 'message' => 'Farmer deleted.'];
+            }
+            header('Location: procurement.php'); exit;
+        }
+
+        if ($action === 'update_vehicle') {
+            $id = (int)($_POST['id'] ?? 0);
+            $vehicleNo = trim((string)($_POST['vehicle_no'] ?? ''));
+            $type = trim((string)($_POST['type'] ?? 'Bike'));
+            $capacity = (float)($_POST['max_capacity_kg'] ?? 0);
+            $driver = trim((string)($_POST['driver_name'] ?? ''));
+            $status = in_array($_POST['status'] ?? 'active', ['active','inactive'], true) ? $_POST['status'] : 'active';
+            if ($id <= 0 || $vehicleNo === '' || $capacity <= 0) { $errors[] = 'Vehicle number and valid capacity are required.'; }
+            if (empty($errors)) {
+                $stmt = $pdo->prepare('UPDATE vehicles SET vehicle_no=?, type=?, max_capacity_kg=?, driver_name=?, status=? WHERE id=?');
+                $stmt->execute([$vehicleNo, $type !== '' ? $type : 'Bike', $capacity, $driver !== '' ? $driver : null, $status, $id]);
+                $_SESSION['flash'] = ['type' => 'success', 'message' => 'Vehicle updated.'];
+                header('Location: procurement.php'); exit;
+            }
+        }
+
+        if ($action === 'delete_vehicle') {
+            $id = (int)($_POST['id'] ?? 0);
+            if ($id > 0) {
+                try {
+                    $pdo->prepare('DELETE FROM vehicles WHERE id = ?')->execute([$id]);
+                    $_SESSION['flash'] = ['type' => 'success', 'message' => 'Vehicle deleted.'];
+                } catch (Throwable $e) {
+                    // Vehicles with dispatch trip history are protected by an
+                    // ON DELETE RESTRICT foreign key — mark inactive instead
+                    // so existing trip records stay intact.
+                    $pdo->prepare("UPDATE vehicles SET status='inactive' WHERE id = ?")->execute([$id]);
+                    $_SESSION['flash'] = ['type' => 'success', 'message' => 'Vehicle has dispatch history, so it was marked inactive instead of deleted.'];
+                }
+            }
+            header('Location: procurement.php'); exit;
+        }
+
+        if ($action === 'delete_purchase') {
+            $id = (int)($_POST['id'] ?? 0);
+            if ($id > 0) {
+                // GRN entries linked to this purchase cascade-delete automatically.
+                $pdo->prepare('DELETE FROM purchase_entries WHERE id = ?')->execute([$id]);
+                $_SESSION['flash'] = ['type' => 'success', 'message' => 'Purchase entry (and any linked GRN) deleted.'];
+            }
+            header('Location: procurement.php'); exit;
+        }
+
+        if ($action === 'update_inward_status') {
+            $id = (int)($_POST['id'] ?? 0);
+            $status = in_array($_POST['status'] ?? 'received', ['received','qc_pending','rejected'], true) ? $_POST['status'] : 'received';
+            if ($id > 0) {
+                $pdo->prepare('UPDATE inward_goods SET status=? WHERE id=?')->execute([$status, $id]);
+                $_SESSION['flash'] = ['type' => 'success', 'message' => 'GRN status updated.'];
+            }
+            header('Location: procurement.php'); exit;
+        }
+
+        if ($action === 'delete_inward') {
+            $id = (int)($_POST['id'] ?? 0);
+            if ($id > 0) {
+                $pdo->prepare('DELETE FROM inward_goods WHERE id = ?')->execute([$id]);
+                $_SESSION['flash'] = ['type' => 'success', 'message' => 'GRN entry deleted.'];
+            }
+            header('Location: procurement.php'); exit;
+        }
+
+        if ($action === 'update_trip_status') {
+            $id = (int)($_POST['id'] ?? 0);
+            $status = in_array($_POST['status'] ?? 'planned', ['planned','dispatched','completed','blocked'], true) ? $_POST['status'] : 'planned';
+            if ($id > 0) {
+                $pdo->prepare('UPDATE dispatch_trips SET status=? WHERE id=?')->execute([$status, $id]);
+                $_SESSION['flash'] = ['type' => 'success', 'message' => 'Dispatch trip status updated.'];
+            }
+            header('Location: procurement.php'); exit;
+        }
+
+        if ($action === 'delete_trip') {
+            $id = (int)($_POST['id'] ?? 0);
+            if ($id > 0) {
+                $pdo->prepare('DELETE FROM dispatch_trips WHERE id = ?')->execute([$id]);
+                $_SESSION['flash'] = ['type' => 'success', 'message' => 'Dispatch trip deleted.'];
+            }
+            header('Location: procurement.php'); exit;
+        }
     } catch (Throwable $e) {
         $errors[] = 'Could not save: ' . $e->getMessage();
     }
@@ -170,6 +303,29 @@ $vehicles = $pdo->query('SELECT * FROM vehicles ORDER BY id DESC LIMIT 20')->fet
 $purchaseEntries = $pdo->query('SELECT pe.*, v.name AS vendor_name, f.name AS farmer_name FROM purchase_entries pe LEFT JOIN vendors v ON v.id = pe.vendor_id LEFT JOIN farmers f ON f.id = pe.farmer_id ORDER BY pe.id DESC LIMIT 20')->fetchAll();
 $inwardGoods = $pdo->query('SELECT ig.*, pe.item_name, pe.quantity_kg FROM inward_goods ig JOIN purchase_entries pe ON pe.id = ig.purchase_id ORDER BY ig.id DESC LIMIT 20')->fetchAll();
 $dispatchTrips = $pdo->query('SELECT dt.*, v.vehicle_no FROM dispatch_trips dt JOIN vehicles v ON v.id = dt.vehicle_id ORDER BY dt.id DESC LIMIT 20')->fetchAll();
+
+// ---- Inline "Edit" support: ?edit_vendor=5 / ?edit_farmer=5 / ?edit_vehicle=5
+// pre-fills the Add form above with that record's data and switches it to
+// update mode, instead of needing a separate edit page/modal.
+$editVendor = null;
+if (!empty($_GET['edit_vendor'])) {
+    $st = $pdo->prepare('SELECT * FROM vendors WHERE id = ?');
+    $st->execute([(int)$_GET['edit_vendor']]);
+    $editVendor = $st->fetch() ?: null;
+}
+$editFarmer = null;
+if (!empty($_GET['edit_farmer'])) {
+    $st = $pdo->prepare('SELECT * FROM farmers WHERE id = ?');
+    $st->execute([(int)$_GET['edit_farmer']]);
+    $editFarmer = $st->fetch() ?: null;
+}
+$editVehicle = null;
+if (!empty($_GET['edit_vehicle'])) {
+    $st = $pdo->prepare('SELECT * FROM vehicles WHERE id = ?');
+    $st->execute([(int)$_GET['edit_vehicle']]);
+    $editVehicle = $st->fetch() ?: null;
+}
+$activeTab = $_GET['tab'] ?? ($editVendor ? 'vendor' : ($editFarmer ? 'farmer' : ($editVehicle ? 'vehicle' : 'vendor')));
 
 include __DIR__ . '/includes/admin_header.php';
 ?>
@@ -210,7 +366,13 @@ include __DIR__ . '/includes/admin_header.php';
   .status-pill.blocked { background:#ffe9e5; color:#d5312d; }
   .status-pill.qc_pending { background:#fff2d8; color:#b5700d; }
   .status-pill.rejected { background:#fce8e6; color:#aa3129; }
+  .status-pill.inactive { background:#f1f1ee; color:#6b6b63; }
   .warning-box { padding:12px 14px; border-radius:10px; background:#fff6eb; color:#955a14; border:1px solid #f1d3a4; font-size:0.82rem; }
+  .row-actions { display:flex; gap:6px; flex-wrap:wrap; }
+  .row-actions .btn { min-height:30px; padding:0 10px; font-size:0.72rem; border-radius:8px; font-weight:700; }
+  .row-actions .btn.danger { background:#fce8e6; color:#9A2E24; border:1px solid #f4cfc9; }
+  .row-actions form { display:inline-flex; align-items:center; gap:4px; }
+  .row-actions select.status-mini { min-height:30px; border-radius:8px; border:1px solid #d7e1db; font-size:0.72rem; padding:0 6px; }
   @media (max-width:960px) { .proc-stats, .proc-grid { grid-template-columns:1fr 1fr; } }
   @media (max-width:720px) { .proc-stats, .proc-grid { grid-template-columns:1fr; } }
 </style>
@@ -236,74 +398,198 @@ include __DIR__ . '/includes/admin_header.php';
   </div>
 
   <div class="proc-tabs" role="tablist" aria-label="Procurement forms">
-    <button type="button" class="proc-tab-btn active" data-tab="vendor">Supplier / Vendor</button>
-    <button type="button" class="proc-tab-btn" data-tab="farmer">Farmer</button>
-    <button type="button" class="proc-tab-btn" data-tab="vehicle">Vehicle</button>
-    <button type="button" class="proc-tab-btn" data-tab="purchase">Purchase Entry</button>
-    <button type="button" class="proc-tab-btn" data-tab="inward">QC / GRN Inward</button>
-    <button type="button" class="proc-tab-btn" data-tab="dispatch">Dispatch Capability</button>
+    <button type="button" class="proc-tab-btn <?= $activeTab === 'vendor' ? 'active' : '' ?>" data-tab="vendor">Supplier / Vendor</button>
+    <button type="button" class="proc-tab-btn <?= $activeTab === 'farmer' ? 'active' : '' ?>" data-tab="farmer">Farmer</button>
+    <button type="button" class="proc-tab-btn <?= $activeTab === 'vehicle' ? 'active' : '' ?>" data-tab="vehicle">Vehicle</button>
+    <button type="button" class="proc-tab-btn <?= $activeTab === 'purchase' ? 'active' : '' ?>" data-tab="purchase">Purchase Entry</button>
+    <button type="button" class="proc-tab-btn <?= $activeTab === 'inward' ? 'active' : '' ?>" data-tab="inward">QC / GRN Inward</button>
+    <button type="button" class="proc-tab-btn <?= $activeTab === 'dispatch' ? 'active' : '' ?>" data-tab="dispatch">Dispatch Capability</button>
   </div>
 
-  <div class="proc-tab-panel active" id="tab-vendor">
-    <section class="proc-panel">
-      <div class="proc-panel-head"><h3>Add Supplier / Vendor</h3></div>
+  <div class="proc-tab-panel <?= $activeTab === 'vendor' ? 'active' : '' ?>" id="tab-vendor">
+    <section class="proc-panel" style="margin-bottom:18px;">
+      <div class="proc-panel-head"><h3><?= $editVendor ? 'Edit Supplier / Vendor #' . (int)$editVendor['id'] : 'Add Supplier / Vendor' ?></h3></div>
       <div class="proc-form">
         <form method="post">
-          <input type="hidden" name="action" value="save_vendor">
+          <input type="hidden" name="action" value="<?= $editVendor ? 'update_vendor' : 'save_vendor' ?>">
+          <?php if ($editVendor): ?><input type="hidden" name="id" value="<?= (int)$editVendor['id'] ?>"><?php endif; ?>
           <input type="hidden" name="csrf_token" value="<?= h(csrf_token()) ?>">
           <div class="proc-form-grid">
-            <div class="field"><label>Name</label><input type="text" name="name" required></div>
-            <div class="field"><label>Type</label><select name="type"><option value="vendor">Vendor</option><option value="farmer">Farmer</option><option value="aggregator">Aggregator</option></select></div>
-            <div class="field"><label>Phone</label><input type="tel" name="phone"></div>
-            <div class="field"><label>Payment terms</label><input type="text" name="payment_terms" placeholder="7 days, 15 days"></div>
-            <div class="field full"><label>Address</label><textarea name="address"></textarea></div>
+            <div class="field"><label>Name</label><input type="text" name="name" value="<?= h($editVendor['name'] ?? '') ?>" required></div>
+            <div class="field"><label>Type</label><select name="type">
+              <?php foreach (['vendor'=>'Vendor','farmer'=>'Farmer','aggregator'=>'Aggregator'] as $val=>$lbl): ?>
+                <option value="<?= $val ?>" <?= ($editVendor['type'] ?? 'vendor') === $val ? 'selected' : '' ?>><?= $lbl ?></option>
+              <?php endforeach; ?>
+            </select></div>
+            <div class="field"><label>Phone</label><input type="tel" name="phone" value="<?= h($editVendor['phone'] ?? '') ?>"></div>
+            <div class="field"><label>Payment terms</label><input type="text" name="payment_terms" placeholder="7 days, 15 days" value="<?= h($editVendor['payment_terms'] ?? '') ?>"></div>
+            <div class="field full"><label>Address</label><textarea name="address"><?= h($editVendor['address'] ?? '') ?></textarea></div>
+            <?php if ($editVendor): ?>
+              <div class="field"><label>Status</label><select name="status">
+                <option value="active" <?= $editVendor['status']==='active'?'selected':'' ?>>Active</option>
+                <option value="inactive" <?= $editVendor['status']==='inactive'?'selected':'' ?>>Inactive</option>
+              </select></div>
+            <?php endif; ?>
           </div>
-          <div class="proc-btns"><button type="submit" class="btn btn-primary">Save</button></div>
+          <div class="proc-btns">
+            <button type="submit" class="btn btn-primary"><?= $editVendor ? 'Update Vendor' : 'Save' ?></button>
+            <?php if ($editVendor): ?><a class="btn" href="procurement.php?tab=vendor">Cancel</a><?php endif; ?>
+          </div>
         </form>
+      </div>
+    </section>
+
+    <section class="proc-panel">
+      <div class="proc-panel-head"><h3>All Vendors / Farmers (Suppliers)</h3></div>
+      <div class="proc-table-wrap">
+        <table class="proc-table">
+          <thead><tr><th>ID</th><th>Name</th><th>Type</th><th>Phone</th><th>Payment Terms</th><th>Status</th><th>Actions</th></tr></thead>
+          <tbody>
+            <?php foreach ($vendors as $row): ?>
+              <tr>
+                <td>#<?= (int)$row['id'] ?></td>
+                <td><?= h($row['name']) ?></td>
+                <td><?= h(ucfirst($row['type'])) ?></td>
+                <td><?= h($row['phone'] ?: '—') ?></td>
+                <td><?= h($row['payment_terms'] ?: '—') ?></td>
+                <td><span class="status-pill <?= $row['status'] === 'inactive' ? 'inactive' : '' ?>"><?= h(ucfirst($row['status'])) ?></span></td>
+                <td class="row-actions">
+                  <a class="btn" href="procurement.php?tab=vendor&edit_vendor=<?= (int)$row['id'] ?>#tab-vendor">✏ Edit</a>
+                  <form method="post" onsubmit="return confirm('Delete vendor &quot;<?= h(addslashes($row['name'])) ?>&quot;?');">
+                    <input type="hidden" name="action" value="delete_vendor">
+                    <input type="hidden" name="id" value="<?= (int)$row['id'] ?>">
+                    <input type="hidden" name="csrf_token" value="<?= h(csrf_token()) ?>">
+                    <button type="submit" class="btn danger">🗑 Delete</button>
+                  </form>
+                </td>
+              </tr>
+            <?php endforeach; if (!$vendors): ?><tr><td colspan="7" style="text-align:center; color:#68736f;">No vendors added yet.</td></tr><?php endif; ?>
+          </tbody>
+        </table>
       </div>
     </section>
   </div>
 
-  <div class="proc-tab-panel" id="tab-farmer">
-    <section class="proc-panel">
-      <div class="proc-panel-head"><h3>Add Farmer</h3></div>
+  <div class="proc-tab-panel <?= $activeTab === 'farmer' ? 'active' : '' ?>" id="tab-farmer">
+    <section class="proc-panel" style="margin-bottom:18px;">
+      <div class="proc-panel-head"><h3><?= $editFarmer ? 'Edit Farmer #' . (int)$editFarmer['id'] : 'Add Farmer' ?></h3></div>
       <div class="proc-form">
         <form method="post">
-          <input type="hidden" name="action" value="save_farmer">
+          <input type="hidden" name="action" value="<?= $editFarmer ? 'update_farmer' : 'save_farmer' ?>">
+          <?php if ($editFarmer): ?><input type="hidden" name="id" value="<?= (int)$editFarmer['id'] ?>"><?php endif; ?>
           <input type="hidden" name="csrf_token" value="<?= h(csrf_token()) ?>">
           <div class="proc-form-grid">
-            <div class="field"><label>Name</label><input type="text" name="name" required></div>
-            <div class="field"><label>Phone</label><input type="tel" name="phone"></div>
-            <div class="field"><label>Village</label><input type="text" name="village"></div>
-            <div class="field"><label>Payment terms</label><input type="text" name="payment_terms" placeholder="Weekly / advance"></div>
-            <div class="field full"><label>Address</label><textarea name="address"></textarea></div>
+            <div class="field"><label>Name</label><input type="text" name="name" value="<?= h($editFarmer['name'] ?? '') ?>" required></div>
+            <div class="field"><label>Phone</label><input type="tel" name="phone" value="<?= h($editFarmer['phone'] ?? '') ?>"></div>
+            <div class="field"><label>Village</label><input type="text" name="village" value="<?= h($editFarmer['village'] ?? '') ?>"></div>
+            <div class="field"><label>Payment terms</label><input type="text" name="payment_terms" placeholder="Weekly / advance" value="<?= h($editFarmer['payment_terms'] ?? '') ?>"></div>
+            <div class="field full"><label>Address</label><textarea name="address"><?= h($editFarmer['address'] ?? '') ?></textarea></div>
+            <?php if ($editFarmer): ?>
+              <div class="field"><label>Status</label><select name="status">
+                <option value="active" <?= $editFarmer['status']==='active'?'selected':'' ?>>Active</option>
+                <option value="inactive" <?= $editFarmer['status']==='inactive'?'selected':'' ?>>Inactive</option>
+              </select></div>
+            <?php endif; ?>
           </div>
-          <div class="proc-btns"><button type="submit" class="btn btn-primary">Save</button></div>
+          <div class="proc-btns">
+            <button type="submit" class="btn btn-primary"><?= $editFarmer ? 'Update Farmer' : 'Save' ?></button>
+            <?php if ($editFarmer): ?><a class="btn" href="procurement.php?tab=farmer">Cancel</a><?php endif; ?>
+          </div>
         </form>
+      </div>
+    </section>
+
+    <section class="proc-panel">
+      <div class="proc-panel-head"><h3>All Farmers</h3></div>
+      <div class="proc-table-wrap">
+        <table class="proc-table">
+          <thead><tr><th>ID</th><th>Name</th><th>Village</th><th>Phone</th><th>Payment Terms</th><th>Status</th><th>Actions</th></tr></thead>
+          <tbody>
+            <?php foreach ($farmers as $row): ?>
+              <tr>
+                <td>#<?= (int)$row['id'] ?></td>
+                <td><?= h($row['name']) ?></td>
+                <td><?= h($row['village'] ?: '—') ?></td>
+                <td><?= h($row['phone'] ?: '—') ?></td>
+                <td><?= h($row['payment_terms'] ?: '—') ?></td>
+                <td><span class="status-pill <?= $row['status'] === 'inactive' ? 'inactive' : '' ?>"><?= h(ucfirst($row['status'])) ?></span></td>
+                <td class="row-actions">
+                  <a class="btn" href="procurement.php?tab=farmer&edit_farmer=<?= (int)$row['id'] ?>#tab-farmer">✏ Edit</a>
+                  <form method="post" onsubmit="return confirm('Delete farmer &quot;<?= h(addslashes($row['name'])) ?>&quot;?');">
+                    <input type="hidden" name="action" value="delete_farmer">
+                    <input type="hidden" name="id" value="<?= (int)$row['id'] ?>">
+                    <input type="hidden" name="csrf_token" value="<?= h(csrf_token()) ?>">
+                    <button type="submit" class="btn danger">🗑 Delete</button>
+                  </form>
+                </td>
+              </tr>
+            <?php endforeach; if (!$farmers): ?><tr><td colspan="7" style="text-align:center; color:#68736f;">No farmers added yet.</td></tr><?php endif; ?>
+          </tbody>
+        </table>
       </div>
     </section>
   </div>
 
-  <div class="proc-tab-panel" id="tab-vehicle">
-    <section class="proc-panel">
-      <div class="proc-panel-head"><h3>Add Vehicle</h3></div>
+  <div class="proc-tab-panel <?= $activeTab === 'vehicle' ? 'active' : '' ?>" id="tab-vehicle">
+    <section class="proc-panel" style="margin-bottom:18px;">
+      <div class="proc-panel-head"><h3><?= $editVehicle ? 'Edit Vehicle #' . (int)$editVehicle['id'] : 'Add Vehicle' ?></h3></div>
       <div class="proc-form">
         <form method="post">
-          <input type="hidden" name="action" value="save_vehicle">
+          <input type="hidden" name="action" value="<?= $editVehicle ? 'update_vehicle' : 'save_vehicle' ?>">
+          <?php if ($editVehicle): ?><input type="hidden" name="id" value="<?= (int)$editVehicle['id'] ?>"><?php endif; ?>
           <input type="hidden" name="csrf_token" value="<?= h(csrf_token()) ?>">
           <div class="proc-form-grid">
-            <div class="field"><label>Vehicle no.</label><input type="text" name="vehicle_no" required></div>
-            <div class="field"><label>Type</label><input type="text" name="type" value="Bike" required></div>
-            <div class="field"><label>Max capacity (kg)</label><input type="number" step="0.01" min="0" name="max_capacity_kg" required></div>
-            <div class="field"><label>Driver</label><input type="text" name="driver_name"></div>
+            <div class="field"><label>Vehicle no.</label><input type="text" name="vehicle_no" value="<?= h($editVehicle['vehicle_no'] ?? '') ?>" required></div>
+            <div class="field"><label>Type</label><input type="text" name="type" value="<?= h($editVehicle['type'] ?? 'Bike') ?>" required></div>
+            <div class="field"><label>Max capacity (kg)</label><input type="number" step="0.01" min="0" name="max_capacity_kg" value="<?= h($editVehicle['max_capacity_kg'] ?? '') ?>" required></div>
+            <div class="field"><label>Driver</label><input type="text" name="driver_name" value="<?= h($editVehicle['driver_name'] ?? '') ?>"></div>
+            <?php if ($editVehicle): ?>
+              <div class="field"><label>Status</label><select name="status">
+                <option value="active" <?= $editVehicle['status']==='active'?'selected':'' ?>>Active</option>
+                <option value="inactive" <?= $editVehicle['status']==='inactive'?'selected':'' ?>>Inactive</option>
+              </select></div>
+            <?php endif; ?>
           </div>
-          <div class="proc-btns"><button type="submit" class="btn btn-primary">Save</button></div>
+          <div class="proc-btns">
+            <button type="submit" class="btn btn-primary"><?= $editVehicle ? 'Update Vehicle' : 'Save' ?></button>
+            <?php if ($editVehicle): ?><a class="btn" href="procurement.php?tab=vehicle">Cancel</a><?php endif; ?>
+          </div>
         </form>
+      </div>
+    </section>
+
+    <section class="proc-panel">
+      <div class="proc-panel-head"><h3>All Vehicles</h3></div>
+      <div class="proc-table-wrap">
+        <table class="proc-table">
+          <thead><tr><th>ID</th><th>Vehicle No.</th><th>Type</th><th>Capacity</th><th>Driver</th><th>Status</th><th>Actions</th></tr></thead>
+          <tbody>
+            <?php foreach ($vehicles as $row): ?>
+              <tr>
+                <td>#<?= (int)$row['id'] ?></td>
+                <td><?= h($row['vehicle_no']) ?></td>
+                <td><?= h($row['type']) ?></td>
+                <td><?= number_format((float)$row['max_capacity_kg'], 2) ?> kg</td>
+                <td><?= h($row['driver_name'] ?: '—') ?></td>
+                <td><span class="status-pill <?= $row['status'] === 'inactive' ? 'inactive' : '' ?>"><?= h(ucfirst($row['status'])) ?></span></td>
+                <td class="row-actions">
+                  <a class="btn" href="procurement.php?tab=vehicle&edit_vehicle=<?= (int)$row['id'] ?>#tab-vehicle">✏ Edit</a>
+                  <form method="post" onsubmit="return confirm('Delete vehicle &quot;<?= h(addslashes($row['vehicle_no'])) ?>&quot;?');">
+                    <input type="hidden" name="action" value="delete_vehicle">
+                    <input type="hidden" name="id" value="<?= (int)$row['id'] ?>">
+                    <input type="hidden" name="csrf_token" value="<?= h(csrf_token()) ?>">
+                    <button type="submit" class="btn danger">🗑 Delete</button>
+                  </form>
+                </td>
+              </tr>
+            <?php endforeach; if (!$vehicles): ?><tr><td colspan="7" style="text-align:center; color:#68736f;">No vehicles added yet.</td></tr><?php endif; ?>
+          </tbody>
+        </table>
       </div>
     </section>
   </div>
 
-  <div class="proc-tab-panel" id="tab-purchase">
+  <div class="proc-tab-panel <?= $activeTab === 'purchase' ? 'active' : '' ?>" id="tab-purchase">
     <section class="proc-panel">
       <div class="proc-panel-head"><h3>Purchase Entry / Mandi Ledger</h3></div>
       <div class="proc-form">
@@ -331,7 +617,7 @@ include __DIR__ . '/includes/admin_header.php';
     </section>
   </div>
 
-  <div class="proc-tab-panel" id="tab-inward">
+  <div class="proc-tab-panel <?= $activeTab === 'inward' ? 'active' : '' ?>" id="tab-inward">
     <section class="proc-panel">
       <div class="proc-panel-head"><h3>QC / GRN Inward</h3></div>
       <div class="proc-form">
@@ -354,7 +640,7 @@ include __DIR__ . '/includes/admin_header.php';
     </section>
   </div>
 
-  <div class="proc-tab-panel" id="tab-dispatch">
+  <div class="proc-tab-panel <?= $activeTab === 'dispatch' ? 'active' : '' ?>" id="tab-dispatch">
     <section class="proc-panel">
       <div class="proc-panel-head"><h3>Dispatch Capability / Load Sheet</h3></div>
       <div class="proc-form">
@@ -398,7 +684,7 @@ include __DIR__ . '/includes/admin_header.php';
     <div class="proc-panel-head"><h3>Purchases</h3></div>
     <div class="proc-table-wrap">
       <table class="proc-table">
-        <thead><tr><th>ID</th><th>Item</th><th>Source</th><th>Vendor / Farmer</th><th>Qty</th><th>Rate</th><th>Total</th><th>Market Fee</th><th>Transport</th></tr></thead>
+        <thead><tr><th>ID</th><th>Item</th><th>Source</th><th>Vendor / Farmer</th><th>Qty</th><th>Rate</th><th>Total</th><th>Market Fee</th><th>Transport</th><th>Actions</th></tr></thead>
         <tbody>
           <?php foreach ($purchaseEntries as $row): ?>
             <tr>
@@ -411,8 +697,16 @@ include __DIR__ . '/includes/admin_header.php';
               <td>₹<?= number_format((float)$row['total_amount'], 2) ?></td>
               <td>₹<?= number_format((float)$row['market_fee'], 2) ?></td>
               <td>₹<?= number_format((float)$row['transport_cost'], 2) ?></td>
+              <td class="row-actions">
+                <form method="post" onsubmit="return confirm('Delete purchase #<?= (int)$row['id'] ?> and any GRN linked to it?');">
+                  <input type="hidden" name="action" value="delete_purchase">
+                  <input type="hidden" name="id" value="<?= (int)$row['id'] ?>">
+                  <input type="hidden" name="csrf_token" value="<?= h(csrf_token()) ?>">
+                  <button type="submit" class="btn danger">🗑 Delete</button>
+                </form>
+              </td>
             </tr>
-          <?php endforeach; if (!$purchaseEntries): ?><tr><td colspan="9" style="text-align:center; color:#68736f;">No purchase entries yet.</td></tr><?php endif; ?>
+          <?php endforeach; if (!$purchaseEntries): ?><tr><td colspan="10" style="text-align:center; color:#68736f;">No purchase entries yet.</td></tr><?php endif; ?>
         </tbody>
       </table>
     </div>
@@ -422,7 +716,7 @@ include __DIR__ . '/includes/admin_header.php';
     <div class="proc-panel-head"><h3>GRN / Quality Checks</h3></div>
     <div class="proc-table-wrap">
       <table class="proc-table">
-        <thead><tr><th>ID</th><th>Item</th><th>Received</th><th>Net Weight</th><th>Grade</th><th>Wastage</th><th>Status</th></tr></thead>
+        <thead><tr><th>ID</th><th>Item</th><th>Received</th><th>Net Weight</th><th>Grade</th><th>Wastage</th><th>Status</th><th>Actions</th></tr></thead>
         <tbody>
           <?php foreach ($inwardGoods as $row): ?>
             <tr>
@@ -433,8 +727,26 @@ include __DIR__ . '/includes/admin_header.php';
               <td><?= h($row['quality_grade']) ?></td>
               <td><?= number_format((float)$row['wastage_kg'], 2) ?> kg</td>
               <td><span class="status-pill <?= h(str_replace(' ', '_', strtolower($row['status']))) ?>"><?= h($row['status']) ?></span></td>
+              <td class="row-actions">
+                <form method="post">
+                  <input type="hidden" name="action" value="update_inward_status">
+                  <input type="hidden" name="id" value="<?= (int)$row['id'] ?>">
+                  <input type="hidden" name="csrf_token" value="<?= h(csrf_token()) ?>">
+                  <select name="status" class="status-mini" onchange="this.form.submit()">
+                    <?php foreach (['received'=>'Received','qc_pending'=>'QC Pending','rejected'=>'Rejected'] as $val=>$lbl): ?>
+                      <option value="<?= $val ?>" <?= $row['status']===$val?'selected':'' ?>><?= $lbl ?></option>
+                    <?php endforeach; ?>
+                  </select>
+                </form>
+                <form method="post" onsubmit="return confirm('Delete this GRN entry #<?= (int)$row['id'] ?>?');">
+                  <input type="hidden" name="action" value="delete_inward">
+                  <input type="hidden" name="id" value="<?= (int)$row['id'] ?>">
+                  <input type="hidden" name="csrf_token" value="<?= h(csrf_token()) ?>">
+                  <button type="submit" class="btn danger">🗑</button>
+                </form>
+              </td>
             </tr>
-          <?php endforeach; if (!$inwardGoods): ?><tr><td colspan="7" style="text-align:center; color:#68736f;">No inward goods yet.</td></tr><?php endif; ?>
+          <?php endforeach; if (!$inwardGoods): ?><tr><td colspan="8" style="text-align:center; color:#68736f;">No inward goods yet.</td></tr><?php endif; ?>
         </tbody>
       </table>
     </div>
@@ -444,7 +756,7 @@ include __DIR__ . '/includes/admin_header.php';
     <div class="proc-panel-head"><h3>Dispatch Trips & Capacity Check</h3></div>
     <div class="proc-table-wrap">
       <table class="proc-table">
-        <thead><tr><th>ID</th><th>Vehicle</th><th>Route</th><th>Order Wt</th><th>Usable Wt</th><th>Capacity</th><th>Trip Cost / kg</th><th>Status</th></tr></thead>
+        <thead><tr><th>ID</th><th>Vehicle</th><th>Route</th><th>Order Wt</th><th>Usable Wt</th><th>Capacity</th><th>Trip Cost / kg</th><th>Status</th><th>Actions</th></tr></thead>
         <tbody>
           <?php foreach ($dispatchTrips as $row): ?>
             <tr>
@@ -456,8 +768,26 @@ include __DIR__ . '/includes/admin_header.php';
               <td><?= number_format((float)$row['capacity_kg'], 2) ?> kg</td>
               <td>₹<?= number_format((float)$row['trip_cost_per_kg'], 2) ?></td>
               <td><span class="status-pill <?= h(str_replace(' ', '_', strtolower($row['status']))) ?>"><?= h($row['status']) ?></span></td>
+              <td class="row-actions">
+                <form method="post">
+                  <input type="hidden" name="action" value="update_trip_status">
+                  <input type="hidden" name="id" value="<?= (int)$row['id'] ?>">
+                  <input type="hidden" name="csrf_token" value="<?= h(csrf_token()) ?>">
+                  <select name="status" class="status-mini" onchange="this.form.submit()">
+                    <?php foreach (['planned'=>'Planned','dispatched'=>'Dispatched','completed'=>'Completed','blocked'=>'Blocked'] as $val=>$lbl): ?>
+                      <option value="<?= $val ?>" <?= $row['status']===$val?'selected':'' ?>><?= $lbl ?></option>
+                    <?php endforeach; ?>
+                  </select>
+                </form>
+                <form method="post" onsubmit="return confirm('Delete dispatch trip #<?= (int)$row['id'] ?>?');">
+                  <input type="hidden" name="action" value="delete_trip">
+                  <input type="hidden" name="id" value="<?= (int)$row['id'] ?>">
+                  <input type="hidden" name="csrf_token" value="<?= h(csrf_token()) ?>">
+                  <button type="submit" class="btn danger">🗑</button>
+                </form>
+              </td>
             </tr>
-          <?php endforeach; if (!$dispatchTrips): ?><tr><td colspan="8" style="text-align:center; color:#68736f;">No dispatch trips yet.</td></tr><?php endif; ?>
+          <?php endforeach; if (!$dispatchTrips): ?><tr><td colspan="9" style="text-align:center; color:#68736f;">No dispatch trips yet.</td></tr><?php endif; ?>
         </tbody>
       </table>
     </div>

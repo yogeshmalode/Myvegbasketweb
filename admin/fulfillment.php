@@ -1,6 +1,11 @@
 <?php
 require_once __DIR__ . '/includes/auth.php';
-$page_title = 'Fulfillment Center';
+// This standalone Fulfillment Center was merged into orders.php (New /
+// Processing tabs now have the same packer-assign + batch picking sheet
+// tools) so everything is trackable from one page instead of two
+// out-of-sync dashboards. Redirect anyone with an old bookmark/link.
+header('Location: orders.php');
+exit;
 
 $pickerAdmins = $pdo->query("SELECT id, username FROM admins WHERE role IN ('admin','staff') ORDER BY username")->fetchAll();
 $pickerMap = [];

@@ -16,7 +16,6 @@ $allPages = [
     'reports.php' => 'Reports (P&L)',
     'catalog_pricing.php' => 'Catalog & Live Pricing',
     'subscriptions.php' => 'Subscriptions',
-    'fulfillment.php' => 'Fulfillment',
     'procurement.php' => 'Procurement',
     'daily_procurement_dashboard.php' => 'Daily Procurement',
     'offers.php' => 'Offers',

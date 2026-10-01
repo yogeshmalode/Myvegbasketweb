@@ -43,7 +43,6 @@ $current_page = basename($_SERVER['PHP_SELF']);
       ],
       'Orders & Delivery' => [
         ['orders.php','▱','Orders'],
-        ['fulfillment.php','📦','Fulfillment'],
         ['deliveries.php','🚚','Deliveries'],
         ['delivery.php','🚚','Delivery Planner'],
         ['dark_stores.php','🏬','Dark Stores'],
