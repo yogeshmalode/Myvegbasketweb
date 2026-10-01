@@ -22,16 +22,6 @@ $vegetables = $stmt->fetchAll();
 
 $categories = $pdo->query("SELECT DISTINCT category FROM vegetables ORDER BY category")->fetchAll(PDO::FETCH_COLUMN);
 
-// One representative product per category (earliest added, in stock) so the
-// category tiles below can show a real photo instead of plain text only.
-$categoryThumbs = [];
-$catThumbStmt = $pdo->query("SELECT v.* FROM vegetables v
-    INNER JOIN (SELECT category, MIN(id) AS min_id FROM vegetables WHERE is_active = 1 GROUP BY category) m
-    ON v.id = m.min_id");
-foreach ($catThumbStmt->fetchAll() as $row) {
-    $categoryThumbs[$row['category']] = $row;
-}
-
 $variantsByVeg = get_variants_by_vegetable($pdo, array_column($vegetables, 'id'));
 $activeOffers = get_active_offers($pdo);
 
@@ -111,18 +101,10 @@ if ($vegetables): ?>
     <p>Prices update daily based on the morning harvest.</p>
   </div>
 
-  <div class="category-tile-row">
-    <a href="<?= BASE_URL ?>/index.php" class="category-tile <?= $category==='' ? 'active' : '' ?>">
-      <span class="category-tile-img" style="font-size:2.2rem;">🛒</span>
-      <span class="category-tile-label">All</span>
-    </a>
+  <div class="chip-row">
+    <a href="<?= BASE_URL ?>/index.php" class="chip <?= $category==='' ? 'active' : '' ?>">All</a>
     <?php foreach ($categories as $cat): ?>
-      <a href="<?= BASE_URL ?>/index.php?category=<?= urlencode($cat) ?>#shop" class="category-tile <?= $category===$cat ? 'active' : '' ?>">
-        <span class="category-tile-img">
-          <?= isset($categoryThumbs[$cat]) ? veg_thumb_html($categoryThumbs[$cat]) : '<span style="font-size:2.2rem;">'.veg_emoji($cat).'</span>' ?>
-        </span>
-        <span class="category-tile-label"><?= h($cat) ?></span>
-      </a>
+      <a href="<?= BASE_URL ?>/index.php?category=<?= urlencode($cat) ?>" class="chip <?= $category===$cat ? 'active' : '' ?>"><?= h($cat) ?></a>
     <?php endforeach; ?>
   </div>
 
