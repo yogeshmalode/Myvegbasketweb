@@ -393,6 +393,14 @@ function render_order_card($o, $itemsByOrder, $colorMap, $actionsHtml, $orderSta
       $actions = $riderSelect;
       $actions .= '<button class="btn" onclick="assignRider(' . $o['id'] . ')">Assign</button>';
       $actions .= '<button class="btn primary" onclick="autoAssignRider(' . $o['id'] . ')" title="Assign nearest available rider automatically">⚡ Auto-Assign</button>';
+      // Once a rider is assigned, the order normally moves to "Out for
+      // Delivery" automatically when the rider taps "Confirm Pickup" in
+      // their app. If the rider hasn't done that yet (forgot, app issue,
+      // handed the bag over in person, etc.) give the admin a manual
+      // fallback so the order never gets stuck here.
+      if (normalize_order_status($o['order_status']) === 'delivery_partner_assigned' && !empty($o['rider_id'])) {
+          $actions .= '<button class="btn primary" onclick="setOrderStatus(' . $o['id'] . ", 'out_for_delivery')\" title=\"Use this if the rider already picked up but hasn't confirmed in their app\">🛵 Mark Out for Delivery</button>";
+      }
       $actions .= '<a class="btn" href="export_orders_pdf.php?id=' . $o['id'] . '" target="_blank">🖨 Print Shipping Label</a>';
       $actions .= '<button class="btn danger" onclick="if(confirm(\'Cancel order #' . $o['id'] . "')) setOrderStatus(" . $o['id'] . ", 'cancelled')\">✕ Cancel</button>";
       render_order_card($o, $itemsByOrder, $colorMap, $actions, $orderStatusOptions);
