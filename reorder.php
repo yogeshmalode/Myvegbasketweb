@@ -70,7 +70,7 @@ foreach ($items as $item) {
             'id'         => $veg['id'],
             'variant_id' => $variant['id'] ?? null,
             'name'       => $variant ? $veg['name'] . ' (' . $variant['label'] . ')' : $veg['name'],
-            'price'      => $variant ? (float)$variant['price'] : get_effective_price($veg),
+            'price'      => $variant ? (float)$variant['price'] : get_price_for_customer($pdo, $veg, current_customer_type()),
             'unit'       => $variant ? $variant['label'] : $veg['unit'],
             'qty'        => $qty,
         ];

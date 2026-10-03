@@ -8,6 +8,7 @@ define('DB_HOST', 'localhost');
 define('DB_NAME', 'u437666696_Vegbasket');
 define('DB_USER', 'u437666696_yogesh');
 define('DB_PASS', 'Python@9753');
+//define('DB_HOST', 'localhost');
 //define('DB_NAME', 'vegbasket_test');
 //define('DB_USER', 'root');
 //define('DB_PASS', '');
@@ -994,7 +995,7 @@ function ensure_management_schema($pdo) {
                 'staff' => [
                     'dashboard.php', 'billing.php', 'vegetables.php', 'categories.php', 'inventory.php',
                     'orders.php', 'wastage.php', 'offers.php', 'subscriptions.php',
-                    'catalog_pricing.php',
+                    'catalog_pricing.php', 'b2b_billing.php',
                 ],
                 'delivery' => [
                     'dashboard.php', 'orders.php', 'deliveries.php', 'riders.php',
@@ -1034,6 +1035,14 @@ function ensure_management_schema($pdo) {
         if (!$migrationApplied('centralize_procurement_2026_10')) {
             $pdo->exec("DELETE FROM role_page_permissions WHERE role = 'staff' AND page IN ('procurement.php', 'daily_procurement_dashboard.php')");
             $markMigrationApplied('centralize_procurement_2026_10');
+        }
+
+        // Grant staff access to the new B2B Billing page on installs that
+        // already seeded role_page_permissions before it existed (fresh
+        // installs get it from $defaultPerms above already).
+        if (!$migrationApplied('grant_staff_b2b_billing_2026_10')) {
+            $pdo->prepare("INSERT IGNORE INTO role_page_permissions (role, page) VALUES ('staff', 'b2b_billing.php')")->execute();
+            $markMigrationApplied('grant_staff_b2b_billing_2026_10');
         }
 
         // ---- Product categories: a proper managed list instead of free-
@@ -1487,6 +1496,74 @@ function ensure_management_schema($pdo) {
             KEY idx_password_resets_lookup (user_type, user_id),
             KEY idx_password_resets_token (token_hash)
         ) ENGINE=InnoDB");
+
+        // ---- B2B supply (Hotel & Shop customers): wholesale accounts that
+        // order in bulk, either self-service (logged into the storefront) or
+        // via admin/staff manual order entry, often on credit (pay later).
+        // Reuses the existing `customers` table (adds a type + business/
+        // credit fields) rather than a separate table, so a hotel/shop
+        // account is still just a normal login — only customer_type governs
+        // wholesale pricing + credit eligibility.
+        if ($hasTable('customers')) {
+            if (!$hasColumn('customers', 'customer_type')) $pdo->exec("ALTER TABLE customers ADD COLUMN customer_type ENUM('retail','hotel','shop') NOT NULL DEFAULT 'retail'");
+            if (!$hasColumn('customers', 'business_name')) $pdo->exec("ALTER TABLE customers ADD COLUMN business_name VARCHAR(150) DEFAULT NULL");
+            if (!$hasColumn('customers', 'gst_number')) $pdo->exec("ALTER TABLE customers ADD COLUMN gst_number VARCHAR(20) DEFAULT NULL");
+            // credit_limit = 0 means "no credit allowed, cash/UPI only" —
+            // the safe default for every existing retail customer on
+            // upgrade. An admin must explicitly grant a credit_limit > 0
+            // per hotel/shop account for "Bill Me Later" to be offered.
+            if (!$hasColumn('customers', 'credit_limit')) $pdo->exec("ALTER TABLE customers ADD COLUMN credit_limit DECIMAL(10,2) NOT NULL DEFAULT 0");
+            if (!$hasColumn('customers', 'payment_terms_days')) $pdo->exec("ALTER TABLE customers ADD COLUMN payment_terms_days INT NOT NULL DEFAULT 0");
+        }
+
+        // One shared wholesale price list used for every hotel/shop account
+        // (simpler than per-customer negotiated rates) — a product with no
+        // row here just falls back to its normal retail/effective price.
+        $pdo->exec("CREATE TABLE IF NOT EXISTS wholesale_prices (
+            vegetable_id INT PRIMARY KEY,
+            wholesale_price DECIMAL(10,2) NOT NULL,
+            updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+            CONSTRAINT fk_wholesale_prices_veg FOREIGN KEY (vegetable_id) REFERENCES vegetables(id) ON DELETE CASCADE
+        ) ENGINE=InnoDB");
+
+        // Running credit ledger per B2B customer: every order placed "on
+        // credit" is a positive (amount owed) entry, every payment received
+        // is a negative entry. Outstanding balance = SUM(amount). Kept as a
+        // simple append-only log (never edited/deleted) so the statement is
+        // always auditable.
+        $pdo->exec("CREATE TABLE IF NOT EXISTS customer_ledger (
+            id INT AUTO_INCREMENT PRIMARY KEY,
+            customer_id INT NOT NULL,
+            order_id INT DEFAULT NULL,
+            entry_type ENUM('order','payment','adjustment') NOT NULL,
+            amount DECIMAL(10,2) NOT NULL,
+            notes VARCHAR(255) DEFAULT NULL,
+            created_by INT DEFAULT NULL,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            KEY idx_customer_ledger_customer (customer_id),
+            CONSTRAINT fk_customer_ledger_customer FOREIGN KEY (customer_id) REFERENCES customers(id) ON DELETE CASCADE
+        ) ENGINE=InnoDB");
+
+        // Snapshot of which price list (retail vs wholesale) an order used,
+        // for reporting — orders.customer_id can change type later, so this
+        // keeps historical reports accurate even if a customer's type changes.
+        if ($hasTable('orders') && !$hasColumn('orders', 'customer_type')) {
+            $pdo->exec("ALTER TABLE orders ADD COLUMN customer_type ENUM('retail','hotel','shop') NOT NULL DEFAULT 'retail'");
+        }
+
+        // Widen orders.source to accept 'b2b' (manual Hotel & Shop billing
+        // entries from admin/b2b_billing.php) alongside the existing
+        // 'online'/'pos' values — same ENUM-widen-is-safe approach used for
+        // order_status above, strict SQL mode would otherwise reject the
+        // new value outright.
+        if ($hasTable('orders') && $hasColumn('orders', 'source')) {
+            $sourceTypeQ = $pdo->prepare("SELECT COLUMN_TYPE FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = ? AND TABLE_NAME = 'orders' AND COLUMN_NAME = 'source'");
+            $sourceTypeQ->execute([$db]);
+            $sourceType = (string)$sourceTypeQ->fetchColumn();
+            if ($sourceType !== '' && stripos($sourceType, "'b2b'") === false) {
+                $pdo->exec("ALTER TABLE orders MODIFY COLUMN source ENUM('online','pos','b2b') NOT NULL DEFAULT 'online'");
+            }
+        }
         return true;
     } catch (Throwable $e) {
         return false;
@@ -1577,10 +1654,18 @@ function current_customer() {
     if (empty($_SESSION['customer_id'])) return null;
 
     global $pdo;
-    $stmt = $pdo->prepare("SELECT id, name, email, phone, must_change_password FROM customers WHERE id = ?");
+    $stmt = $pdo->prepare("SELECT id, name, email, phone, must_change_password, customer_type, business_name, credit_limit FROM customers WHERE id = ?");
     $stmt->execute([$_SESSION['customer_id']]);
     $customer = $stmt->fetch() ?: null;
     return $customer;
+}
+
+// 'retail' for guests and ordinary customers, 'hotel'/'shop' once a B2B
+// account is logged in — the single switch that makes the storefront show
+// wholesale pricing instead of normal retail pricing.
+function current_customer_type() {
+    $customer = current_customer();
+    return $customer['customer_type'] ?? 'retail';
 }
 
 function is_rider_logged_in() {
@@ -2053,6 +2138,48 @@ function get_effective_price($veg) {
         return (float)$veg['sale_price'];
     }
     return (float)$veg['price'];
+}
+
+// ---- B2B wholesale pricing (Hotel & Shop customers) ----
+// Looks up the shared wholesale_prices override for one product; returns
+// null if none is set, so callers can fall back to get_effective_price().
+function get_wholesale_price($pdo, $vegId) {
+    $stmt = $pdo->prepare("SELECT wholesale_price FROM wholesale_prices WHERE vegetable_id = ?");
+    $stmt->execute([(int)$vegId]);
+    $price = $stmt->fetchColumn();
+    return $price !== false ? (float)$price : null;
+}
+
+// The single entry point for "what price does this customer pay" — used
+// by both the storefront (customer self-service) and B2B manual billing,
+// so the two can never drift apart. Falls back to the normal retail/
+// effective price for retail customers or any product with no wholesale
+// override set.
+function get_price_for_customer($pdo, $veg, $customerType) {
+    if (in_array($customerType, ['hotel', 'shop'], true)) {
+        $wholesale = get_wholesale_price($pdo, $veg['id']);
+        if ($wholesale !== null && $wholesale > 0) {
+            return $wholesale;
+        }
+    }
+    return get_effective_price($veg);
+}
+
+// Current outstanding credit balance for a B2B customer: positive means
+// they owe money (orders placed on credit minus payments received).
+function get_customer_balance($pdo, $customerId) {
+    $stmt = $pdo->prepare("SELECT COALESCE(SUM(amount), 0) FROM customer_ledger WHERE customer_id = ?");
+    $stmt->execute([(int)$customerId]);
+    return (float)$stmt->fetchColumn();
+}
+
+// Records one ledger entry (an order placed on credit, a payment
+// received, or a manual adjustment). Never edited/deleted afterward —
+// callers needing to "undo" should post an offsetting entry instead, so
+// the statement always stays a true audit trail.
+function record_ledger_entry($pdo, $customerId, $entryType, $amount, $orderId = null, $notes = null, $createdBy = null) {
+    $pdo->prepare("INSERT INTO customer_ledger (customer_id, order_id, entry_type, amount, notes, created_by) VALUES (?, ?, ?, ?, ?, ?)")
+        ->execute([(int)$customerId, $orderId, $entryType, $amount, $notes, $createdBy]);
 }
 
 // Fetches size/weight variants (e.g. 250 g, 500 g, 1 kg) for a set of

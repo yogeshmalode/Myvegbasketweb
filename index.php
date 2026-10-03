@@ -150,6 +150,17 @@ if ($vegetables): ?>
             <span class="unit">per pack</span>
           </div>
         <?php else: ?>
+          <?php $custType = current_customer_type(); ?>
+          <?php if (in_array($custType, ['hotel', 'shop'], true)): ?>
+            <?php $b2bPrice = get_price_for_customer($pdo, $veg, $custType); ?>
+            <div class="price-tag" style="border-color:#2f6f4f;">
+              <span class="amount"><?= SITE_CURRENCY ?><?= number_format($b2bPrice, 2) ?></span>
+              <span class="unit">per <?= h($veg['unit']) ?></span>
+            </div>
+            <div style="display:inline-block; background:#2f6f4f; color:#fff; font-weight:700; font-size:0.7rem; padding:2px 8px; border-radius:999px; margin-top:6px;">
+              WHOLESALE PRICE
+            </div>
+          <?php else: ?>
           <?php $onSale = get_effective_price($veg) < (float)$veg['price']; ?>
           <div class="price-tag" style="<?= $onSale ? 'border-color:var(--tomato);' : '' ?>">
             <?php if ($onSale): ?>
@@ -166,7 +177,9 @@ if ($vegetables): ?>
               SALE — <?= round((1 - $veg['sale_price']/$veg['price']) * 100) ?>% OFF
             </div>
           <?php endif; ?>
+          <?php endif; ?>
         <?php endif; ?>
+
 
         <?php if ($veg['stock'] <= 10): ?>
           <div class="stock-low">Only <?= (int)$veg['stock'] ?> left!</div>

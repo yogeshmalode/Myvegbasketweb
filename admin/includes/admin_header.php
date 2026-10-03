@@ -65,6 +65,12 @@ $current_page = basename($_SERVER['PHP_SELF']);
         ['store_procurement.php','🏪','Store Procurement'],
         ['reports.php','▥','Reports (P&L)'],
       ],
+      'Hotel & Shop (B2B)' => [
+        ['b2b_customers.php','🏨','B2B Customers'],
+        ['b2b_billing.php','🧾','B2B Billing'],
+        ['b2b_wholesale_prices.php','💰','Wholesale Prices'],
+        ['b2b_ledger.php','📒','Ledger & Payments'],
+      ],
       'Administration' => [
         ['users.php','♙','Users'],
         ['customers.php','☺','Customers'],
@@ -82,7 +88,7 @@ $current_page = basename($_SERVER['PHP_SELF']);
         // Buying/distribution is a central, admin-only job under the
         // centralized-procurement model — never show these to staff/delivery
         // even if role_page_permissions were ever edited to include them.
-        $adminOnlyPages = ['users.php', 'customers.php', 'management_check.php', 'role_permissions.php', 'daily_procurement_dashboard.php', 'stock_transfer.php'];
+        $adminOnlyPages = ['users.php', 'customers.php', 'management_check.php', 'role_permissions.php', 'daily_procurement_dashboard.php', 'stock_transfer.php', 'b2b_customers.php', 'b2b_wholesale_prices.php', 'b2b_ledger.php'];
         if (in_array($item[0], $adminOnlyPages, true) && !is_admin_role()) return false;
         if ($roleAllowedPages !== null && !in_array($item[0], rbac_always_allowed_pages(), true) && !in_array($item[0], $roleAllowedPages, true)) return false;
         return true;

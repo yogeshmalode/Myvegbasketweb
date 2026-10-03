@@ -673,7 +673,7 @@ function render_picker_block($o, $pickerAdmins) {
             <td><?= $o['id'] ?></td>
             <td><?= h($o['customer_name']) ?><br><small style="color:#5B6656;"><?= h($o['phone']) ?></small></td>
             <td><?= format_ist($o['created_at'], 'd M Y, h:i A') ?></td>
-            <td><?= $o['payment_method'] === 'upi_qr' ? 'UPI' : 'Cash' ?></td>
+            <td><?= $o['payment_method'] === 'upi_qr' ? 'UPI' : ($o['payment_method'] === 'credit' ? 'Credit' : 'Cash') ?></td>
             <td><span class="order-card-badge" style="<?= status_color_style($posStatus, $colorMap) ?>"><?= h($orderStatusOptions[$posStatus] ?? ucfirst($posStatus)) ?></span></td>
             <td>₹<?= number_format($o['total_amount'], 2) ?></td>
             <td>

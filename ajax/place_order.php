@@ -61,6 +61,26 @@ $total = $subtotal - $discountAmount + $deliveryCharge;
 // up in "My Orders". Guests can still check out fine — customer_id is
 // simply left null for them.
 $customerId = $_SESSION['customer_id'] ?? null;
+$customer = current_customer();
+$customerType = $customer['customer_type'] ?? 'retail';
+
+// "Bill Me Later" (credit) is only offered to logged-in B2B accounts with
+// a credit limit set, and only ever accepted here after re-checking the
+// limit server-side — never trust a client-sent payment method.
+$requestedPayment = ($_POST['payment_method'] ?? 'upi_qr') === 'credit' ? 'credit' : 'upi_qr';
+$isCreditOrder = false;
+if ($requestedPayment === 'credit') {
+    if (!$customer || !in_array($customerType, ['hotel', 'shop'], true) || (float)$customer['credit_limit'] <= 0) {
+        echo json_encode(['success' => false, 'message' => 'Credit billing is not available for this account.']);
+        exit;
+    }
+    $balance = get_customer_balance($pdo, $customer['id']);
+    if ($balance + $total > (float)$customer['credit_limit']) {
+        echo json_encode(['success' => false, 'message' => 'This order would exceed your available credit limit (available: ' . SITE_CURRENCY . number_format(max(0, $customer['credit_limit'] - $balance), 2) . ').']);
+        exit;
+    }
+    $isCreditOrder = true;
+}
 
 // Resolve which dark store this order belongs to BEFORE the stock
 // transaction starts (not after, like dispatch_order_to_dark_store() used
@@ -86,9 +106,9 @@ try {
     $pdo->beginTransaction();
 
     $stmt = $pdo->prepare("INSERT INTO orders
-        (customer_id, customer_name, email, phone, address, address_lat, address_lng, delivery_date, delivery_slot, total_amount, coupon_code, discount_amount, payment_method, payment_status, order_status, dark_store_id, eta_minutes)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'upi_qr', 'awaiting_verification', 'placed', ?, ?)");
-    $stmt->execute([$customerId, $name, $email, $phone, $address, $geo['lat'] ?? null, $geo['lng'] ?? null, $deliveryDate, $deliverySlot, $total, $couponCode, $discountAmount, $darkStoreId, $etaMinutes]);
+        (customer_id, customer_name, email, phone, address, address_lat, address_lng, delivery_date, delivery_slot, total_amount, coupon_code, discount_amount, payment_method, payment_status, order_status, dark_store_id, eta_minutes, customer_type)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'placed', ?, ?, ?)");
+    $stmt->execute([$customerId, $name, $email, $phone, $address, $geo['lat'] ?? null, $geo['lng'] ?? null, $deliveryDate, $deliverySlot, $total, $couponCode, $discountAmount, $isCreditOrder ? 'credit' : 'upi_qr', $isCreditOrder ? 'pending' : 'awaiting_verification', $darkStoreId, $etaMinutes, $customerType]);
     $orderId = $pdo->lastInsertId();
 
     $itemStmt  = $pdo->prepare("INSERT INTO order_items (order_id, vegetable_id, vegetable_variant_id, variant_label, name, price, quantity, subtotal, cost_price)
@@ -148,6 +168,13 @@ try {
     exit;
 }
 
+// Credit ("Bill Me Later") orders go straight onto the customer's running
+// ledger as money owed — there's no separate payment-confirmation step
+// like the UPI QR flow, since no money changed hands yet.
+if ($isCreditOrder) {
+    record_ledger_entry($pdo, $customer['id'], 'order', $total, $orderId, "Order #$orderId", null);
+}
+
 // dark_store_id/eta_minutes/address_lat/address_lng were already resolved
 // and saved above, so there's no need to call dispatch_order_to_dark_store()
 // here too — doing so would just re-geocode the same address a second time.
@@ -172,9 +199,11 @@ $_SESSION['guest_order_access'][] = $orderId;
 // Alert the admin straight away — this is the earliest point we know a
 // customer intends to pay, even before they confirm the UPI transaction.
 send_order_alert(
-    "New order #$orderId - awaiting UPI payment",
+    $isCreditOrder ? "New B2B order #$orderId - on credit" : "New order #$orderId - awaiting UPI payment",
     array_filter(array_merge([
-        "A new order was placed on " . SITE_NAME . " and is awaiting UPI payment confirmation.",
+        $isCreditOrder
+            ? "A new Hotel/Shop order was placed on " . SITE_NAME . " on credit (Bill Me Later)."
+            : "A new order was placed on " . SITE_NAME . " and is awaiting UPI payment confirmation.",
         "",
         "Order #: $orderId",
         "Customer: $name",
@@ -190,7 +219,9 @@ send_order_alert(
         "Items:",
     ], $itemLines, [
         "",
-        "Check admin/orders.php once the customer confirms payment, and verify the UPI transaction before marking it paid.",
+        $isCreditOrder
+            ? "This order is billed on credit — check admin/b2b_ledger.php for the updated balance."
+            : "Check admin/orders.php once the customer confirms payment, and verify the UPI transaction before marking it paid.",
     ]), fn($line) => $line !== null)
 );
 
@@ -198,4 +229,5 @@ echo json_encode([
     'success'  => true,
     'order_id' => $orderId,
     'amount'   => $total,
+    'credit'   => $isCreditOrder,
 ]);

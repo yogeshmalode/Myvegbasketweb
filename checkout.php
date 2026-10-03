@@ -28,6 +28,11 @@ if (!empty($_SESSION['applied_coupon_code'])) {
 
 $total = $subtotal - $discountAmount + $deliveryCharge;
 $customer = current_customer();
+$customerType = $customer['customer_type'] ?? 'retail';
+$creditAvailable = 0;
+if ($customer && in_array($customerType, ['hotel', 'shop'], true) && (float)$customer['credit_limit'] > 0) {
+    $creditAvailable = max(0, (float)$customer['credit_limit'] - get_customer_balance($pdo, $customer['id']));
+}
 include __DIR__ . '/includes/header.php';
 ?>
 
@@ -100,6 +105,17 @@ include __DIR__ . '/includes/header.php';
         </div>
         <p style="margin-top:4px;"><a href="<?= BASE_URL ?>/offers.php" style="font-size:0.8rem; color:#3F8B52;">See available offers →</a></p>
       </div>
+
+      <?php if ($creditAvailable > 0): ?>
+      <div class="form-group">
+        <label>Payment method</label>
+        <div style="display:flex; gap:16px; flex-wrap:wrap;">
+          <label style="display:flex; align-items:center; gap:6px; font-weight:400;"><input type="radio" name="payment_method" value="upi_qr" checked> Pay via UPI now</label>
+          <label style="display:flex; align-items:center; gap:6px; font-weight:400;"><input type="radio" name="payment_method" value="credit"> Bill Me Later (Credit)</label>
+        </div>
+        <p style="margin-top:6px; font-size:0.8rem; color:#5B6656;">Available credit: <?= SITE_CURRENCY ?><?= number_format($creditAvailable, 2) ?></p>
+      </div>
+      <?php endif; ?>
 
       <div class="table-wrap" style="margin-bottom:20px;">
         <table>
@@ -234,6 +250,14 @@ checkoutForm.addEventListener('submit', function (e) {
       }
 
       currentOrderId = res.order_id;
+
+      if (res.credit) {
+        // Credit orders don't need UPI scan/confirm — they're already
+        // placed and added to the customer's running ledger balance.
+        window.location.href = window.__VEGBASKET_BASE__ + '/order_success.php?order_id=' + res.order_id;
+        return;
+      }
+
       document.getElementById('qrOrderId').textContent = res.order_id;
       detailsStep.style.display = 'none';
       qrStep.style.display = 'block';

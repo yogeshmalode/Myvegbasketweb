@@ -20,7 +20,11 @@ include __DIR__ . '/includes/header.php';
 
 <div class="container" style="padding:60px 24px; max-width:640px; text-align:center;">
   <div class="form-card">
-    <?php if ($order['payment_status'] === 'awaiting_verification'): ?>
+    <?php if ($order['payment_method'] === 'credit'): ?>
+      <div style="font-size:3rem;">🧾</div>
+      <h2 style="margin:16px 0 8px;">Order placed on credit!</h2>
+      <p style="color:#5B6656;">Thank you, <?= h($order['customer_name']) ?>. This order has been added to your account's running balance — no payment is due right now.</p>
+    <?php elseif ($order['payment_status'] === 'awaiting_verification'): ?>
       <div style="font-size:3rem;">🕒</div>
       <h2 style="margin:16px 0 8px;">Order received!</h2>
       <p style="color:#5B6656;">Thank you, <?= h($order['customer_name']) ?>. We're verifying your UPI payment and will confirm your order shortly.</p>
@@ -46,7 +50,7 @@ include __DIR__ . '/includes/header.php';
     </div>
 
     <div class="cart-total-row" style="justify-content:center; gap:10px;">
-      <span>Total paid:</span>
+      <span><?= $order['payment_method'] === 'credit' ? 'Total billed:' : 'Total paid:' ?></span>
       <span><?= SITE_CURRENCY ?><?= number_format($order['total_amount'],2) ?></span>
     </div>
     <p style="color:#5B6656; font-size:0.85rem; margin-top:6px;">
@@ -55,7 +59,9 @@ include __DIR__ . '/includes/header.php';
         &middot; Payment ID: <?= h($order['razorpay_payment_id']) ?>
       <?php endif; ?>
       &middot; Status:
-      <?php if ($order['payment_status'] === 'awaiting_verification'): ?>
+      <?php if ($order['payment_method'] === 'credit'): ?>
+        Billed on credit
+      <?php elseif ($order['payment_status'] === 'awaiting_verification'): ?>
         Payment pending verification
       <?php else: ?>
         <?= h(ucfirst($order['payment_status'])) ?>
