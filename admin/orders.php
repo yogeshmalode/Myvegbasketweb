@@ -88,6 +88,7 @@ $tabs = [
     'completed'  => ['label' => '✅ Completed',           'orders' => []],
     'exceptions' => ['label' => '⚠️ Exceptions',          'orders' => []],
     'pos'        => ['label' => '🧾 POS Bills',           'orders' => []],
+    'b2b'        => ['label' => '🏨 B2B Orders',          'orders' => []],
 ];
 
 $todayRevenue = 0;
@@ -98,12 +99,30 @@ $today = date('Y-m-d');
 foreach ($orders as $o) {
     $status = normalize_order_status($o['order_status']);
     $isPos = ($o['source'] ?? 'online') === 'pos';
+    $isB2BSource = ($o['source'] ?? 'online') === 'b2b';
+    $isB2BCustomer = in_array($o['customer_type'] ?? 'retail', ['hotel', 'shop'], true);
 
-    if ($isPos) {
+    if ($isB2BSource || $isB2BCustomer) {
+        // Every Hotel/Shop order lands here regardless of how it was
+        // placed, so admins never have to hunt for B2B activity mixed in
+        // with regular retail orders.
+        $tabs['b2b']['orders'][] = $o;
+    }
+
+    if ($isB2BSource) {
+        // Manually billed via B2B Billing — already paid/invoiced on the
+        // spot, so (like a POS counter sale) it never needs rider/delivery
+        // handling and stops here.
+        continue;
+    } elseif ($isPos) {
         // Counter sales never need rider/delivery handling — keep them
         // entirely separate from the online order lifecycle tabs.
         $tabs['pos']['orders'][] = $o;
     } else {
+        // Self-service storefront orders (including wholesale orders
+        // placed by a logged-in Hotel/Shop customer) still need real
+        // delivery, so they also flow through the normal lifecycle tabs
+        // below in addition to showing up in the B2B tab above.
         $isException = $status === 'cancelled' || $o['payment_status'] === 'failed';
 
         if ($isException) {
@@ -290,6 +309,7 @@ include __DIR__ . '/includes/admin_header.php';
   <div class="kpi-chip <?= $delayedCount > 0 ? 'danger' : '' ?>">⏱ Delayed <span class="kpi-value"><?= $delayedCount ?></span></div>
   <div class="kpi-chip <?= $cancelledToday > 0 ? 'danger' : '' ?>">❌ Cancelled Today <span class="kpi-value"><?= $cancelledToday ?></span></div>
   <div class="kpi-chip">🧾 POS Bills <span class="kpi-value"><?= count($tabs['pos']['orders']) ?></span></div>
+  <div class="kpi-chip">🏨 B2B Orders <span class="kpi-value"><?= count($tabs['b2b']['orders']) ?></span></div>
   <div class="kpi-chip">💰 Today's Revenue <span class="kpi-value">₹<?= number_format($todayRevenue, 2) ?></span></div>
 </div>
 
@@ -366,6 +386,13 @@ function filterCompleted() {
 function filterPos() {
   const q = document.getElementById('posSearch').value.toLowerCase();
   document.querySelectorAll('#pos-table tbody tr[data-search]').forEach(row => {
+    row.style.display = row.dataset.search.includes(q) ? '' : 'none';
+  });
+}
+
+function filterB2B() {
+  const q = document.getElementById('b2bSearch').value.toLowerCase();
+  document.querySelectorAll('#b2b-table tbody tr[data-search]').forEach(row => {
     row.style.display = row.dataset.search.includes(q) ? '' : 'none';
   });
 }
@@ -686,6 +713,53 @@ function render_picker_block($o, $pickerAdmins) {
         <?php endforeach; ?>
         <?php if (empty($tabs['pos']['orders'])): ?>
           <tr><td colspan="7" style="text-align:center; color:#5B6656;">No POS bills yet.</td></tr>
+        <?php endif; ?>
+      </tbody>
+    </table>
+  </div>
+</div>
+
+<!-- ===================== B2B ORDERS (Hotel & Shop) ===================== -->
+<div class="order-tab-panel" data-tab="b2b">
+  <input type="text" id="b2bSearch" class="completed-search" placeholder="Search by order # or business/customer name..." oninput="filterB2B()">
+  <div class="table-wrap">
+    <table class="orders-table" id="b2b-table">
+      <thead>
+        <tr><th>#</th><th>Customer</th><th>Type</th><th>Placed</th><th>Payment</th><th>Status</th><th>Total</th><th>Actions</th></tr>
+      </thead>
+      <tbody>
+        <?php foreach ($tabs['b2b']['orders'] as $o):
+          $b2bStatus = normalize_order_status($o['order_status']);
+          $isManualBill = ($o['source'] ?? '') === 'b2b';
+        ?>
+          <tr data-search="<?= h(strtolower('#' . $o['id'] . ' ' . $o['customer_name'])) ?>">
+            <td><?= $o['id'] ?></td>
+            <td><?= h($o['customer_name']) ?><br><small style="color:#5B6656;"><?= h($o['phone']) ?></small></td>
+            <td><?= h(ucfirst($o['customer_type'] ?? 'retail')) ?></td>
+            <td><?= format_ist($o['created_at'], 'd M Y, h:i A') ?></td>
+            <td>
+              <?= $o['payment_method'] === 'upi_qr' ? 'UPI' : ($o['payment_method'] === 'credit' ? 'Credit' : 'Cash') ?>
+              <?php if ($o['payment_method'] === 'credit'): ?>
+                <br><small style="color:<?= $o['payment_status'] === 'pending' ? '#df2e24' : '#159447' ?>;"><?= h(ucfirst($o['payment_status'])) ?></small>
+              <?php endif; ?>
+            </td>
+            <td><span class="order-card-badge" style="<?= status_color_style($b2bStatus, $colorMap) ?>"><?= h($orderStatusOptions[$b2bStatus] ?? ucfirst($b2bStatus)) ?></span></td>
+            <td>₹<?= number_format($o['total_amount'], 2) ?></td>
+            <td>
+              <?php if ($isManualBill): ?>
+                <a class="btn" href="b2b_billing.php?receipt=<?= $o['id'] ?>" target="_blank">🖨 Receipt</a>
+              <?php endif; ?>
+              <?php if ($o['customer_id']): ?>
+                <a class="btn" href="b2b_ledger.php?customer_id=<?= (int)$o['customer_id'] ?>">📒 Ledger</a>
+              <?php endif; ?>
+              <?php if ($isManualBill && $b2bStatus !== 'cancelled'): ?>
+                <button class="btn danger" onclick="if(confirm('Cancel bill #<?= $o['id'] ?> and restore its stock?')) setOrderStatus(<?= $o['id'] ?>, 'cancelled')">✕ Cancel</button>
+              <?php endif; ?>
+            </td>
+          </tr>
+        <?php endforeach; ?>
+        <?php if (empty($tabs['b2b']['orders'])): ?>
+          <tr><td colspan="8" style="text-align:center; color:#5B6656;">No B2B (Hotel/Shop) orders yet.</td></tr>
         <?php endif; ?>
       </tbody>
     </table>

@@ -42,6 +42,18 @@ $statusColors = [
     'failed'                 => ['bg' => '#FCE8E6', 'fg' => '#9A2E24'],
 ];
 
+$isB2B = in_array($customer['customer_type'] ?? 'retail', ['hotel', 'shop'], true);
+$b2bBalance = 0.0;
+$pendingOrdersCount = 0;
+if ($isB2B) {
+    $b2bBalance = get_customer_balance($pdo, $customer['id']);
+    foreach ($orders as $o) {
+        if (($o['payment_method'] ?? '') === 'credit' && ($o['payment_status'] ?? '') === 'pending') {
+            $pendingOrdersCount++;
+        }
+    }
+}
+
 $page_title = 'My Account';
 include __DIR__ . '/includes/header.php';
 ?>
@@ -59,6 +71,46 @@ include __DIR__ . '/includes/header.php';
     </div>
     <a href="<?= BASE_URL ?>/logout.php" class="btn" style="background:#FCE8E6; color:#9A2E24; border:1px solid #F1B6AF; white-space:nowrap;">🚪 Log out</a>
   </div>
+
+  <?php if ($isB2B):
+    $availableCredit = max(0, (float)$customer['credit_limit'] - $b2bBalance);
+    $overLimit = $b2bBalance > (float)$customer['credit_limit'];
+  ?>
+  <div class="form-card" style="margin-bottom:28px; border:1px solid #E4E9DD;">
+    <div style="display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:10px; margin-bottom:16px;">
+      <h3 style="margin:0;">🏨 B2B Partner Account — <?= h($customer['business_name'] ?: $customer['name']) ?></h3>
+      <a href="<?= BASE_URL ?>/index.php" class="btn btn-primary" style="padding:8px 18px; font-size:0.85rem;">+ New order</a>
+    </div>
+    <div style="display:grid; grid-template-columns:repeat(auto-fit, minmax(160px, 1fr)); gap:14px;">
+      <div style="background:#F6F8F1; border-radius:14px; padding:14px;">
+        <div style="color:#5B6656; font-size:0.78rem; font-weight:600; text-transform:uppercase;">Credit limit</div>
+        <div style="font-size:1.3rem; font-weight:700; color:var(--leaf-dark);"><?= SITE_CURRENCY ?><?= number_format((float)$customer['credit_limit'], 2) ?></div>
+      </div>
+      <div style="background:#F6F8F1; border-radius:14px; padding:14px;">
+        <div style="color:#5B6656; font-size:0.78rem; font-weight:600; text-transform:uppercase;">Outstanding balance</div>
+        <div style="font-size:1.3rem; font-weight:700; color:<?= $overLimit ? '#9A2E24' : '#B25B00' ?>;"><?= SITE_CURRENCY ?><?= number_format($b2bBalance, 2) ?></div>
+      </div>
+      <div style="background:#F6F8F1; border-radius:14px; padding:14px;">
+        <div style="color:#5B6656; font-size:0.78rem; font-weight:600; text-transform:uppercase;">Available credit</div>
+        <div style="font-size:1.3rem; font-weight:700; color:#1F4D36;"><?= SITE_CURRENCY ?><?= number_format($availableCredit, 2) ?></div>
+      </div>
+      <div style="background:#F6F8F1; border-radius:14px; padding:14px;">
+        <div style="color:#5B6656; font-size:0.78rem; font-weight:600; text-transform:uppercase;">Payment terms</div>
+        <div style="font-size:1.3rem; font-weight:700; color:var(--leaf-dark);"><?= (int)($customer['payment_terms_days'] ?: 0) ?> days</div>
+      </div>
+    </div>
+    <?php if ($pendingOrdersCount > 0): ?>
+      <p style="margin:16px 0 0; background:#FFF1BF; color:#8A6D00; padding:10px 14px; border-radius:10px; font-weight:600;">
+        ⏳ You have <?= $pendingOrdersCount ?> order<?= $pendingOrdersCount > 1 ? 's' : '' ?> billed on credit awaiting payment.
+      </p>
+    <?php endif; ?>
+    <?php if ($overLimit): ?>
+      <p style="margin:12px 0 0; background:#FCE8E6; color:#9A2E24; padding:10px 14px; border-radius:10px; font-weight:600;">
+        ⚠️ Your outstanding balance has exceeded your credit limit. Please clear dues to keep placing credit orders.
+      </p>
+    <?php endif; ?>
+  </div>
+  <?php endif; ?>
 
   <h3 style="margin-bottom:14px;">Your orders</h3>
 

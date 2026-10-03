@@ -1654,7 +1654,7 @@ function current_customer() {
     if (empty($_SESSION['customer_id'])) return null;
 
     global $pdo;
-    $stmt = $pdo->prepare("SELECT id, name, email, phone, must_change_password, customer_type, business_name, credit_limit FROM customers WHERE id = ?");
+    $stmt = $pdo->prepare("SELECT id, name, email, phone, must_change_password, customer_type, business_name, credit_limit, payment_terms_days FROM customers WHERE id = ?");
     $stmt->execute([$_SESSION['customer_id']]);
     $customer = $stmt->fetch() ?: null;
     return $customer;
