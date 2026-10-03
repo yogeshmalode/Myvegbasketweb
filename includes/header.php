@@ -168,6 +168,7 @@ $__canonical = SITE_URL . strtok($_SERVER['REQUEST_URI'] ?? '/', '?');
       <a href="<?= BASE_URL ?>/logout.php" style="display:block; padding:12px 4px; color:#FFB4A8; text-decoration:none; font-weight:600; border-bottom:1px solid rgba(255,255,255,0.1);">🚪 Log out</a>
     <?php else: ?>
       <a href="<?= BASE_URL ?>/login.php" style="display:block; padding:12px 4px; color:#fff; text-decoration:none; font-weight:600; border-bottom:1px solid rgba(255,255,255,0.1);">👤 Login / Sign up</a>
+      <a href="<?= BASE_URL ?>/b2b_login.php" style="display:block; padding:12px 4px; color:#fff; text-decoration:none; font-weight:600; border-bottom:1px solid rgba(255,255,255,0.1);">🏨 Hotel/Shop Partner Login</a>
     <?php endif; ?>
     <a href="<?= BASE_URL ?>/admin/dashboard.php" style="display:block; padding:12px 4px; color:#fff; text-decoration:none; font-weight:600;">⚙️ Admin</a>
   </div>

@@ -31,7 +31,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['create_customer'])) {
             $pdo->prepare("INSERT INTO customers (name, email, phone, password, customer_type, business_name, gst_number, credit_limit, payment_terms_days, must_change_password)
                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 1)")
                 ->execute([$contactName, $email, $phone, password_hash($tempPassword, PASSWORD_DEFAULT), $type, $businessName, $gst !== '' ? $gst : null, $creditLimit, $terms]);
-            $_SESSION['flash'] = ['type' => 'success', 'message' => "Account created for $businessName. Temporary login password: $tempPassword — share it securely. They must change it at first login."];
+            $_SESSION['flash'] = ['type' => 'success', 'message' => "Account created for $businessName. Temporary login password: $tempPassword — share it along with this login link: " . BASE_URL . "/b2b_login.php — they must change it at first login."];
         }
     }
     header('Location: b2b_customers.php');
@@ -59,7 +59,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['reset_password'])) {
         $tempPassword = generate_temp_password();
         $pdo->prepare("UPDATE customers SET password = ?, must_change_password = 1, failed_login_count = 0, locked_until = NULL WHERE id = ?")
             ->execute([password_hash($tempPassword, PASSWORD_DEFAULT), $customerId]);
-        $_SESSION['flash'] = ['type' => 'success', 'message' => 'Temporary password generated: ' . $tempPassword . ' — share it securely. They must change it at next login.'];
+        $_SESSION['flash'] = ['type' => 'success', 'message' => 'Temporary password generated: ' . $tempPassword . ' — share it along with this login link: ' . BASE_URL . '/b2b_login.php — they must change it at next login.'];
     }
     header('Location: b2b_customers.php');
     exit;
@@ -72,7 +72,7 @@ unset($_SESSION['flash']);
 include __DIR__ . '/includes/admin_header.php';
 ?>
 <div class="section-head" style="text-align:left;margin-top:0"><h2 style="display:block">Hotel &amp; Shop Customers</h2>
-  <p>Manage wholesale (B2B) accounts that order in bulk — either on the storefront themselves (at wholesale prices) or via <a href="b2b_billing.php">B2B Billing</a> entered manually by staff. Set a <strong>Credit Limit</strong> above 0 to allow "Bill Me Later" orders for that account; outstanding balances are tracked on the <a href="b2b_ledger.php">Ledger &amp; Payments</a> page.</p>
+  <p>Manage wholesale (B2B) accounts that order in bulk — either on the storefront themselves at <a href="<?= BASE_URL ?>/b2b_login.php" target="_blank">their own Partner Login page</a> (at wholesale prices) or via <a href="b2b_billing.php">B2B Billing</a> entered manually by staff. Set a <strong>Credit Limit</strong> above 0 to allow "Bill Me Later" orders for that account; outstanding balances are tracked on the <a href="b2b_ledger.php">Ledger &amp; Payments</a> page.</p>
 </div>
 <?php if ($flash): ?><div class="alert alert-<?= h($flash['type']) ?>"><?= h($flash['message']) ?></div><?php endif; ?>
 
