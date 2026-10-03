@@ -12,17 +12,22 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $email    = trim($_POST['email'] ?? '');
     $password = $_POST['password'] ?? '';
 
-    $stmt = $pdo->prepare("SELECT * FROM customers WHERE email = ?");
+    $stmt = $pdo->prepare("SELECT *, GREATEST(TIMESTAMPDIFF(SECOND, NOW(), locked_until), 0) AS lock_remaining_seconds FROM customers WHERE email = ?");
     $stmt->execute([$email]);
     $customer = $stmt->fetch();
 
-    if ($customer && $customer['password'] && password_verify($password, $customer['password'])) {
+    $lockSeconds = $customer ? (int)$customer['lock_remaining_seconds'] : 0;
+    if ($lockSeconds > 0) {
+        $error = 'Too many failed attempts. Try again in ' . ceil($lockSeconds / 60) . ' minute(s).';
+    } elseif ($customer && $customer['password'] && password_verify($password, $customer['password'])) {
+        reset_failed_login($pdo, 'customers', $customer['id']);
         $_SESSION['customer_id']   = $customer['id'];
         $_SESSION['customer_name'] = $customer['name'];
         redirect(BASE_URL . '/' . ltrim($redirectTo, '/'));
     } elseif ($customer && !$customer['password']) {
         $error = 'This account uses mobile OTP login, not a password. Use "Login with OTP" below.';
     } else {
+        if ($customer) record_failed_login($pdo, 'customers', $customer['id']);
         $error = 'Incorrect email or password.';
     }
 }
@@ -54,6 +59,7 @@ include __DIR__ . '/includes/header.php';
       </div>
       <button type="submit" class="btn btn-primary btn-block">Log in</button>
     </form>
+    <p style="text-align:center; margin-top:10px; font-size:0.85rem;"><a href="<?= BASE_URL ?>/forgot_password.php" style="color:#3F8B52;">Forgot password?</a></p>
 
     <p style="text-align:center; margin-top:16px; font-size:0.9rem;">
       New here?

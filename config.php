@@ -183,7 +183,7 @@ function is_store_restricted() {
 // Pages every logged-in admin user can always reach, regardless of role,
 // so nobody gets locked out of their own dashboard or the logout link.
 function rbac_always_allowed_pages() {
-    return ['dashboard.php', 'logout.php', 'index.php'];
+    return ['dashboard.php', 'logout.php', 'index.php', 'change_password.php'];
 }
 
 // Returns the list of admin/*.php page filenames a given role is allowed
@@ -1453,6 +1453,40 @@ function ensure_management_schema($pdo) {
             KEY idx_dynamic_prices_veg_current (vegetable_id, is_current),
             CONSTRAINT fk_dynamic_prices_veg FOREIGN KEY (vegetable_id) REFERENCES vegetables(id) ON DELETE CASCADE
         ) ENGINE=InnoDB");
+
+        // ---- Account security: optional email for admin/staff (needed for
+        // self-service "Forgot password"), a forced-password-change flag
+        // (set whenever an admin force-resets someone's password, or a user
+        // completes a reset-link flow with a brand-new password), and
+        // failed-login lockout counters. State lives directly on the
+        // admins/customers row, matching how e.g. riders.availability_status
+        // already lives directly on that table rather than in a side log.
+        if ($hasTable('admins')) {
+            if (!$hasColumn('admins', 'email')) $pdo->exec("ALTER TABLE admins ADD COLUMN email VARCHAR(150) DEFAULT NULL");
+            if (!$hasColumn('admins', 'must_change_password')) $pdo->exec("ALTER TABLE admins ADD COLUMN must_change_password TINYINT(1) NOT NULL DEFAULT 0");
+            if (!$hasColumn('admins', 'failed_login_count')) $pdo->exec("ALTER TABLE admins ADD COLUMN failed_login_count INT NOT NULL DEFAULT 0");
+            if (!$hasColumn('admins', 'locked_until')) $pdo->exec("ALTER TABLE admins ADD COLUMN locked_until DATETIME DEFAULT NULL");
+        }
+        if ($hasTable('customers')) {
+            if (!$hasColumn('customers', 'must_change_password')) $pdo->exec("ALTER TABLE customers ADD COLUMN must_change_password TINYINT(1) NOT NULL DEFAULT 0");
+            if (!$hasColumn('customers', 'failed_login_count')) $pdo->exec("ALTER TABLE customers ADD COLUMN failed_login_count INT NOT NULL DEFAULT 0");
+            if (!$hasColumn('customers', 'locked_until')) $pdo->exec("ALTER TABLE customers ADD COLUMN locked_until DATETIME DEFAULT NULL");
+        }
+        // Shared table for both customer and admin/staff "Forgot password"
+        // reset links. Only a SHA-256 hash of the token is ever stored —
+        // never the raw token — so a leaked database still can't be used
+        // to reset anyone's password.
+        $pdo->exec("CREATE TABLE IF NOT EXISTS password_resets (
+            id INT AUTO_INCREMENT PRIMARY KEY,
+            user_type ENUM('admin','customer') NOT NULL,
+            user_id INT NOT NULL,
+            token_hash VARCHAR(255) NOT NULL,
+            expires_at DATETIME NOT NULL,
+            used_at DATETIME DEFAULT NULL,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            KEY idx_password_resets_lookup (user_type, user_id),
+            KEY idx_password_resets_token (token_hash)
+        ) ENGINE=InnoDB");
         return true;
     } catch (Throwable $e) {
         return false;
@@ -1543,7 +1577,7 @@ function current_customer() {
     if (empty($_SESSION['customer_id'])) return null;
 
     global $pdo;
-    $stmt = $pdo->prepare("SELECT id, name, email, phone FROM customers WHERE id = ?");
+    $stmt = $pdo->prepare("SELECT id, name, email, phone, must_change_password FROM customers WHERE id = ?");
     $stmt->execute([$_SESSION['customer_id']]);
     $customer = $stmt->fetch() ?: null;
     return $customer;
@@ -1671,6 +1705,76 @@ function send_email_via_smtp($to, $subject, $body) {
     } catch (Exception $e) {
         return false;
     }
+}
+
+// Sends an email via SMTP first, falling back to PHP's built-in mail() —
+// the same resilient pattern send_order_alert() uses. Used for password
+// reset links and other transactional (non-marketing) emails.
+function send_transactional_email($to, $subject, $body) {
+    if (send_email_via_smtp($to, $subject, $body)) return true;
+    $headers = 'From: ' . SITE_NAME . ' <no-reply@' . preg_replace('/^www\./', '', $_SERVER['HTTP_HOST'] ?? 'localhost') . ">\r\n" .
+               "Content-Type: text/plain; charset=UTF-8\r\n";
+    return @mail($to, $subject, $body, $headers);
+}
+
+// ---- Login lockout: throttles brute-force password guessing on both the
+// admin/staff login and the customer login. State is stored directly on
+// the admins/customers row (failed_login_count + locked_until) rather
+// than a separate attempts log, consistent with existing conventions.
+// The remaining-lockout time is always computed in SQL (TIMESTAMPDIFF
+// against NOW()), never in PHP, since the app/web server's timezone can
+// differ from the database server's — comparing locked_until against
+// PHP's time() would then be wrong.
+define('LOGIN_LOCKOUT_THRESHOLD', 5);
+define('LOGIN_LOCKOUT_MINUTES', 15);
+
+function record_failed_login($pdo, $table, $id) {
+    $table = $table === 'admins' ? 'admins' : 'customers';
+    $pdo->prepare("UPDATE $table SET failed_login_count = failed_login_count + 1,
+        locked_until = IF(failed_login_count + 1 >= ?, DATE_ADD(NOW(), INTERVAL ? MINUTE), locked_until)
+        WHERE id = ?")->execute([LOGIN_LOCKOUT_THRESHOLD, LOGIN_LOCKOUT_MINUTES, $id]);
+}
+
+function reset_failed_login($pdo, $table, $id) {
+    $table = $table === 'admins' ? 'admins' : 'customers';
+    $pdo->prepare("UPDATE $table SET failed_login_count = 0, locked_until = NULL WHERE id = ?")->execute([$id]);
+}
+
+// ---- Password reset tokens: random, hashed at rest (only the SHA-256
+// hash is ever stored — never the raw token), single-use, 1-hour expiry.
+// Shared by both the customer-facing and admin-facing "Forgot password"
+// flows via the user_type discriminator.
+function create_password_reset_token($pdo, $userType, $userId) {
+    $raw = bin2hex(random_bytes(32));
+    $hash = hash('sha256', $raw);
+    $pdo->prepare("INSERT INTO password_resets (user_type, user_id, token_hash, expires_at) VALUES (?, ?, ?, DATE_ADD(NOW(), INTERVAL 1 HOUR))")
+        ->execute([$userType, $userId, $hash]);
+    return $raw;
+}
+
+function find_password_reset($pdo, $userType, $rawToken) {
+    if ((string)$rawToken === '') return null;
+    $hash = hash('sha256', (string)$rawToken);
+    $stmt = $pdo->prepare("SELECT * FROM password_resets WHERE user_type = ? AND token_hash = ? AND used_at IS NULL AND expires_at > NOW() LIMIT 1");
+    $stmt->execute([$userType, $hash]);
+    return $stmt->fetch() ?: null;
+}
+
+function consume_password_reset($pdo, $resetId) {
+    $pdo->prepare("UPDATE password_resets SET used_at = NOW() WHERE id = ?")->execute([$resetId]);
+}
+
+// Generates a short, human-typeable temporary password (excludes
+// look-alike characters like 0/O/1/l) for admin-initiated "Reset
+// Password" actions — shown to the admin once, never stored or
+// retrievable again afterward (only its hash is saved).
+function generate_temp_password() {
+    $chars = 'ABCDEFGHJKMNPQRSTUVWXYZabcdefghjkmnpqrstuvwxyz23456789';
+    $pass = '';
+    for ($i = 0; $i < 10; $i++) {
+        $pass .= $chars[random_int(0, strlen($chars) - 1)];
+    }
+    return $pass;
 }
 
 // ---- WhatsApp alerts (pending integration) ----

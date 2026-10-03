@@ -67,6 +67,7 @@ $current_page = basename($_SERVER['PHP_SELF']);
       ],
       'Administration' => [
         ['users.php','♙','Users'],
+        ['customers.php','☺','Customers'],
         ['role_permissions.php','🔐','Role Permissions'],
       ],
     ];
@@ -81,7 +82,7 @@ $current_page = basename($_SERVER['PHP_SELF']);
         // Buying/distribution is a central, admin-only job under the
         // centralized-procurement model — never show these to staff/delivery
         // even if role_page_permissions were ever edited to include them.
-        $adminOnlyPages = ['users.php', 'management_check.php', 'role_permissions.php', 'daily_procurement_dashboard.php', 'stock_transfer.php'];
+        $adminOnlyPages = ['users.php', 'customers.php', 'management_check.php', 'role_permissions.php', 'daily_procurement_dashboard.php', 'stock_transfer.php'];
         if (in_array($item[0], $adminOnlyPages, true) && !is_admin_role()) return false;
         if ($roleAllowedPages !== null && !in_array($item[0], rbac_always_allowed_pages(), true) && !in_array($item[0], $roleAllowedPages, true)) return false;
         return true;
@@ -96,6 +97,7 @@ $current_page = basename($_SERVER['PHP_SELF']);
       <?php endforeach; ?>
     <?php endforeach; ?>
     <a class="admin-side-link" href="<?= BASE_URL ?>/index.php" target="_blank"><span class="admin-side-icon">▣</span><span class="admin-side-text">View Store</span><span class="admin-external">↗</span></a>
+    <a class="admin-side-link" href="change_password.php"><span class="admin-side-icon">🔒</span><span class="admin-side-text">Change Password</span></a>
     <a class="admin-side-link admin-logout" href="logout.php"><span class="admin-side-icon">⇥</span><span class="admin-side-text">Logout</span></a>
   </nav>
   <div class="admin-sidebar-footer">© <?= date('Y') ?> MyVegBasket<br><span>All rights reserved.</span></div>

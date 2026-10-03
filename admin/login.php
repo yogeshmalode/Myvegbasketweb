@@ -11,18 +11,24 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $username = trim($_POST['username'] ?? '');
     $password = $_POST['password'] ?? '';
 
-    $stmt = $pdo->prepare("SELECT * FROM admins WHERE username = ?");
+    $stmt = $pdo->prepare("SELECT *, GREATEST(TIMESTAMPDIFF(SECOND, NOW(), locked_until), 0) AS lock_remaining_seconds FROM admins WHERE username = ?");
     $stmt->execute([$username]);
     $admin = $stmt->fetch();
 
-    if ($admin && password_verify($password, $admin['password'])) {
+    $lockSeconds = $admin ? (int)$admin['lock_remaining_seconds'] : 0;
+    if ($lockSeconds > 0) {
+        $error = 'Too many failed attempts. Try again in ' . ceil($lockSeconds / 60) . ' minute(s).';
+    } elseif ($admin && password_verify($password, $admin['password'])) {
+        reset_failed_login($pdo, 'admins', $admin['id']);
         session_regenerate_id(true);
         $_SESSION['admin_id'] = $admin['id'];
         $_SESSION['admin_username'] = $admin['username'];
         $_SESSION['admin_role'] = $admin['role'] ?? 'admin';
         $_SESSION['admin_store_id'] = $admin['dark_store_id'] ?? null;
+        $_SESSION['admin_must_change_password'] = !empty($admin['must_change_password']);
         redirect('dashboard.php');
     } else {
+        if ($admin) record_failed_login($pdo, 'admins', $admin['id']);
         $error = 'Invalid username or password.';
     }
 }
@@ -53,6 +59,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     </div>
     <button type="submit" class="btn btn-primary btn-block">Log in</button>
   </form>
+  <p style="text-align:center; margin-top:14px;"><a href="forgot_password.php" style="color:#3F8B52; font-size:0.9rem;">Forgot password?</a></p>
   <p style="text-align:center; margin-top:16px;"><a href="<?= BASE_URL ?>/index.php" style="color:#3F8B52; font-size:0.9rem;">&larr; Back to store</a></p>
 </div>
 </body>

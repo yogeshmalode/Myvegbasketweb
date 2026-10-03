@@ -2,6 +2,9 @@
 if (!isset($pdo)) require_once __DIR__ . '/../../config.php';
 ensure_management_schema($pdo);
 if (!is_admin_logged_in()) { header('Location: login.php'); exit; }
+if (!empty($_SESSION['admin_must_change_password']) && basename($_SERVER['PHP_SELF']) !== 'change_password.php') {
+    header('Location: change_password.php'); exit;
+}
 require_page_access($pdo, basename($_SERVER['PHP_SELF']));
 function require_role($roles) {
     $roles = (array)$roles;

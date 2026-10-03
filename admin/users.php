@@ -47,7 +47,23 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['toggle_can_procure'])
     exit;
 }
 
-$q = $pdo->prepare("SELECT a.id, a.username, a.role, a.dark_store_id, a.can_procure, a.created_at, ds.name AS store_name, ds.procurement_mode
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['reset_password'])) {
+    require_csrf();
+    $userId = (int)($_POST['user_id'] ?? 0);
+    if ($userId > 0) {
+        $tempPassword = generate_temp_password();
+        $pdo->prepare("UPDATE admins SET password = ?, must_change_password = 1, failed_login_count = 0, locked_until = NULL WHERE id = ?")
+            ->execute([password_hash($tempPassword, PASSWORD_DEFAULT), $userId]);
+        // Shown exactly once, right here — never stored or retrievable again
+        // afterward. The user will be forced to set their own password at
+        // next login (must_change_password = 1).
+        $_SESSION['flash'] = ['type' => 'success', 'message' => 'Temporary password generated: ' . $tempPassword . ' — share it securely with the user. They must change it at next login.'];
+    }
+    header('Location: users.php');
+    exit;
+}
+
+$q = $pdo->prepare("SELECT a.id, a.username, a.email, a.role, a.dark_store_id, a.can_procure, a.created_at, ds.name AS store_name, ds.procurement_mode
     FROM admins a LEFT JOIN dark_stores ds ON ds.id = a.dark_store_id ORDER BY a.id");
 $q->execute();
 $users = $q->fetchAll();
@@ -86,10 +102,11 @@ include __DIR__ . '/includes/admin_header.php';
 </div>
 <div class="table-wrap" style="margin-top:25px">
   <table>
-    <tr><th>Username</th><th>Role</th><th>Store</th><th>Can Procure</th><th>Created</th></tr>
+    <tr><th>Username</th><th>Email</th><th>Role</th><th>Store</th><th>Can Procure</th><th>Created</th><th>Security</th></tr>
     <?php foreach ($users as $u): ?>
       <tr>
         <td><?= h($u['username']) ?></td>
+        <td><?= h($u['email'] ?: '—') ?></td>
         <td><?= h(ucfirst($u['role'])) ?></td>
         <td>
           <?php if ($u['role'] === 'admin'): ?>
@@ -124,6 +141,14 @@ include __DIR__ . '/includes/admin_header.php';
           <?php endif; ?>
         </td>
         <td><?= h(format_ist($u['created_at'])) ?></td>
+        <td>
+          <form method="post" onsubmit="return confirm('Generate a new temporary password for <?= h($u['username']) ?>? Their current password will stop working immediately.');" style="display:inline;">
+            <input type="hidden" name="csrf_token" value="<?= h(csrf_token()) ?>">
+            <input type="hidden" name="reset_password" value="1">
+            <input type="hidden" name="user_id" value="<?= $u['id'] ?>">
+            <button class="btn" style="padding:4px 10px; font-size:0.78rem;">Reset Password</button>
+          </form>
+        </td>
       </tr>
     <?php endforeach; ?>
   </table>

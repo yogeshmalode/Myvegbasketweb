@@ -1,5 +1,15 @@
 <?php
 if (!isset($pdo)) { require_once __DIR__ . '/../config.php'; }
+
+// Force a customer with a pending admin-reset or completed-reset password
+// to set their own new password before using any other page.
+if (is_customer_logged_in()) {
+    $__script = basename($_SERVER['SCRIPT_NAME'] ?? '');
+    if (!in_array($__script, ['change_password.php', 'logout.php'], true) && !empty(current_customer()['must_change_password'])) {
+        redirect(BASE_URL . '/change_password.php');
+    }
+}
+
 $search_q = trim($_GET['q'] ?? '');
 
 $__meta_desc = $meta_description ?? SITE_DESCRIPTION;
