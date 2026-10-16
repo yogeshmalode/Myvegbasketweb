@@ -7,6 +7,41 @@ function apiUrl(path) {
   return base + path;
 }
 
+function showNotifyMeForm(card, productId, csrfToken) {
+  const footer = card.querySelector('.veg-footer');
+  if (!footer || footer.querySelector('.notify-form')) return;
+
+  const form = document.createElement('form');
+  form.className = 'notify-form';
+  form.dataset.id = productId;
+  form.style.cssText = 'width:100%; display:flex; gap:8px; flex-wrap:wrap;';
+
+  const input = document.createElement('input');
+  input.type = 'email';
+  input.name = 'email';
+  input.required = true;
+  input.autocomplete = 'email';
+  input.placeholder = 'Your email address';
+  input.setAttribute('aria-label', 'Email address for back-in-stock alert');
+  input.style.cssText = 'flex:1; min-width:150px; padding:9px 10px; border:1px solid #D9E0CD; border-radius:8px;';
+
+  const button = document.createElement('button');
+  button.type = 'submit';
+  button.className = 'notify-btn';
+  button.dataset.csrf = csrfToken;
+  button.textContent = 'Notify me';
+  button.style.cssText = 'border:0; border-radius:8px; padding:9px 14px; background:#1F4D36; color:#fff; font-weight:700; cursor:pointer;';
+
+  const message = document.createElement('span');
+  message.className = 'notify-message';
+  message.setAttribute('role', 'status');
+  message.style.cssText = 'width:100%; font-size:0.82rem; color:#5B6656;';
+
+  form.append(input, button, message);
+  footer.replaceChildren(form);
+  input.focus();
+}
+
 function showToast(message) {
   const toast = document.getElementById('toast');
   if (!toast) return;
@@ -101,6 +136,9 @@ document.addEventListener('DOMContentLoaded', () => {
             updateCartBadges(data.cart_count, data.cart_total);
             showToast(data.message);
           } else {
+            if (data.out_of_stock) {
+              showNotifyMeForm(card, id, btn.dataset.csrf);
+            }
             showToast(data.message || 'Could not add item.');
           }
         })
@@ -112,44 +150,44 @@ document.addEventListener('DOMContentLoaded', () => {
     });
   });
 
-  document.querySelectorAll('.notify-form').forEach(form => {
-    form.addEventListener('submit', (event) => {
-      event.preventDefault();
-      const button = form.querySelector('.notify-btn');
-      const input = form.querySelector('input[name="email"]');
-      const message = form.querySelector('.notify-message');
-      const originalText = button.textContent;
-      button.disabled = true;
-      button.textContent = 'Saving...';
-      message.textContent = '';
+  document.addEventListener('submit', (event) => {
+    const form = event.target.closest('.notify-form');
+    if (!form) return;
+    event.preventDefault();
+    const button = form.querySelector('.notify-btn');
+    const input = form.querySelector('input[name="email"]');
+    const message = form.querySelector('.notify-message');
+    const originalText = button.textContent;
+    button.disabled = true;
+    button.textContent = 'Saving...';
+    message.textContent = '';
 
-      fetch(apiUrl('/ajax/notify_when_available.php'), {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-        body: new URLSearchParams({
-          product_id: form.dataset.id,
-          email: input.value,
-          csrf_token: button.dataset.csrf
-        })
+    fetch(apiUrl('/ajax/notify_when_available.php'), {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      body: new URLSearchParams({
+        product_id: form.dataset.id,
+        email: input.value,
+        csrf_token: button.dataset.csrf
       })
-        .then(response => response.json())
-        .then(data => {
-          message.textContent = data.message || 'Could not save your request.';
-          if (data.success) {
-            input.disabled = true;
-            button.textContent = "You're on the list";
-            showToast(data.message);
-          } else {
-            button.disabled = false;
-            button.textContent = originalText;
-          }
-        })
-        .catch(() => {
+    })
+      .then(response => response.json())
+      .then(data => {
+        message.textContent = data.message || 'Could not save your request.';
+        if (data.success) {
+          input.disabled = true;
+          button.textContent = "You're on the list";
+          showToast(data.message);
+        } else {
           button.disabled = false;
           button.textContent = originalText;
-          message.textContent = 'Network error. Please try again.';
-        });
-    });
+        }
+      })
+      .catch(() => {
+        button.disabled = false;
+        button.textContent = originalText;
+        message.textContent = 'Network error. Please try again.';
+      });
   });
 
   // Cart drawer: quantity change / remove (event delegation, since content is AJAX-loaded)

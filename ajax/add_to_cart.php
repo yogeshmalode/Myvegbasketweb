@@ -51,7 +51,11 @@ if ($price <= 0) {
 
 $maxQuantity = get_cart_item_stock_limit($pdo, $veg['id'], $veg['stock'], $veg['unit'], $variant['id'] ?? null);
 if ($maxQuantity <= 0) {
-    echo json_encode(['success' => false, 'message' => $veg['name'] . ' is out of stock. Please use Notify me to get an email when it is available.']);
+    echo json_encode([
+        'success' => false,
+        'out_of_stock' => true,
+        'message' => $veg['name'] . ' is out of stock. Sign up for an email when it is available.',
+    ]);
     exit;
 }
 

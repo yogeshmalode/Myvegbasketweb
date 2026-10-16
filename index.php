@@ -201,6 +201,7 @@ if ($vegetables): ?>
                     data-name="<?= h($veg['name']) ?>"
                     data-price="<?= $cartPrice ?>"
                     data-unit="<?= h($veg['unit']) ?>"
+                    data-csrf="<?= h(csrf_token()) ?>"
                     <?= $cartPrice <= 0 ? 'disabled' : '' ?>>
               <?= $cartPrice <= 0 ? 'Price unavailable' : 'Add to basket' ?>
             </button>
