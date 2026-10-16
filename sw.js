@@ -3,7 +3,7 @@
 // cached for speed and offline use; PHP pages (product listings, cart,
 // checkout, etc.) always go to the network since prices/stock/orders
 // change constantly and must never be served stale.
-const CACHE_NAME = 'myvegbasket-v2';
+const CACHE_NAME = 'myvegbasket-v3';
 const STATIC_ASSETS = [
   '/assets/css/style.css',
   '/assets/js/script.js',

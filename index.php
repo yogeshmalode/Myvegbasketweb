@@ -100,19 +100,15 @@ if ($vegetables): ?>
     </div>
     <div class="hero-visual" aria-hidden="true">
       <div class="hero-visual-glow"></div>
-      <span class="hero-sparkle hero-sparkle-one">✦</span>
-      <span class="hero-sparkle hero-sparkle-two">✦</span>
       <div class="hero-produce hero-produce-tomato"><img src="<?= BASE_URL ?>/assets/images/tomato.svg" alt=""></div>
       <div class="hero-produce hero-produce-carrot"><img src="<?= BASE_URL ?>/assets/images/carrot.svg" alt=""></div>
       <div class="hero-produce hero-produce-capsicum"><img src="<?= BASE_URL ?>/assets/images/capsicum.svg" alt=""></div>
-      <div class="hero-note hero-note-fresh"><span>🌿</span><div><strong>Fresh choices</strong><small>Picked for your table</small></div></div>
-      <div class="hero-note hero-note-basket"><span class="hero-basket-icon">🧺</span><div><strong><?= count($vegetables) ?>+</strong><small>good things to shop</small></div></div>
     </div>
   </div>
 </section>
 
 <div class="container shop-container" id="shop">
-  <div class="section-head">
+  <div class="section-head shop-section-head">
     <div>
       <span class="shop-kicker">YOUR DAILY MARKET</span>
       <h2><?= $category !== '' && $category !== 'All' ? h($category) : 'Shop fresh picks' ?></h2>
