@@ -41,6 +41,14 @@ if ($variantId) {
     }
 }
 
+$price = $variant
+    ? (float)$variant['price']
+    : get_price_for_customer($pdo, $veg, current_customer_type());
+if ($price <= 0) {
+    echo json_encode(['success' => false, 'message' => 'This item is currently unavailable because it has no valid price.']);
+    exit;
+}
+
 if (!isset($_SESSION['cart'])) {
     $_SESSION['cart'] = [];
 }
@@ -58,7 +66,7 @@ if (isset($_SESSION['cart'][$key])) {
         'id'         => $veg['id'],
         'variant_id' => $variant['id'] ?? null,
         'name'       => $variant ? $veg['name'] . ' (' . $variant['label'] . ')' : $veg['name'],
-        'price'      => $variant ? (float)$variant['price'] : get_price_for_customer($pdo, $veg, current_customer_type()),
+        'price'      => $price,
         'unit'       => $variant ? $variant['label'] : $veg['unit'],
         'qty'        => $qty,
     ];

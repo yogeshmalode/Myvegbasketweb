@@ -134,6 +134,9 @@ if ($vegetables): ?>
         <div class="veg-desc"><?= h($veg['description']) ?></div>
 
         <?php $variants = $variantsByVeg[$veg['id']] ?? []; ?>
+        <?php $cartPrice = $variants
+            ? (float)$variants[0]['price']
+            : get_price_for_customer($pdo, $veg, current_customer_type()); ?>
 
         <?php if ($variants): ?>
           <div class="form-group" style="margin-bottom:10px;">
@@ -193,9 +196,10 @@ if ($vegetables): ?>
           <button type="button" class="add-btn"
                   data-id="<?= $veg['id'] ?>"
                   data-name="<?= h($veg['name']) ?>"
-                  data-price="<?= $veg['price'] ?>"
-                  data-unit="<?= h($veg['unit']) ?>">
-            Add to basket
+                  data-price="<?= $cartPrice ?>"
+                  data-unit="<?= h($veg['unit']) ?>"
+                  <?= $cartPrice <= 0 ? 'disabled' : '' ?>>
+            <?= $cartPrice <= 0 ? 'Price unavailable' : 'Add to basket' ?>
           </button>
         </div>
       </div>

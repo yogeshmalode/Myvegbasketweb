@@ -66,6 +66,13 @@ document.addEventListener('DOMContentLoaded', () => {
       if (amountEl && option) {
         amountEl.textContent = '₹' + parseFloat(option.dataset.price).toFixed(2);
       }
+      const addButton = card.querySelector('.add-btn');
+      if (addButton && option) {
+        const price = parseFloat(option.dataset.price);
+        const unavailable = !Number.isFinite(price) || price <= 0;
+        addButton.disabled = unavailable;
+        addButton.textContent = unavailable ? 'Price unavailable' : 'Add to basket';
+      }
     });
   });
 

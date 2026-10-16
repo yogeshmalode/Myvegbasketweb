@@ -344,6 +344,7 @@ h1,h2,h3,h4{ font-family:var(--font-display); margin:0; color:var(--leaf-dark); 
   border-radius:8px; font-weight:700; font-size:0.86rem;
 }
 .add-btn:hover{ background:var(--leaf-dark); }
+.add-btn:disabled{ background:#9CA88F; cursor:not-allowed; }
 .stock-low{ color:var(--tomato); font-size:0.72rem; font-weight:700; margin-top:6px; }
 
 /* ---------------- Cart drawer --------------- */
