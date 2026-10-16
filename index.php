@@ -89,30 +89,40 @@ if ($vegetables): ?>
 
 <section class="hero">
   <div class="container hero-inner">
-    <div>
-      <span class="eyebrow">🚜 Harvested this morning</span>
-      <h1>Farm-fresh vegetables, <span class="accent">delivered today.</span></h1>
-      <p>Skip the crowded market. Pick your vegetables, add them to your basket, and pay online — we'll have them at your door within hours.</p>
-      <a href="#shop" class="btn btn-primary">Start shopping 🛒</a>
+    <div class="hero-copy">
+      <span class="eyebrow">🚜 Fresh from the farm</span>
+      <h1>Good food starts <span class="accent">fresh.</span></h1>
+      <p>Bring home fresh vegetables and everyday essentials. Choose what you need, add it to your basket, and order in just a few taps.</p>
+      <div class="hero-actions">
+        <a href="#shop" class="btn btn-primary">Shop fresh picks <span aria-hidden="true">→</span></a>
+        <span class="hero-delivery-note"><span aria-hidden="true">✓</span> Easy online ordering</span>
+      </div>
     </div>
-    <div class="hero-stamp">
-      <div class="stamp-circle">FRESH<br>TODAY</div>
-      <h3>Today's basket average</h3>
-      <div class="big-num"><?= SITE_CURRENCY ?><?= number_format(count($vegetables) ? array_sum(array_column($vegetables,'price'))/count($vegetables) : 0, 0) ?></div>
-      <p style="color:#5B6656; margin-top:6px;">per kg across <?= count($vegetables) ?> items in stock</p>
+    <div class="hero-visual" aria-hidden="true">
+      <div class="hero-visual-glow"></div>
+      <span class="hero-sparkle hero-sparkle-one">✦</span>
+      <span class="hero-sparkle hero-sparkle-two">✦</span>
+      <div class="hero-produce hero-produce-tomato"><img src="<?= BASE_URL ?>/assets/images/tomato.svg" alt=""></div>
+      <div class="hero-produce hero-produce-carrot"><img src="<?= BASE_URL ?>/assets/images/carrot.svg" alt=""></div>
+      <div class="hero-produce hero-produce-capsicum"><img src="<?= BASE_URL ?>/assets/images/capsicum.svg" alt=""></div>
+      <div class="hero-note hero-note-fresh"><span>🌿</span><div><strong>Fresh choices</strong><small>Picked for your table</small></div></div>
+      <div class="hero-note hero-note-basket"><span class="hero-basket-icon">🧺</span><div><strong><?= count($vegetables) ?>+</strong><small>good things to shop</small></div></div>
     </div>
   </div>
 </section>
 
-
-<div class="container" id="shop">
+<div class="container shop-container" id="shop">
   <div class="section-head">
-    <h2>Today's Vegetable Stall</h2>
-    <p>Prices update daily based on the morning harvest.</p>
+    <div>
+      <span class="shop-kicker">YOUR DAILY MARKET</span>
+      <h2><?= $category !== '' && $category !== 'All' ? h($category) : 'Shop fresh picks' ?></h2>
+      <p><?= $search_q !== '' ? 'Showing results for “' . h($search_q) . '”' : 'Fresh finds for every meal, delivered to your door.' ?></p>
+    </div>
+    <span class="shop-item-count"><?= count($vegetables) ?> products</span>
   </div>
 
   <div class="chip-row">
-    <a href="<?= BASE_URL ?>/index.php" class="chip <?= $category==='' ? 'active' : '' ?>">All</a>
+    <a href="<?= BASE_URL ?>/index.php" class="chip <?= $category==='' || $category==='All' ? 'active' : '' ?>">✨ All products</a>
     <?php foreach ($categories as $cat): ?>
       <a href="<?= BASE_URL ?>/index.php?category=<?= urlencode($cat) ?>" class="chip <?= $category===$cat ? 'active' : '' ?>"><?= h($cat) ?></a>
     <?php endforeach; ?>
@@ -124,7 +134,8 @@ if ($vegetables): ?>
   <div class="veg-grid">
     <?php foreach ($vegetables as $veg): ?>
       <div class="veg-card" data-id="<?= $veg['id'] ?>">
-        <div class="veg-thumb" style="overflow:hidden; background:#fff; border:1px solid #E4E9DD;"><?= veg_thumb_html($veg) ?></div>
+        <div class="veg-thumb"><?= veg_thumb_html($veg) ?></div>
+        <div class="veg-category"><?= h($veg['category']) ?></div>
         <h4>
           <?= h($veg['name']) ?>
           <?php if (!empty($veg['name_mr'])): ?>
