@@ -81,7 +81,15 @@ document.addEventListener('DOMContentLoaded', () => {
         email
       })
     }).then(async response => {
-      const data = await response.json();
+      let data;
+      try {
+        data = await response.json();
+      } catch (error) {
+        throw new Error('The server returned an invalid response. Please try again.');
+      }
+      if (!response.ok && !data.message) {
+        throw new Error('Could not save your notification. Please try again.');
+      }
       return { response, data };
     });
   }
@@ -103,14 +111,18 @@ document.addEventListener('DOMContentLoaded', () => {
             showToast(data.message || 'Could not save your notification.');
           }
         })
-        .catch(() => showToast('Network error. Please try again.'))
+        .catch(error => showToast(error.message || 'Network error. Please try again.'))
         .finally(() => { button.disabled = false; });
       return;
     }
 
+    if (!notifyOverlay || !notifyEmail) {
+      showToast('The email signup form is unavailable. Please refresh and try again.');
+      return;
+    }
     pendingNotify = { productId, csrfToken };
-    if (notifyOverlay) notifyOverlay.style.display = 'flex';
-    notifyEmail?.focus();
+    notifyOverlay.style.display = 'flex';
+    notifyEmail.focus();
   });
 
   document.getElementById('notifyMeClose')?.addEventListener('click', closeNotifyDialog);
@@ -141,7 +153,7 @@ document.addEventListener('DOMContentLoaded', () => {
           showToast(data.message || 'Could not save your notification.');
         }
       })
-      .catch(() => showToast('Network error. Please try again.'))
+      .catch(error => showToast(error.message || 'Network error. Please try again.'))
       .finally(() => {
         notifySubmit.disabled = false;
         notifySubmit.textContent = 'Notify me';
