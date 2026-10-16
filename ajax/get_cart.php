@@ -1,6 +1,7 @@
 <?php
 require_once __DIR__ . '/../config.php';
 
+reconcile_cart_stock($pdo);
 $cart = $_SESSION['cart'] ?? [];
 ?>
 <?php if (empty($cart)): ?>

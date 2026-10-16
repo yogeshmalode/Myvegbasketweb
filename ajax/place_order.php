@@ -7,6 +7,7 @@
 require_once __DIR__ . '/../config.php';
 header('Content-Type: application/json');
 
+reconcile_cart_stock($pdo);
 $cart = $_SESSION['cart'] ?? [];
 if (empty($cart)) {
     echo json_encode(['success' => false, 'message' => 'Your cart is empty.']);

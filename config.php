@@ -141,6 +141,11 @@ function maybe_heal_schema($pdo) {
     @touch($marker);
 }
 maybe_heal_schema($pdo);
+try {
+    dispatch_back_in_stock_notifications($pdo);
+} catch (PDOException $e) {
+    error_log('Back-in-stock notification dispatch failed: ' . $e->getMessage());
+}
 
 // ---- Application security helpers ----
 function csrf_token() {
@@ -260,11 +265,15 @@ function h($str) {
 }
 
 function cart_count() {
+    global $pdo;
+    reconcile_cart_stock($pdo);
     if (empty($_SESSION['cart'])) return 0;
     return array_sum(array_column($_SESSION['cart'], 'qty'));
 }
 
 function cart_total() {
+    global $pdo;
+    reconcile_cart_stock($pdo);
     if (empty($_SESSION['cart'])) return 0;
     $total = 0;
     foreach ($_SESSION['cart'] as $item) {
@@ -568,6 +577,47 @@ function get_storefront_display_stock($pdo, $vegId, $stockMode, $sharedStock) {
     $st = $pdo->prepare("SELECT COALESCE(SUM(stock),0) FROM store_inventory WHERE vegetable_id = ?");
     $st->execute([$vegId]);
     return (float)$st->fetchColumn();
+}
+
+function get_cart_item_stock_limit($pdo, $vegId, $stock, $unit, $variantId = null) {
+    $max = (int)$stock;
+    if ($variantId) {
+        try {
+            $vstmt = $pdo->prepare("SELECT label FROM vegetable_variants WHERE id = ? AND vegetable_id = ?");
+            $vstmt->execute([(int)$variantId, (int)$vegId]);
+            $variant = $vstmt->fetch();
+            if ($variant) {
+                $fraction = size_fraction_of_base_unit($variant['label'], $unit);
+                if ($fraction !== null && $fraction > 0) {
+                    $max = (int)floor((float)$stock / $fraction);
+                }
+            }
+        } catch (PDOException $e) {
+            // Older installations may not have the optional variants table.
+        }
+    }
+    return max(0, $max);
+}
+
+function reconcile_cart_stock($pdo) {
+    if (empty($_SESSION['cart'])) return;
+
+    $productStmt = $pdo->prepare("SELECT id, stock, stock_mode, unit, is_active FROM vegetables WHERE id = ?");
+    foreach ($_SESSION['cart'] as $key => $item) {
+        $productStmt->execute([(int)($item['id'] ?? 0)]);
+        $product = $productStmt->fetch();
+        if (!$product || !(int)$product['is_active']) {
+            unset($_SESSION['cart'][$key]);
+            continue;
+        }
+        $stock = get_storefront_display_stock($pdo, $product['id'], $product['stock_mode'] ?? 'shared', $product['stock']);
+        $max = get_cart_item_stock_limit($pdo, $product['id'], $stock, $product['unit'], $item['variant_id'] ?? null);
+        if ($max <= 0) {
+            unset($_SESSION['cart'][$key]);
+            continue;
+        }
+        $_SESSION['cart'][$key]['qty'] = min((int)$item['qty'], $max);
+    }
 }
 
 // Atomically applies a stock change (negative = sale/wastage deduction,
@@ -1056,6 +1106,15 @@ function ensure_management_schema($pdo) {
             is_active TINYINT(1) NOT NULL DEFAULT 1,
             created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
             UNIQUE KEY uniq_category_name (name)
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci");
+        $pdo->exec("CREATE TABLE IF NOT EXISTS back_in_stock_notifications (
+            id INT AUTO_INCREMENT PRIMARY KEY,
+            vegetable_id INT NOT NULL,
+            email VARCHAR(254) NOT NULL,
+            created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            notified_at TIMESTAMP NULL DEFAULT NULL,
+            UNIQUE KEY uniq_back_in_stock_email (vegetable_id, email),
+            KEY idx_back_in_stock_pending (notified_at, vegetable_id)
         ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci");
         if ($hasTable('vegetables')) {
             // First-run seed: pull in whatever categories already exist on
@@ -1800,6 +1859,36 @@ function send_transactional_email($to, $subject, $body) {
     $headers = 'From: ' . SITE_NAME . ' <no-reply@' . preg_replace('/^www\./', '', $_SERVER['HTTP_HOST'] ?? 'localhost') . ">\r\n" .
                "Content-Type: text/plain; charset=UTF-8\r\n";
     return @mail($to, $subject, $body, $headers);
+}
+
+function dispatch_back_in_stock_notifications($pdo) {
+    $tableCheck = $pdo->prepare("SELECT COUNT(*) FROM information_schema.TABLES WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = ?");
+    $tableCheck->execute(['back_in_stock_notifications']);
+    if (!(int)$tableCheck->fetchColumn()) return;
+
+    $stmt = $pdo->query("SELECT n.id, n.email, v.name
+        FROM back_in_stock_notifications n
+        JOIN vegetables v ON v.id = n.vegetable_id
+        LEFT JOIN (
+            SELECT vegetable_id, SUM(stock) AS total_stock
+            FROM store_inventory
+            GROUP BY vegetable_id
+        ) si ON si.vegetable_id = v.id
+        WHERE n.notified_at IS NULL AND v.is_active = 1
+          AND (CASE WHEN v.stock_mode = 'per_store' THEN COALESCE(si.total_stock, 0) ELSE v.stock END) > 0
+        ORDER BY n.created_at ASC
+        LIMIT 1");
+    $markNotified = $pdo->prepare("UPDATE back_in_stock_notifications SET notified_at = CURRENT_TIMESTAMP WHERE id = ? AND notified_at IS NULL");
+
+    foreach ($stmt->fetchAll() as $notification) {
+        $subject = $notification['name'] . ' is back in stock at ' . SITE_NAME;
+        $body = "Good news!\n\n" . $notification['name'] . " is back in stock. Visit " . SITE_URL . " to order it while it's available.\n\nThank you,\n" . SITE_NAME;
+        if (send_transactional_email($notification['email'], $subject, $body)) {
+            $markNotified->execute([$notification['id']]);
+        } else {
+            error_log('Could not send back-in-stock notification ' . (int)$notification['id'] . '. It will be retried.');
+        }
+    }
 }
 
 // ---- Login lockout: throttles brute-force password guessing on both the

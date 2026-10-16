@@ -184,23 +184,39 @@ if ($vegetables): ?>
         <?php endif; ?>
 
 
-        <?php if ($veg['stock'] <= 10): ?>
+        <?php if ($veg['stock'] > 0 && $veg['stock'] <= 10): ?>
           <div class="stock-low">Only <?= (int)$veg['stock'] ?> left!</div>
+        <?php elseif ($veg['stock'] <= 0): ?>
+          <div class="stock-low">Currently out of stock</div>
         <?php endif; ?>
         <div class="veg-footer">
-          <div class="qty-box">
-            <button type="button" class="qty-minus">−</button>
-            <input type="number" class="qty-input" value="1" min="1" max="<?= (int)$veg['stock'] ?>">
-            <button type="button" class="qty-plus">+</button>
-          </div>
-          <button type="button" class="add-btn"
-                  data-id="<?= $veg['id'] ?>"
-                  data-name="<?= h($veg['name']) ?>"
-                  data-price="<?= $cartPrice ?>"
-                  data-unit="<?= h($veg['unit']) ?>"
-                  <?= $cartPrice <= 0 ? 'disabled' : '' ?>>
-            <?= $cartPrice <= 0 ? 'Price unavailable' : 'Add to basket' ?>
-          </button>
+          <?php if ($veg['stock'] > 0): ?>
+            <div class="qty-box">
+              <button type="button" class="qty-minus">−</button>
+              <input type="number" class="qty-input" value="1" min="1" max="<?= (int)$veg['stock'] ?>">
+              <button type="button" class="qty-plus">+</button>
+            </div>
+            <button type="button" class="add-btn"
+                    data-id="<?= $veg['id'] ?>"
+                    data-name="<?= h($veg['name']) ?>"
+                    data-price="<?= $cartPrice ?>"
+                    data-unit="<?= h($veg['unit']) ?>"
+                    <?= $cartPrice <= 0 ? 'disabled' : '' ?>>
+              <?= $cartPrice <= 0 ? 'Price unavailable' : 'Add to basket' ?>
+            </button>
+          <?php else: ?>
+            <form class="notify-form" data-id="<?= (int)$veg['id'] ?>" style="width:100%; display:flex; gap:8px; flex-wrap:wrap;">
+              <input type="email" name="email" required autocomplete="email" placeholder="Your email address"
+                     value="<?= h(current_customer()['email'] ?? '') ?>"
+                     aria-label="Email address for back-in-stock alert"
+                     style="flex:1; min-width:150px; padding:9px 10px; border:1px solid #D9E0CD; border-radius:8px;">
+              <button type="submit" class="notify-btn" data-csrf="<?= h(csrf_token()) ?>"
+                      style="border:0; border-radius:8px; padding:9px 14px; background:#1F4D36; color:#fff; font-weight:700; cursor:pointer;">
+                Notify me
+              </button>
+              <span class="notify-message" role="status" style="width:100%; font-size:0.82rem; color:#5B6656;"></span>
+            </form>
+          <?php endif; ?>
         </div>
       </div>
     <?php endforeach; ?>

@@ -112,6 +112,46 @@ document.addEventListener('DOMContentLoaded', () => {
     });
   });
 
+  document.querySelectorAll('.notify-form').forEach(form => {
+    form.addEventListener('submit', (event) => {
+      event.preventDefault();
+      const button = form.querySelector('.notify-btn');
+      const input = form.querySelector('input[name="email"]');
+      const message = form.querySelector('.notify-message');
+      const originalText = button.textContent;
+      button.disabled = true;
+      button.textContent = 'Saving...';
+      message.textContent = '';
+
+      fetch(apiUrl('/ajax/notify_when_available.php'), {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+        body: new URLSearchParams({
+          product_id: form.dataset.id,
+          email: input.value,
+          csrf_token: button.dataset.csrf
+        })
+      })
+        .then(response => response.json())
+        .then(data => {
+          message.textContent = data.message || 'Could not save your request.';
+          if (data.success) {
+            input.disabled = true;
+            button.textContent = "You're on the list";
+            showToast(data.message);
+          } else {
+            button.disabled = false;
+            button.textContent = originalText;
+          }
+        })
+        .catch(() => {
+          button.disabled = false;
+          button.textContent = originalText;
+          message.textContent = 'Network error. Please try again.';
+        });
+    });
+  });
+
   // Cart drawer: quantity change / remove (event delegation, since content is AJAX-loaded)
   document.getElementById('cartDrawerBody')?.addEventListener('change', (e) => {
     if (e.target.classList.contains('cart-qty-input')) {

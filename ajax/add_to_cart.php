@@ -49,6 +49,12 @@ if ($price <= 0) {
     exit;
 }
 
+$maxQuantity = get_cart_item_stock_limit($pdo, $veg['id'], $veg['stock'], $veg['unit'], $variant['id'] ?? null);
+if ($maxQuantity <= 0) {
+    echo json_encode(['success' => false, 'message' => $veg['name'] . ' is out of stock. Please use Notify me to get an email when it is available.']);
+    exit;
+}
+
 if (!isset($_SESSION['cart'])) {
     $_SESSION['cart'] = [];
 }
@@ -72,26 +78,8 @@ if (isset($_SESSION['cart'][$key])) {
     ];
 }
 
-// Don't let cart quantity exceed available stock (tracked per base product)
-if ($variant) {
-    // compute fraction (e.g. 250 g => 0.25 of base unit)
-    $fraction = null;
-    try { $fraction = size_fraction_of_base_unit($variant['label'], $veg['unit']); } catch (Throwable $e) { $fraction = null; }
-    if ($fraction !== null && $fraction > 0) {
-        $maxPacks = (int)floor(((float)$veg['stock']) / $fraction);
-        if ($_SESSION['cart'][$key]['qty'] > $maxPacks) {
-            $_SESSION['cart'][$key]['qty'] = $maxPacks;
-        }
-    } else {
-        if ($_SESSION['cart'][$key]['qty'] > (int)$veg['stock']) {
-            $_SESSION['cart'][$key]['qty'] = (int)$veg['stock'];
-        }
-    }
-} else {
-    if ($_SESSION['cart'][$key]['qty'] > (int)$veg['stock']) {
-        $_SESSION['cart'][$key]['qty'] = (int)$veg['stock'];
-    }
-}
+// Don't let cart quantity exceed available stock (tracked per base product).
+$_SESSION['cart'][$key]['qty'] = min($_SESSION['cart'][$key]['qty'], $maxQuantity);
 
 echo json_encode([
     'success'     => true,

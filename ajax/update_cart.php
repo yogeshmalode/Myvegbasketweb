@@ -2,6 +2,7 @@
 require_once __DIR__ . '/../config.php';
 header('Content-Type: application/json');
 
+reconcile_cart_stock($pdo);
 // Cart keys are either a plain vegetable id ("7") or a variant-specific
 // key ("7-3" = vegetable 7, variant 3), so we can't just cast to int here.
 $key = preg_replace('/[^0-9\-]/', '', $_POST['id'] ?? '');
