@@ -135,6 +135,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     // the central pool) also reads from, which defeats the whole point of
     // "independent". Build the valid id set once and filter against it.
     $perStoreIds = array_map('intval', $pdo->query("SELECT id FROM vegetables WHERE stock_mode = 'per_store'")->fetchAll(PDO::FETCH_COLUMN));
+    $restockedProductIds = [];
 
     if (!empty($_FILES['bulk_excel_file']['tmp_name'])) {
         $tmpPath = $_FILES['bulk_excel_file']['tmp_name'];
@@ -184,8 +185,16 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     // Always lands directly in THIS store's own pool, never
                     // central — that's the entire point of "independent".
                     apply_stock_delta($pdo, $vegId, $usable, $storeId);
+                    if ($usable > 0) $restockedProductIds[] = $vegId;
                 }
                 $pdo->commit();
+                foreach (array_unique($restockedProductIds) as $productId) {
+                    try {
+                        dispatch_back_in_stock_notifications($pdo, $productId);
+                    } catch (Throwable $e) {
+                        error_log('Could not dispatch back-in-stock alerts after store procurement upload: ' . $e->getMessage());
+                    }
+                }
                 $bulkUploadMessage = 'Excel upload processed successfully.';
             } catch (Throwable $e) {
                 $pdo->rollBack();
@@ -194,6 +203,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         }
     }
 
+    $restockedProductIds = [];
     $pdo->beginTransaction();
     try {
         if (!empty($purchaseRows)) {
@@ -221,10 +231,18 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 ]);
 
                 apply_stock_delta($pdo, $vegId, $usable, $storeId);
+                if ($usable > 0) $restockedProductIds[] = $vegId;
             }
         }
 
         $pdo->commit();
+        foreach (array_unique($restockedProductIds) as $productId) {
+            try {
+                dispatch_back_in_stock_notifications($pdo, $productId);
+            } catch (Throwable $e) {
+                error_log('Could not dispatch back-in-stock alerts after store procurement: ' . $e->getMessage());
+            }
+        }
         if ($bulkUploadError === '') {
             $_SESSION['flash'] = ['type' => 'success', 'message' => !empty($bulkUploadMessage) ? $bulkUploadMessage : 'Store procurement saved successfully.'];
         }

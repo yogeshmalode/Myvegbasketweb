@@ -113,6 +113,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && !empty($_FILES['price_file']['tmp_n
 
         $updated = [];
         $skipped = [];
+        $stockedProductIds = [];
         $variantsUpdated = 0;
 
         foreach ($rows as $row) {
@@ -144,11 +145,19 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && !empty($_FILES['price_file']['tmp_n
             $finalStock = $stock !== null ? $stock : (int)$match['stock'];
             $update->execute([$price, $salePrice, $finalStock, $id]);
             $updated[] = $match['name'];
+            if ($finalStock > 0) $stockedProductIds[] = $id;
 
             // Keep this product's size options proportional to its new price.
             $variantsUpdated += recalculate_variant_prices($pdo, $id, $price, $match['unit'])['updated'];
         }
 
+        foreach ($stockedProductIds as $productId) {
+            try {
+                dispatch_back_in_stock_notifications($pdo, $productId);
+            } catch (Throwable $e) {
+                error_log('Could not dispatch back-in-stock alerts after price import: ' . $e->getMessage());
+            }
+        }
         $results = ['updated' => $updated, 'skipped' => $skipped, 'variantsUpdated' => $variantsUpdated];
     }
 }

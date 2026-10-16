@@ -115,6 +115,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && !empty($_FILES['price_file']['tmp_n
             $update = $pdo->prepare('UPDATE vegetables SET price = ?, sale_price = ?, stock = ? WHERE id = ?');
             $updated = 0;
             $skipped = 0;
+            $stockedProductIds = [];
 
             foreach (array_slice($rows, 1) as $row) {
                 if (empty(array_filter($row, function($v){ return trim((string)$v) !== ''; }))) continue;
@@ -145,12 +146,20 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && !empty($_FILES['price_file']['tmp_n
                 if (!$product) { $skipped++; continue; }
 
                 $update->execute([$price, $sale, $stock !== null ? $stock : (int)$product['stock'], $id]);
+                if (($stock !== null ? $stock : (int)$product['stock']) > 0) $stockedProductIds[] = $id;
                 if ($price > 0) {
                     recalculate_variant_prices($pdo, $id, $price, $product['unit']);
                 }
                 $updated++;
             }
 
+            foreach ($stockedProductIds as $productId) {
+                try {
+                    dispatch_back_in_stock_notifications($pdo, $productId);
+                } catch (Throwable $e) {
+                    error_log('Could not dispatch back-in-stock alerts after catalog import: ' . $e->getMessage());
+                }
+            }
             $uploadStats = ['updated' => $updated, 'skipped' => $skipped];
             if ($updated > 0) {
                 $uploadSuccess = 'Excel file processed successfully. Updated ' . $updated . ' product(s).';

@@ -202,27 +202,42 @@ if ($vegetables): ?>
                     data-price="<?= $cartPrice ?>"
                     data-unit="<?= h($veg['unit']) ?>"
                     data-csrf="<?= h(csrf_token()) ?>"
+                    data-logged-in="<?= is_customer_logged_in() ? '1' : '0' ?>"
                     <?= $cartPrice <= 0 ? 'disabled' : '' ?>>
               <?= $cartPrice <= 0 ? 'Price unavailable' : 'Add to basket' ?>
             </button>
           <?php else: ?>
-            <form class="notify-form" data-id="<?= (int)$veg['id'] ?>" style="width:100%; display:flex; gap:8px; flex-wrap:wrap;">
-              <input type="email" name="email" required autocomplete="email" placeholder="Your email address"
-                     value="<?= h(current_customer()['email'] ?? '') ?>"
-                     aria-label="Email address for back-in-stock alert"
-                     style="flex:1; min-width:150px; padding:9px 10px; border:1px solid #D9E0CD; border-radius:8px;">
-              <button type="submit" class="notify-btn" data-csrf="<?= h(csrf_token()) ?>"
-                      style="border:0; border-radius:8px; padding:9px 14px; background:#1F4D36; color:#fff; font-weight:700; cursor:pointer;">
-                Notify me
-              </button>
-              <span class="notify-message" role="status" style="width:100%; font-size:0.82rem; color:#5B6656;"></span>
-            </form>
+            <button type="button" class="notify-btn"
+                    data-id="<?= (int)$veg['id'] ?>"
+                    data-csrf="<?= h(csrf_token()) ?>"
+                    data-logged-in="<?= is_customer_logged_in() ? '1' : '0' ?>"
+                    style="width:100%; border:0; border-radius:8px; padding:10px 14px; background:#1F4D36; color:#fff; font-weight:700; cursor:pointer;">
+              Notify me
+            </button>
           <?php endif; ?>
         </div>
       </div>
     <?php endforeach; ?>
   </div>
   <?php endif; ?>
+</div>
+
+<div id="notifyMeOverlay" role="dialog" aria-modal="true" aria-labelledby="notifyMeTitle"
+     style="display:none; position:fixed; inset:0; background:rgba(20,30,20,0.6); z-index:1100; align-items:center; justify-content:center; padding:20px;">
+  <div style="position:relative; width:100%; max-width:390px; box-sizing:border-box; background:#fff; border-radius:16px; padding:28px; box-shadow:0 20px 50px rgba(0,0,0,0.3);">
+    <button type="button" id="notifyMeClose" aria-label="Close"
+            style="position:absolute; top:12px; right:14px; background:none; border:0; font-size:1.5rem; color:#5B6656; cursor:pointer;">&times;</button>
+    <div style="font-size:2rem;">📧</div>
+    <h2 id="notifyMeTitle" style="margin:8px 0;">Get a back-in-stock email</h2>
+    <p style="color:#5B6656; margin:0 0 18px;">Enter your email and we’ll let you know when this product is available.</p>
+    <form id="notifyMeForm" novalidate>
+      <label for="notifyMeEmail" style="display:block; margin-bottom:6px; font-weight:600;">Email address</label>
+      <input type="email" id="notifyMeEmail" name="email" required autocomplete="email"
+             placeholder="you@example.com"
+             style="width:100%; box-sizing:border-box; padding:11px 12px; border:1px solid #D9E0CD; border-radius:8px; margin-bottom:14px;">
+      <button type="submit" id="notifyMeSubmit" class="btn btn-primary btn-block">Notify me</button>
+    </form>
+  </div>
 </div>
 
 <?php if (!is_customer_logged_in()): ?>

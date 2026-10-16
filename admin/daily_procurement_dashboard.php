@@ -133,6 +133,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $bulkUploadMessage = '';
     $purchaseRows = $_POST['purchase'] ?? [];
     $sellingPrices = $_POST['selling_price'] ?? [];
+    $restockedProductIds = [];
 
     if (!empty($_FILES['bulk_excel_file']['tmp_name'])) {
         $tmpPath = $_FILES['bulk_excel_file']['tmp_name'];
@@ -199,6 +200,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     // Buying always lands in the central pool — a store only
                     // gets stock via an explicit Stock Transfer afterwards.
                     apply_stock_delta($pdo, $vegId, $usable, null);
+                    if ($usable > 0) $restockedProductIds[] = $vegId;
 
                     if ($sellingPrice > 0) {
                         $pdo->prepare("UPDATE vegetables SET sale_price = ?, price = ? WHERE id = ?")->execute([$sellingPrice, $sellingPrice, $vegId]);
@@ -208,6 +210,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 }
 
                 $pdo->commit();
+                foreach (array_unique($restockedProductIds) as $productId) {
+                    try {
+                        dispatch_back_in_stock_notifications($pdo, $productId);
+                    } catch (Throwable $e) {
+                        error_log('Could not dispatch back-in-stock alerts after procurement upload: ' . $e->getMessage());
+                    }
+                }
                 $bulkUploadMessage = 'Excel upload processed successfully.';
             } catch (Throwable $e) {
                 $pdo->rollBack();
@@ -216,6 +225,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         }
     }
 
+    $restockedProductIds = [];
     $pdo->beginTransaction();
     try {
         if (!empty($purchaseRows)) {
@@ -254,6 +264,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 // Buying always lands in the central pool — a store only
                 // gets stock via an explicit Stock Transfer afterwards.
                 apply_stock_delta($pdo, $vegId, $usable, null);
+                if ($usable > 0) $restockedProductIds[] = $vegId;
             }
         }
 
@@ -270,6 +281,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         }
 
         $pdo->commit();
+        foreach (array_unique($restockedProductIds) as $productId) {
+            try {
+                dispatch_back_in_stock_notifications($pdo, $productId);
+            } catch (Throwable $e) {
+                error_log('Could not dispatch back-in-stock alerts after daily procurement: ' . $e->getMessage());
+            }
+        }
         if ($bulkUploadError === '') {
             $_SESSION['flash'] = ['type' => 'success', 'message' => !empty($bulkUploadMessage) ? $bulkUploadMessage : 'Daily procurement and pricing data saved successfully.'];
         }

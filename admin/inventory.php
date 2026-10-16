@@ -53,7 +53,15 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $stmt=$pdo->prepare("UPDATE vegetables SET cost_price=?, supplier_name=?, price=?, sale_price=? WHERE id=?");
             $stmt->execute([$cost,$supplier?:null,$price,$sale,$id]);
         }
-        $pdo->commit(); $_SESSION['flash']=['type'=>'success','message'=>'Inventory updated successfully.'];
+        $pdo->commit();
+        if ($stock > 0) {
+            try {
+                dispatch_back_in_stock_notifications($pdo, $id);
+            } catch (Throwable $e) {
+                error_log('Could not dispatch back-in-stock alerts after inventory update: ' . $e->getMessage());
+            }
+        }
+        $_SESSION['flash']=['type'=>'success','message'=>'Inventory updated successfully.'];
       } catch(Throwable $e){if($pdo->inTransaction())$pdo->rollBack();$_SESSION['flash']=['type'=>'error','message'=>'Inventory update failed: '.$e->getMessage()];}
     } else $_SESSION['flash']=['type'=>'error','message'=>'Please enter valid pricing values.'];
     header('Location: inventory.php' . ($storeFilter !== null ? '?store='.$storeFilter : '')); exit;

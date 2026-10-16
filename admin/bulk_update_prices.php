@@ -19,6 +19,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['bulk_save'])) {
 
     $updated = 0;
     $variantsUpdated = 0;
+    $stockedProductIds = [];
     $pdo->beginTransaction();
     try {
         foreach ($prices as $id => $price) {
@@ -35,6 +36,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['bulk_save'])) {
 
             $stmt->execute([$price, $salePrice, $stock, $cost, $supplier ?: null, $id]);
             $updated++;
+            if ($stock > 0) $stockedProductIds[] = $id;
 
             // Keep this product's size options (250 g / 500 g / 1 kg etc.)
             // proportional to its new price automatically — no separate
@@ -43,6 +45,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['bulk_save'])) {
             $variantsUpdated += $result['updated'];
         }
         $pdo->commit();
+        foreach ($stockedProductIds as $productId) {
+            try {
+                dispatch_back_in_stock_notifications($pdo, $productId);
+            } catch (Throwable $e) {
+                error_log('Could not dispatch back-in-stock alerts after bulk stock update: ' . $e->getMessage());
+            }
+        }
         $msg = "Updated $updated product(s).";
         if ($variantsUpdated > 0) $msg .= " Also rescaled $variantsUpdated size option(s) to match.";
         $_SESSION['flash'] = ['type' => 'success', 'message' => $msg];

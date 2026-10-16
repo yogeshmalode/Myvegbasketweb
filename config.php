@@ -141,11 +141,6 @@ function maybe_heal_schema($pdo) {
     @touch($marker);
 }
 maybe_heal_schema($pdo);
-try {
-    dispatch_back_in_stock_notifications($pdo);
-} catch (PDOException $e) {
-    error_log('Back-in-stock notification dispatch failed: ' . $e->getMessage());
-}
 
 // ---- Application security helpers ----
 function csrf_token() {
@@ -1820,7 +1815,7 @@ function send_order_alert($subject, $lines) {
 // (bundled in lib/PHPMailer, no Composer needed). Returns true on success,
 // false if SMTP isn't configured or the send fails — callers should fall
 // back to mail() in that case so an alert is never silently lost.
-function send_email_via_smtp($to, $subject, $body) {
+function send_email_via_smtp($to, $subject, $body, $isHtml = false) {
     if (!defined('SMTP_ENABLED') || !SMTP_ENABLED) return false;
     if (!defined('SMTP_APP_PASSWORD') || SMTP_APP_PASSWORD === '' || SMTP_APP_PASSWORD === 'PASTE_YOUR_16_CHAR_GMAIL_APP_PASSWORD_HERE') return false;
 
@@ -1841,9 +1836,10 @@ function send_email_via_smtp($to, $subject, $body) {
 
         $mail->setFrom(SMTP_USERNAME, SMTP_FROM_NAME);
         $mail->addAddress($to);
-        $mail->isHTML(false);
+        $mail->isHTML($isHtml);
         $mail->Subject = $subject;
         $mail->Body    = $body;
+        if ($isHtml) $mail->AltBody = trim(strip_tags(str_ireplace(['<br>', '<br/>', '<br />', '</p>'], "\n", $body)));
 
         return $mail->send();
     } catch (Exception $e) {
@@ -1861,34 +1857,83 @@ function send_transactional_email($to, $subject, $body) {
     return @mail($to, $subject, $body, $headers);
 }
 
-function dispatch_back_in_stock_notifications($pdo) {
-    $tableCheck = $pdo->prepare("SELECT COUNT(*) FROM information_schema.TABLES WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = ?");
-    $tableCheck->execute(['back_in_stock_notifications']);
-    if (!(int)$tableCheck->fetchColumn()) return;
+function send_notification_email($to, $subject, $htmlBody, $textBody) {
+    $subject = str_replace(["\r", "\n"], ' ', $subject);
+    if (send_email_via_smtp($to, $subject, $htmlBody, true)) return true;
 
-    $stmt = $pdo->query("SELECT n.id, n.email, v.name
-        FROM back_in_stock_notifications n
-        JOIN vegetables v ON v.id = n.vegetable_id
-        LEFT JOIN (
-            SELECT vegetable_id, SUM(stock) AS total_stock
-            FROM store_inventory
-            GROUP BY vegetable_id
-        ) si ON si.vegetable_id = v.id
-        WHERE n.notified_at IS NULL AND v.is_active = 1
-          AND (CASE WHEN v.stock_mode = 'per_store' THEN COALESCE(si.total_stock, 0) ELSE v.stock END) > 0
-        ORDER BY n.created_at ASC
-        LIMIT 1");
+    $boundary = '=_VegBasket_' . bin2hex(random_bytes(12));
+    $headers = 'From: ' . SITE_NAME . ' <no-reply@' . preg_replace('/^www\./', '', $_SERVER['HTTP_HOST'] ?? 'localhost') . ">\r\n" .
+        "MIME-Version: 1.0\r\n" .
+        'Content-Type: multipart/alternative; boundary="' . $boundary . '"' . "\r\n";
+    $body = '--' . $boundary . "\r\n" .
+        "Content-Type: text/plain; charset=UTF-8\r\n" .
+        "Content-Transfer-Encoding: 8bit\r\n\r\n" . $textBody . "\r\n" .
+        '--' . $boundary . "\r\n" .
+        "Content-Type: text/html; charset=UTF-8\r\n" .
+        "Content-Transfer-Encoding: 8bit\r\n\r\n" . $htmlBody . "\r\n" .
+        '--' . $boundary . '--';
+    return @mail($to, $subject, $body, $headers);
+}
+
+function send_notification_confirmation($email, $productName) {
+    $safeName = h($productName);
+    $subject = 'Notification Confirmed! We will let you know when ' . $productName . ' is back.';
+    $html = '<!doctype html><html><body style="margin:0;background:#f4f7f1;font-family:Arial,sans-serif;color:#26301f;">' .
+        '<div style="max-width:560px;margin:32px auto;background:#fff;border-radius:14px;overflow:hidden;">' .
+        '<div style="padding:22px 28px;background:#1f4d36;color:#fff;font-size:20px;font-weight:bold;">' . h(SITE_NAME) . '</div>' .
+        '<div style="padding:28px;"><h1 style="font-size:22px;margin:0 0 14px;">You’re on the list!</h1>' .
+        '<p style="line-height:1.6;">We’ll email you as soon as <strong>' . $safeName . '</strong> is back in stock.</p>' .
+        '<p style="margin-top:24px;"><a href="' . h(SITE_URL) . '" style="display:inline-block;padding:12px 18px;background:#1f4d36;color:#fff;text-decoration:none;border-radius:8px;">Visit MyVegBasket</a></p>' .
+        '<p style="color:#65715f;font-size:13px;margin-top:28px;">You received this email because you requested a restock alert.</p></div></div></body></html>';
+    $text = "Your restock alert is confirmed. We'll email you when {$productName} is back in stock.\n\n" . SITE_URL;
+    return send_notification_email($email, $subject, $html, $text);
+}
+
+function dispatch_back_in_stock_notifications($pdo, $productId) {
+    $productId = (int)$productId;
+    if ($productId <= 0) return ['sent' => 0, 'failed' => 0];
+
+    $productStmt = $pdo->prepare("SELECT id, name, stock, stock_mode, is_active FROM vegetables WHERE id = ?");
+    $productStmt->execute([$productId]);
+    $product = $productStmt->fetch();
+    if (!$product || !(int)$product['is_active']) return ['sent' => 0, 'failed' => 0];
+
+    $stock = get_storefront_display_stock($pdo, $product['id'], $product['stock_mode'] ?? 'shared', $product['stock']);
+    if ($stock <= 0) return ['sent' => 0, 'failed' => 0];
+
+    $pending = $pdo->prepare("SELECT id, email FROM back_in_stock_notifications
+        WHERE vegetable_id = ? AND notified_at IS NULL ORDER BY created_at, id");
+    $pending->execute([$productId]);
     $markNotified = $pdo->prepare("UPDATE back_in_stock_notifications SET notified_at = CURRENT_TIMESTAMP WHERE id = ? AND notified_at IS NULL");
+    $sent = 0;
+    $failed = 0;
+    $safeName = h($product['name']);
+    $subject = $product['name'] . ' is back in stock at ' . SITE_NAME;
+    $html = '<!doctype html><html><body style="margin:0;background:#f4f7f1;font-family:Arial,sans-serif;color:#26301f;">' .
+        '<div style="max-width:560px;margin:32px auto;background:#fff;border-radius:14px;overflow:hidden;">' .
+        '<div style="padding:22px 28px;background:#1f4d36;color:#fff;font-size:20px;font-weight:bold;">' . h(SITE_NAME) . '</div>' .
+        '<div style="padding:28px;"><div style="font-size:34px;">🥬</div><h1 style="font-size:24px;margin:8px 0 14px;">It’s back in stock!</h1>' .
+        '<p style="line-height:1.6;"><strong>' . $safeName . '</strong> is available again. Order now while it’s in stock.</p>' .
+        '<p style="margin-top:24px;"><a href="' . h(SITE_URL) . '" style="display:inline-block;padding:12px 18px;background:#1f4d36;color:#fff;text-decoration:none;border-radius:8px;">Shop now</a></p>' .
+        '<p style="color:#65715f;font-size:13px;margin-top:28px;">You received this email because you requested a restock alert.</p></div></div></body></html>';
+    $text = "{$product['name']} is back in stock at " . SITE_NAME . ". Shop now: " . SITE_URL;
 
-    foreach ($stmt->fetchAll() as $notification) {
-        $subject = $notification['name'] . ' is back in stock at ' . SITE_NAME;
-        $body = "Good news!\n\n" . $notification['name'] . " is back in stock. Visit " . SITE_URL . " to order it while it's available.\n\nThank you,\n" . SITE_NAME;
-        if (send_transactional_email($notification['email'], $subject, $body)) {
-            $markNotified->execute([$notification['id']]);
-        } else {
-            error_log('Could not send back-in-stock notification ' . (int)$notification['id'] . '. It will be retried.');
+    foreach ($pending->fetchAll() as $notification) {
+        try {
+            if (!send_notification_email($notification['email'], $subject, $html, $text)) {
+                $failed++;
+                error_log('Back-in-stock email could not be sent for notification ' . (int)$notification['id']);
+                continue;
+            }
+            $markNotified->execute([(int)$notification['id']]);
+            $sent++;
+        } catch (Throwable $e) {
+            $failed++;
+            error_log('Back-in-stock email failed for notification ' . (int)$notification['id'] . ': ' . $e->getMessage());
         }
     }
+
+    return ['sent' => $sent, 'failed' => $failed];
 }
 
 // ---- Login lockout: throttles brute-force password guessing on both the

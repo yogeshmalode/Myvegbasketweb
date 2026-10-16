@@ -7,48 +7,28 @@ function apiUrl(path) {
   return base + path;
 }
 
-function showNotifyMeForm(card, productId, csrfToken) {
+function showNotifyMeButton(card, productId, csrfToken, loggedIn) {
   const footer = card.querySelector('.veg-footer');
-  if (!footer || footer.querySelector('.notify-form')) return;
-
-  const form = document.createElement('form');
-  form.className = 'notify-form';
-  form.dataset.id = productId;
-  form.style.cssText = 'width:100%; display:flex; gap:8px; flex-wrap:wrap;';
-
-  const input = document.createElement('input');
-  input.type = 'email';
-  input.name = 'email';
-  input.required = true;
-  input.autocomplete = 'email';
-  input.placeholder = 'Your email address';
-  input.setAttribute('aria-label', 'Email address for back-in-stock alert');
-  input.style.cssText = 'flex:1; min-width:150px; padding:9px 10px; border:1px solid #D9E0CD; border-radius:8px;';
+  if (!footer || footer.querySelector('.notify-btn')) return;
 
   const button = document.createElement('button');
-  button.type = 'submit';
+  button.type = 'button';
   button.className = 'notify-btn';
+  button.dataset.id = productId;
   button.dataset.csrf = csrfToken;
+  button.dataset.loggedIn = loggedIn ? '1' : '0';
   button.textContent = 'Notify me';
-  button.style.cssText = 'border:0; border-radius:8px; padding:9px 14px; background:#1F4D36; color:#fff; font-weight:700; cursor:pointer;';
-
-  const message = document.createElement('span');
-  message.className = 'notify-message';
-  message.setAttribute('role', 'status');
-  message.style.cssText = 'width:100%; font-size:0.82rem; color:#5B6656;';
-
-  form.append(input, button, message);
-  footer.replaceChildren(form);
-  input.focus();
+  button.style.cssText = 'width:100%; border:0; border-radius:8px; padding:10px 14px; background:#1F4D36; color:#fff; font-weight:700; cursor:pointer;';
+  footer.replaceChildren(button);
 }
 
-function showToast(message) {
+function showToast(message, duration = 2200) {
   const toast = document.getElementById('toast');
   if (!toast) return;
   toast.textContent = message;
   toast.classList.add('show');
   clearTimeout(showToast._t);
-  showToast._t = setTimeout(() => toast.classList.remove('show'), 2200);
+  showToast._t = setTimeout(() => toast.classList.remove('show'), duration);
 }
 
 function updateCartBadges(count, total) {
@@ -79,6 +59,94 @@ document.addEventListener('DOMContentLoaded', () => {
   document.getElementById('openCartBtn')?.addEventListener('click', openCart);
   document.getElementById('closeCartBtn')?.addEventListener('click', closeCart);
   document.getElementById('cartOverlay')?.addEventListener('click', closeCart);
+
+  let pendingNotify = null;
+  const notifyOverlay = document.getElementById('notifyMeOverlay');
+  const notifyForm = document.getElementById('notifyMeForm');
+  const notifyEmail = document.getElementById('notifyMeEmail');
+  const notifySubmit = document.getElementById('notifyMeSubmit');
+
+  function closeNotifyDialog() {
+    if (notifyOverlay) notifyOverlay.style.display = 'none';
+    pendingNotify = null;
+  }
+
+  function sendNotifyRequest(productId, csrfToken, email = '') {
+    return fetch(apiUrl('/ajax/notify_api.php'), {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      body: new URLSearchParams({
+        product_id: productId,
+        csrf_token: csrfToken,
+        email
+      })
+    }).then(async response => {
+      const data = await response.json();
+      return { response, data };
+    });
+  }
+
+  document.addEventListener('click', event => {
+    const button = event.target.closest('.notify-btn');
+    if (!button) return;
+    const productId = button.dataset.id;
+    const csrfToken = button.dataset.csrf;
+    if (button.dataset.loggedIn === '1') {
+      button.disabled = true;
+      sendNotifyRequest(productId, csrfToken)
+        .then(({data}) => {
+          if (data.success) {
+            showToast(data.confirmation_sent === false
+              ? 'You are subscribed, but the confirmation email could not be sent. We will still retry your restock alert.'
+              : 'Thank you! We will notify you via email when this product is back in stock.', 4500);
+          } else {
+            showToast(data.message || 'Could not save your notification.');
+          }
+        })
+        .catch(() => showToast('Network error. Please try again.'))
+        .finally(() => { button.disabled = false; });
+      return;
+    }
+
+    pendingNotify = { productId, csrfToken };
+    if (notifyOverlay) notifyOverlay.style.display = 'flex';
+    notifyEmail?.focus();
+  });
+
+  document.getElementById('notifyMeClose')?.addEventListener('click', closeNotifyDialog);
+  notifyOverlay?.addEventListener('click', event => {
+    if (event.target === notifyOverlay) closeNotifyDialog();
+  });
+
+  notifyForm?.addEventListener('submit', event => {
+    event.preventDefault();
+    const email = notifyEmail.value.trim();
+    if (!notifyEmail.checkValidity() || !email) {
+      showToast('Please enter a valid email address.');
+      notifyEmail.focus();
+      return;
+    }
+    if (!pendingNotify) return;
+
+    notifySubmit.disabled = true;
+    notifySubmit.textContent = 'Saving...';
+    sendNotifyRequest(pendingNotify.productId, pendingNotify.csrfToken, email)
+      .then(({data}) => {
+        if (data.success) {
+          closeNotifyDialog();
+          showToast(data.confirmation_sent === false
+            ? 'You are subscribed, but the confirmation email could not be sent. We will still retry your restock alert.'
+            : 'Thank you! We will notify you via email when this product is back in stock.', 4500);
+        } else {
+          showToast(data.message || 'Could not save your notification.');
+        }
+      })
+      .catch(() => showToast('Network error. Please try again.'))
+      .finally(() => {
+        notifySubmit.disabled = false;
+        notifySubmit.textContent = 'Notify me';
+      });
+  });
 
   // Quantity steppers on product cards
   document.querySelectorAll('.veg-card').forEach(card => {
@@ -137,7 +205,7 @@ document.addEventListener('DOMContentLoaded', () => {
             showToast(data.message);
           } else {
             if (data.out_of_stock) {
-              showNotifyMeForm(card, id, btn.dataset.csrf);
+              showNotifyMeButton(card, id, btn.dataset.csrf, btn.dataset.loggedIn === '1');
             }
             showToast(data.message || 'Could not add item.');
           }
@@ -148,46 +216,6 @@ document.addEventListener('DOMContentLoaded', () => {
           showToast('Network error, please try again.');
         });
     });
-  });
-
-  document.addEventListener('submit', (event) => {
-    const form = event.target.closest('.notify-form');
-    if (!form) return;
-    event.preventDefault();
-    const button = form.querySelector('.notify-btn');
-    const input = form.querySelector('input[name="email"]');
-    const message = form.querySelector('.notify-message');
-    const originalText = button.textContent;
-    button.disabled = true;
-    button.textContent = 'Saving...';
-    message.textContent = '';
-
-    fetch(apiUrl('/ajax/notify_when_available.php'), {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-      body: new URLSearchParams({
-        product_id: form.dataset.id,
-        email: input.value,
-        csrf_token: button.dataset.csrf
-      })
-    })
-      .then(response => response.json())
-      .then(data => {
-        message.textContent = data.message || 'Could not save your request.';
-        if (data.success) {
-          input.disabled = true;
-          button.textContent = "You're on the list";
-          showToast(data.message);
-        } else {
-          button.disabled = false;
-          button.textContent = originalText;
-        }
-      })
-      .catch(() => {
-        button.disabled = false;
-        button.textContent = originalText;
-        message.textContent = 'Network error. Please try again.';
-      });
   });
 
   // Cart drawer: quantity change / remove (event delegation, since content is AJAX-loaded)

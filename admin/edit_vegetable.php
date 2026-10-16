@@ -90,6 +90,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         }
 
         $pdo->commit();
+        if ($stock > 0) {
+            try {
+                dispatch_back_in_stock_notifications($pdo, $id);
+            } catch (Throwable $e) {
+                error_log('Could not dispatch back-in-stock alerts after product edit: ' . $e->getMessage());
+            }
+        }
         $_SESSION['flash'] = ['type' => 'success', 'message' => "$name updated successfully."];
         redirect('dashboard.php');
         } catch (Throwable $e) { if ($pdo->inTransaction()) $pdo->rollBack(); $error = 'Could not update vegetable.'; }

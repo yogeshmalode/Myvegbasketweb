@@ -52,6 +52,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 ->execute([$vegId, $storeId, $qty, $notes ?: null, $_SESSION['admin_id']]);
 
             $pdo->commit();
+            try {
+                dispatch_back_in_stock_notifications($pdo, $vegId);
+            } catch (Throwable $e) {
+                error_log('Could not dispatch back-in-stock alerts after stock transfer: ' . $e->getMessage());
+            }
             $_SESSION['flash'] = ['type' => 'success', 'message' => 'Stock transferred to store successfully.'];
         } catch (Throwable $e) {
             if ($pdo->inTransaction()) $pdo->rollBack();

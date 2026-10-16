@@ -44,6 +44,13 @@ try {
     }
 
     $pdo->commit();
+    if ($stock !== null && $stock > 0) {
+        try {
+            dispatch_back_in_stock_notifications($pdo, $id);
+        } catch (Throwable $e) {
+            error_log('Could not dispatch back-in-stock alerts after catalog stock update: ' . $e->getMessage());
+        }
+    }
     echo json_encode(['success'=>true,'message'=>$msg]);
 } catch (Exception $e) {
     $pdo->rollBack();
