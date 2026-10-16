@@ -87,6 +87,7 @@ vegbasket/
 - **Wastage:** record Expired, Damaged, Spoiled, or Other wastage with notes; stock is reduced atomically.
 - **Reports:** date-range P&L for paid orders, product cost, gross profit, wastage loss, and net profit.
 - **Roles:** separate Admin and Staff sessions. Admins can create staff/admin accounts; operational pages are available to Staff.
+- **Multi-store branches:** central admins can add/edit branches, set their service locations/radii, see each branch's daily orders and sales, and manage availability/procurement mode in **Admin → Stores**. Staff, riders, orders, reports, and per-store inventory can be assigned or filtered by branch. This is physical branch management on the current database; it is separate from opt-in SaaS tenant databases/domains.
 - **Security:** new management forms use CSRF protection, password hashing, prepared statements, session regeneration on login, and transactional stock changes with row locking.
 
 ### Existing database installation
