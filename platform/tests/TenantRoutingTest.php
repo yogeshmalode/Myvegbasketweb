@@ -7,11 +7,17 @@ require_once __DIR__ . '/../TenantSecretFileProvider.php';
 require_once __DIR__ . '/../TenantDomainNotFoundException.php';
 require_once __DIR__ . '/../TenantRuntime.php';
 require_once __DIR__ . '/../TenantRuntimeBootstrap.php';
+require_once __DIR__ . '/../CpanelUapiClient.php';
+require_once __DIR__ . '/../TenantCpanelProvisioner.php';
+require_once __DIR__ . '/../TenantSchemaCloner.php';
 
+use MyVegBasket\Platform\CpanelUapiClient;
 use MyVegBasket\Platform\TenantDomainNotFoundException;
+use MyVegBasket\Platform\TenantCpanelProvisioner;
 use MyVegBasket\Platform\TenantResolver;
 use MyVegBasket\Platform\TenantRuntime;
 use MyVegBasket\Platform\TenantRuntimeBootstrap;
+use MyVegBasket\Platform\TenantSchemaCloner;
 use MyVegBasket\Platform\TenantSecretFileProvider;
 
 function expect(bool $condition, string $message): void
@@ -91,6 +97,17 @@ foreach (['', 'shop.example.com/path', 'bad..example.com', 'shop.example.com:999
     expectInvalidHost($host);
 }
 
+$schemaSource = new PDO('sqlite::memory:');
+$schemaTarget = new PDO('sqlite::memory:');
+$schemaSource->exec('CREATE TABLE products (id INTEGER PRIMARY KEY, name TEXT NOT NULL)');
+$schemaSource->exec("INSERT INTO products (name) VALUES ('central store private data')");
+$schemaSource->exec('CREATE TABLE platform_tenants (id INTEGER PRIMARY KEY, slug TEXT)');
+$clonedTables = TenantSchemaCloner::cloneStructure($schemaSource, $schemaTarget);
+expect($clonedTables === 1, 'Schema cloner copied an unexpected table count.');
+expect((int)$schemaTarget->query('SELECT COUNT(*) FROM products')->fetchColumn() === 0, 'Schema clone copied central-store data.');
+$targetTables = $schemaTarget->query("SELECT name FROM sqlite_master WHERE type = 'table'")->fetchAll(PDO::FETCH_COLUMN);
+expect(!in_array('platform_tenants', $targetTables, true), 'Schema clone copied platform control-plane tables.');
+
 $testDirectory = sys_get_temp_dir() . DIRECTORY_SEPARATOR . 'vegbasket-tenant-test-' . bin2hex(random_bytes(8));
 $secretDirectory = $testDirectory . DIRECTORY_SEPARATOR . 'secrets';
 if (!mkdir($testDirectory) || !mkdir($secretDirectory)) {
@@ -148,6 +165,49 @@ try {
             'Tenant credentials failed for an unexpected reason.'
         );
     }
+
+    $cpanelDatabaseSuffix = '';
+    $cpanelDatabaseUser = '';
+    $privilegesGranted = false;
+    $uapiCalls = [];
+    $uapiTransport = static function (string $module, string $function, array $parameters) use (
+        &$cpanelDatabaseSuffix,
+        &$cpanelDatabaseUser,
+        &$privilegesGranted,
+        &$uapiCalls
+    ): array {
+        $uapiCalls[] = [$module, $function, $parameters];
+        if ($function === 'create_database') {
+            $cpanelDatabaseSuffix = (string)$parameters['name'];
+        } elseif ($function === 'create_user') {
+            $cpanelDatabaseUser = 'acct_' . $parameters['name'];
+            expect(isset($parameters['password']) && strlen((string)$parameters['password']) >= 32, 'Provisioner did not create a strong DB password.');
+        } elseif ($function === 'set_privileges_on_database') {
+            $privilegesGranted = $parameters['database'] === 'acct_' . $cpanelDatabaseSuffix
+                && $parameters['user'] === 'acct_' . $cpanelDatabaseSuffix
+                && $parameters['privileges'] === 'ALL PRIVILEGES';
+        } elseif ($function === 'list_databases') {
+            return ['result' => ['status' => 1, 'data' => [[
+                'database' => 'acct_' . $cpanelDatabaseSuffix,
+                'users' => $privilegesGranted ? [$cpanelDatabaseUser] : [],
+            ]]]];
+        } elseif (in_array($function, ['delete_database', 'delete_user'], true)) {
+            return ['result' => ['status' => 1, 'data' => null]];
+        }
+
+        return ['result' => ['status' => 1, 'data' => null]];
+    };
+    $uapi = new CpanelUapiClient('https://cpanel.example.com:2083', 'test-account', 'test-token', $uapiTransport);
+    $provisioner = new TenantCpanelProvisioner($uapi, $secretDirectory, 'localhost', 3306, 'test-cluster');
+    $provisioned = $provisioner->provision('active-shop');
+    expect($provisioned['database_name'] === 'acct_' . $cpanelDatabaseSuffix, 'Provisioner did not resolve the cPanel database prefix.');
+    expect($provisioned['database_user'] === $cpanelDatabaseUser, 'Provisioner did not identify the database user.');
+    expect($privilegesGranted, 'Provisioner did not grant database-scoped privileges.');
+    $provisionedCredentials = (new TenantSecretFileProvider($secretDirectory))->load($provisioned['credential_ref']);
+    expect($provisionedCredentials['database'] === $provisioned['database_name'], 'Private database credentials do not match the registry details.');
+    expect($provisionedCredentials['password'] !== '', 'Provisioner did not write the generated password.');
+    $provisioner->rollback($provisioned);
+    expect(!is_file($provisioned['secret_path']), 'Provision rollback did not remove the private secret file.');
 
     echo "Tenant routing tests passed.\n";
 } finally {

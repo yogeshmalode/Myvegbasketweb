@@ -100,7 +100,7 @@ The storefront product cards now use real photographs from Wikimedia Commons ins
 
 The current storefront remains the central store by default. Tenant routing is opt-in through `VEGBASKET_TENANT_RUNTIME_CONFIG`; when that variable is unset, requests continue to use the existing database and settings. Do not set it until tenant databases, domains, and payment settings have been prepared and tested.
 
-The tenant registry migration is `platform/migrations/001_tenant_registry.sql`. Apply it to the current central database. The registry holds tenant status, exact verified domain mappings, database/secret references, and per-store display, currency, notification-email, UPI QR, and default store-location settings.
+The tenant registry migration is `platform/migrations/001_tenant_registry.sql`; DNS challenge fields are added by `platform/migrations/002_tenant_domain_verification.sql`. Apply both migrations to the current central database. The registry holds tenant status, exact verified domain mappings, database/secret references, and per-store display, currency, notification-email, UPI QR, and default store-location settings.
 
 To enable routing in cPanel, create a private PHP config file outside the document root and configure `VEGBASKET_TENANT_RUNTIME_CONFIG` in the PHP application's environment to its absolute path:
 
@@ -114,7 +114,25 @@ return [
 
 Requests to the exact `central_hosts` keep using the current central-store connection. Other hosts must match an active tenant with a verified exact domain record; unknown hosts receive 404. Do not use wildcard suffix matching or forwarded-host headers. Configure the web server to accept only the intended hostnames before they reach PHP. Your platform base domain is still undecided, so replace the example central hosts and provision wildcard DNS/virtual hosts only after choosing it.
 
-For each tenant, create a dedicated database and user in cPanel, and grant that user access only to that database. Place a JSON credential file named after the tenant registry's `credential_ref` in the private secret directory:
+### Admin-panel onboarding
+
+Central admins can manage tenants at **Admin → Administration → Tenants** (`admin/tenants.php`). The page generates a 48-hour DNS TXT challenge; add the displayed `_myvegbasket-verification.<tenant-domain>` record with the provided token, then click **Check DNS TXT & verify**. It checks DNS from PHP and will not mark a domain verified until the token resolves. DNS ownership proof does not configure cPanel's domain/virtual host or TLS certificate; set those up separately.
+
+For one-click database/schema provisioning, configure these environment variables for PHP-FPM/cPanel before opening Tenant Management:
+
+```text
+VEGBASKET_CPANEL_API_URL=https://your-cpanel-server.example:2083
+VEGBASKET_CPANEL_USERNAME=your-dedicated-cpanel-account
+VEGBASKET_CPANEL_API_TOKEN=store-this-only-in-server-environment
+VEGBASKET_TENANT_SECRET_DIRECTORY=/home/account/private/tenant-db-secrets
+VEGBASKET_TENANT_DB_HOST=localhost
+VEGBASKET_TENANT_DB_PORT=3306
+VEGBASKET_CPANEL_CLUSTER_ID=cpanel-main
+```
+
+Use HTTPS with a valid server certificate. Never put the API token in the repository, browser, or database. Prefer a dedicated cPanel account with only the required MySQL provisioning permissions. The secret directory must be writable by PHP but outside the document root. With this configuration the admin form can create the cPanel database and user, grant that user access to its own database, write a random database password to a private JSON file, copy the current database's **table structure only** (no central rows, and excluding platform registry tables), and create the tenant's default fulfillment location. If cPanel API is not configured, the page falls back to manual database and credential setup.
+
+When onboarding manually, create a dedicated database and user in cPanel, and grant that user access only to that database. Place a JSON credential file named after the tenant registry's `credential_ref` in the private secret directory:
 
 ```json
 {
@@ -126,11 +144,13 @@ For each tenant, create a dedicated database and user in cPanel, and grant that 
 }
 ```
 
-Set each tenant's notification email, currency symbol, UPI QR image path and payee name, and default store name/coordinates in `platform_tenants`. Active tenants without these values are not resolved. The QR image must be a local absolute path served by the app. Razorpay checkout endpoints are explicitly denied on tenant domains so the existing central merchant credentials cannot be used by tenant stores.
+The tenant schema has no admin/customer/product/order rows. After activating the tenant database, open that tenant's `/admin/setup.php` once to create its first admin account, then remove/disable that setup endpoint for production. Add the tenant's products through its own admin panel. Set the notification email, currency symbol, UPI QR image path and payee name, and default store name/coordinates in Tenant Management. The QR image must be a local absolute path served by the app. Razorpay checkout endpoints are explicitly denied on tenant domains so the existing central merchant credentials cannot be used by tenant stores.
 
-The tenant-aware switch is in the shared `config.php` bootstrap, so existing storefront, AJAX, admin, and delivery routes use the resolved tenant PDO consistently. Tenant schema auto-healing is disabled. Before activating a tenant domain, create the tenant database schema without importing central-store rows: use phpMyAdmin's custom export with **structure only** (no data) from the existing app database, import that schema into the new tenant database, and apply the application migrations that the tenant store needs. Review the exported SQL to confirm it contains no `INSERT` statements before importing. Do not clone customer/order data from the central database. Admin schema checks use the currently connected database. Secrets and runtime config must remain outside the document root and version control, with restrictive filesystem permissions.
+The tenant-aware switch is in the shared `config.php` bootstrap, so existing storefront, AJAX, admin, and delivery routes use the resolved tenant PDO consistently. Tenant schema auto-healing is disabled. Automatic onboarding copies table definitions only and refuses a non-empty target database; it does not copy central customer/order/product rows, and it does not copy views, triggers, or routines. For manual setup, export/import the application schema as **structure only** and apply the migrations that the tenant store needs. Admin schema checks use the currently connected database. Secrets and runtime config must remain outside the document root and version control, with restrictive filesystem permissions.
 
-Database/user creation, schema migrations, tenant registration, custom-domain ownership verification, and DNS provisioning remain manual operations for this cPanel deployment. The migration and runtime integration do not automatically onboard tenants.
+Tenant registration, DNS TXT setup, cPanel domain/SSL setup, runtime enablement, and tenant admin creation still require deliberate admin/hosting steps. Database/user creation and schema-only setup can be automated through cPanel UAPI when configured.
+
+New tenants remain in `provisioning`; the page never requests or stores database passwords. Before using **Preflight & activate**, verify DNS, configure the domain/SSL in cPanel, enable the runtime config, and ensure the tenant database has the required tables. Activation checks the verified DNS proof, matching private database credential, successful database connection, and core application tables. Tenant management is blocked on tenant storefront hosts and is central-admin-only.
 
 Run the isolated routing safeguards test without connecting to or modifying MySQL:
 

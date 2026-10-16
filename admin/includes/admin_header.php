@@ -75,6 +75,7 @@ $current_page = basename($_SERVER['PHP_SELF']);
         ['users.php','♙','Users'],
         ['customers.php','☺','Customers'],
         ['role_permissions.php','🔐','Role Permissions'],
+        ['tenants.php','🏢','Tenants'],
       ],
     ];
     $roleAllowedPages = is_admin_role() ? null : get_role_allowed_pages($pdo, admin_role());
@@ -84,11 +85,12 @@ $current_page = basename($_SERVER['PHP_SELF']);
         // user's own store being Independent), not a role-wide permission —
         // it gets its own check instead of the role_page_permissions list.
         if ($item[0] === 'store_procurement.php') return can_access_store_procurement($pdo);
+        if ($item[0] === 'tenants.php' && is_tenant_request()) return false;
 
         // Buying/distribution is a central, admin-only job under the
         // centralized-procurement model — never show these to staff/delivery
         // even if role_page_permissions were ever edited to include them.
-        $adminOnlyPages = ['users.php', 'customers.php', 'management_check.php', 'role_permissions.php', 'daily_procurement_dashboard.php', 'stock_transfer.php', 'b2b_customers.php', 'b2b_wholesale_prices.php', 'b2b_ledger.php'];
+        $adminOnlyPages = ['users.php', 'customers.php', 'management_check.php', 'role_permissions.php', 'tenants.php', 'daily_procurement_dashboard.php', 'stock_transfer.php', 'b2b_customers.php', 'b2b_wholesale_prices.php', 'b2b_ledger.php'];
         if (in_array($item[0], $adminOnlyPages, true) && !is_admin_role()) return false;
         if ($roleAllowedPages !== null && !in_array($item[0], rbac_always_allowed_pages(), true) && !in_array($item[0], $roleAllowedPages, true)) return false;
         return true;
