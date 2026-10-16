@@ -95,3 +95,45 @@ If your existing database is already in use, import `migration_management_system
 ## Product photographs
 
 The storefront product cards now use real photographs from Wikimedia Commons instead of the original SVG illustrations. The selected files are mapped in `config.php`, loaded from their Commons file URLs, and fall back to an emoji if a remote photograph is temporarily unavailable. `photo_credits.php` lists the source file, creator and stated licence for each product photograph.
+
+## Opt-in SaaS tenant routing
+
+The current storefront remains the central store by default. Tenant routing is opt-in through `VEGBASKET_TENANT_RUNTIME_CONFIG`; when that variable is unset, requests continue to use the existing database and settings. Do not set it until tenant databases, domains, and payment settings have been prepared and tested.
+
+The tenant registry migration is `platform/migrations/001_tenant_registry.sql`. Apply it to the current central database. The registry holds tenant status, exact verified domain mappings, database/secret references, and per-store display, currency, notification-email, UPI QR, and default store-location settings.
+
+To enable routing in cPanel, create a private PHP config file outside the document root and configure `VEGBASKET_TENANT_RUNTIME_CONFIG` in the PHP application's environment to its absolute path:
+
+```php
+<?php
+return [
+    'central_hosts' => ['myvegbasket.com', 'www.myvegbasket.com'],
+    'tenant_secret_directory' => '/home/account/private/tenant-db-secrets',
+];
+```
+
+Requests to the exact `central_hosts` keep using the current central-store connection. Other hosts must match an active tenant with a verified exact domain record; unknown hosts receive 404. Do not use wildcard suffix matching or forwarded-host headers. Configure the web server to accept only the intended hostnames before they reach PHP. Your platform base domain is still undecided, so replace the example central hosts and provision wildcard DNS/virtual hosts only after choosing it.
+
+For each tenant, create a dedicated database and user in cPanel, and grant that user access only to that database. Place a JSON credential file named after the tenant registry's `credential_ref` in the private secret directory:
+
+```json
+{
+  "host": "localhost",
+  "port": 3306,
+  "database": "account_tenant1",
+  "username": "account_user1",
+  "password": "replace-with-the-tenant-database-password"
+}
+```
+
+Set each tenant's notification email, currency symbol, UPI QR image path and payee name, and default store name/coordinates in `platform_tenants`. Active tenants without these values are not resolved. The QR image must be a local absolute path served by the app. Razorpay checkout endpoints are explicitly denied on tenant domains so the existing central merchant credentials cannot be used by tenant stores.
+
+The tenant-aware switch is in the shared `config.php` bootstrap, so existing storefront, AJAX, admin, and delivery routes use the resolved tenant PDO consistently. Tenant schema auto-healing is disabled. Before activating a tenant domain, create the tenant database schema without importing central-store rows: use phpMyAdmin's custom export with **structure only** (no data) from the existing app database, import that schema into the new tenant database, and apply the application migrations that the tenant store needs. Review the exported SQL to confirm it contains no `INSERT` statements before importing. Do not clone customer/order data from the central database. Admin schema checks use the currently connected database. Secrets and runtime config must remain outside the document root and version control, with restrictive filesystem permissions.
+
+Database/user creation, schema migrations, tenant registration, custom-domain ownership verification, and DNS provisioning remain manual operations for this cPanel deployment. The migration and runtime integration do not automatically onboard tenants.
+
+Run the isolated routing safeguards test without connecting to or modifying MySQL:
+
+```bash
+php platform/tests/TenantRoutingTest.php
+```

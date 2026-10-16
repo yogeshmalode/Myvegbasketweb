@@ -2,6 +2,12 @@
 require_once __DIR__ . '/../config.php';
 header('Content-Type: application/json');
 
+if (is_tenant_request()) {
+    http_response_code(403);
+    echo json_encode(['success' => false, 'message' => 'Razorpay checkout is not configured for this store.']);
+    exit;
+}
+
 reconcile_cart_stock($pdo);
 $cart = $_SESSION['cart'] ?? [];
 if (empty($cart)) {

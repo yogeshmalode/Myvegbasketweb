@@ -3,10 +3,11 @@ require_once __DIR__ . '/includes/auth.php';
 require_role(['admin']);
 $page_title = 'Management System Check';
 $checks = [];
+$currentDatabase = (string)$pdo->query('SELECT DATABASE()')->fetchColumn();
 $tables = ['admins','vegetables','orders','order_items','wastage','inventory_movements'];
 foreach ($tables as $table) {
     $st = $pdo->prepare("SELECT COUNT(*) FROM information_schema.TABLES WHERE TABLE_SCHEMA=? AND TABLE_NAME=?");
-    $st->execute([DB_NAME, $table]);
+    $st->execute([$currentDatabase, $table]);
     $checks[$table] = (int)$st->fetchColumn() > 0;
 }
 $columns = [
@@ -18,7 +19,7 @@ $columns = [
 ];
 foreach ($columns as $label => [$table,$column]) {
     $st = $pdo->prepare("SELECT COUNT(*) FROM information_schema.COLUMNS WHERE TABLE_SCHEMA=? AND TABLE_NAME=? AND COLUMN_NAME=?");
-    $st->execute([DB_NAME,$table,$column]);
+    $st->execute([$currentDatabase,$table,$column]);
     $checks[$label] = (int)$st->fetchColumn() > 0;
 }
 include __DIR__ . '/includes/admin_header.php';

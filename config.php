@@ -16,18 +16,19 @@ define('DB_PASS', 'Python@9753');
 // ---- Razorpay settings (Test Mode) ----
 // Get your test keys from https://dashboard.razorpay.com/app/keys
 // NEVER commit your live keys to a public repo.
-define('RAZORPAY_KEY_ID', 'rzp_test_xxxxxxxxxxxxxx');
-define('RAZORPAY_KEY_SECRET', 'your_test_key_secret_here');
+$razorpayKeyId = 'rzp_test_xxxxxxxxxxxxxx';
+$razorpayKeySecret = 'your_test_key_secret_here';
 
 // ---- UPI QR payment settings ----
 // PAYMENT_MODE controls what checkout.php shows:
 //   'upi_qr'   -> show your QR code, customer pays manually, order saved as "awaiting verification"
 //   'razorpay' -> use the original Razorpay checkout flow
-define('PAYMENT_MODE', 'upi_qr');
+$paymentMode = 'upi_qr';
 // Image shown on the checkout page. Put your QR code file at this path.
-define('PAYMENT_QR_IMAGE', '/assets/images/payment-qr.jpg');
+$paymentQrImage = '/assets/images/payment-qr.jpg';
 // Name printed under the QR code (should match the QR's registered UPI name)
-define('PAYMENT_QR_NAME', 'Yogesh Bhausaheb Malode');
+$paymentQrName = 'Yogesh Bhausaheb Malode';
+$siteCurrency = '₹';
 
 // ---- Mobile OTP login (2Factor.in) ----
 // Sign up free at https://2factor.in, verify your account, and paste your
@@ -48,9 +49,9 @@ define('FIREBASE_PROJECT_ID', 'your-project-id');
 // ---- Order alert settings ----
 // Email address that receives a notification every time a new order is placed.
 // Change this to your own email address.
-define('ADMIN_ALERT_EMAIL', 'myvegbasketcare@gmail.com');
+$adminAlertEmail = 'myvegbasketcare@gmail.com';
 // Turn email alerts on/off (set to false if your host doesn't support mail())
-define('ADMIN_ALERT_EMAIL_ENABLED', true);
+$adminAlertEmailEnabled = true;
 
 // ---- SMTP settings (Gmail) ----
 // Sends alert emails via Gmail's SMTP server through PHPMailer instead of
@@ -72,8 +73,7 @@ define('SMTP_APP_PASSWORD', 'PASTE_YOUR_16_CHAR_GMAIL_APP_PASSWORD_HERE');
 define('SMTP_FROM_NAME', 'MyVegBasket Alerts');
 
 // ---- Site settings ----
-define('SITE_NAME', 'MyVegBasket');
-define('SITE_CURRENCY', '₹');
+$siteName = 'MyVegBasket';
 define('BASE_URL', ''); // change if hosted in a sub-folder
 
 $myvegbasket_maps = require __DIR__ . '/config/maps.php';
@@ -81,14 +81,13 @@ define('MAP_PROVIDER', $myvegbasket_maps['provider'] ?? 'leaflet');
 define('GOOGLE_MAPS_JS_API_KEY', $myvegbasket_maps['google_maps_js_api_key'] ?? '');
 define('GOOGLE_ROUTES_API_KEY', $myvegbasket_maps['google_routes_api_key'] ?? '');
 
-define('STORE_LAT', (float)($myvegbasket_maps['default_store']['lat'] ?? 18.5011));
-define('STORE_LNG', (float)($myvegbasket_maps['default_store']['lng'] ?? 73.9268));
-
-define('STORE_NAME', $myvegbasket_maps['default_store']['name'] ?? 'Hadapsar Store');
+$storeLat = (float)($myvegbasket_maps['default_store']['lat'] ?? 18.5011);
+$storeLng = (float)($myvegbasket_maps['default_store']['lng'] ?? 73.9268);
+$storeName = $myvegbasket_maps['default_store']['name'] ?? 'Hadapsar Store';
 
 // Used for SEO meta tags (canonical URLs, Open Graph, sitemap, robots.txt).
 // Change this if the domain ever changes.
-define('SITE_URL', 'https://myvegbasket.com');
+$siteUrl = 'https://myvegbasket.com';
 define('SITE_DESCRIPTION', 'Farm-fresh vegetables and fruits delivered to your door the same day. Order online and pay easily via UPI.');
 
 // ---- Start session (needed for cart + admin login) ----
@@ -117,6 +116,92 @@ try {
     die('Database connection failed. Please check config.php -> ' . htmlspecialchars($e->getMessage()));
 }
 
+// Tenant routing is opt-in. When the private runtime config is not explicitly
+// set, this application continues using its existing central-store database.
+$tenant_context = null;
+$GLOBALS['tenant_context'] = null;
+$tenant_runtime_config = getenv('VEGBASKET_TENANT_RUNTIME_CONFIG');
+if ($tenant_runtime_config !== false && $tenant_runtime_config !== '') {
+    require_once __DIR__ . '/platform/TenantResolver.php';
+    require_once __DIR__ . '/platform/TenantSecretFileProvider.php';
+    require_once __DIR__ . '/platform/TenantDomainNotFoundException.php';
+    require_once __DIR__ . '/platform/TenantRuntime.php';
+    require_once __DIR__ . '/platform/TenantRuntimeBootstrap.php';
+
+    try {
+        $tenant_runtime = \MyVegBasket\Platform\TenantRuntimeBootstrap::connectForRequest(
+            $tenant_runtime_config,
+            $_SERVER['HTTP_HOST'] ?? '',
+            $pdo
+        );
+        if ($tenant_runtime['is_tenant']) {
+            $tenant_context = $tenant_runtime['tenant'];
+            $GLOBALS['tenant_context'] = $tenant_context;
+            $pdo = $tenant_runtime['pdo'];
+            $tenantEmail = (string)$tenant_context['notification_email'];
+            $tenantQrImage = (string)$tenant_context['payment_qr_image'];
+            $tenantQrName = trim((string)$tenant_context['payment_qr_name']);
+            if (
+                !filter_var($tenantEmail, FILTER_VALIDATE_EMAIL)
+                || !preg_match('/\A\/[A-Za-z0-9._\/-]+\z/D', $tenantQrImage)
+                || str_starts_with($tenantQrImage, '//')
+                || str_contains($tenantQrImage, '..')
+                || !preg_match('/\A[\p{L}\p{S}]{1,8}\z/uD', (string)$tenant_context['currency_symbol'])
+                || trim((string)$tenant_context['display_name']) === ''
+                || $tenantQrName === ''
+                || trim((string)$tenant_context['store_name']) === ''
+                || !is_numeric($tenant_context['store_lat'])
+                || !is_numeric($tenant_context['store_lng'])
+                || (float)$tenant_context['store_lat'] < -90
+                || (float)$tenant_context['store_lat'] > 90
+                || (float)$tenant_context['store_lng'] < -180
+                || (float)$tenant_context['store_lng'] > 180
+            ) {
+                throw new RuntimeException('Tenant store settings are incomplete.');
+            }
+            $adminAlertEmail = $tenantEmail;
+            $siteName = (string)$tenant_context['display_name'];
+            $siteUrl = 'https://' . \MyVegBasket\Platform\TenantResolver::normalizeHost($_SERVER['HTTP_HOST']);
+            $siteCurrency = (string)$tenant_context['currency_symbol'];
+            $storeName = (string)$tenant_context['store_name'];
+            $storeLat = (float)$tenant_context['store_lat'];
+            $storeLng = (float)$tenant_context['store_lng'];
+            $paymentQrImage = $tenantQrImage;
+            $paymentQrName = $tenantQrName;
+            $paymentMode = 'upi_qr';
+        }
+    } catch (\MyVegBasket\Platform\TenantDomainNotFoundException $e) {
+        http_response_code(404);
+        exit('Store not found.');
+    } catch (InvalidArgumentException $e) {
+        http_response_code(404);
+        exit('Store not found.');
+    } catch (Throwable $e) {
+        error_log('Tenant runtime bootstrap failed: ' . $e->getMessage());
+        http_response_code(503);
+        exit('Store temporarily unavailable.');
+    }
+
+}
+
+define('RAZORPAY_KEY_ID', $razorpayKeyId);
+define('RAZORPAY_KEY_SECRET', $razorpayKeySecret);
+define('PAYMENT_MODE', $paymentMode);
+define('PAYMENT_QR_IMAGE', $paymentQrImage);
+define('PAYMENT_QR_NAME', $paymentQrName);
+define('ADMIN_ALERT_EMAIL', $adminAlertEmail);
+define('ADMIN_ALERT_EMAIL_ENABLED', $adminAlertEmailEnabled);
+define('SITE_NAME', $siteName);
+define('SITE_URL', $siteUrl);
+define('SITE_CURRENCY', $siteCurrency);
+define('STORE_LAT', $storeLat);
+define('STORE_LNG', $storeLng);
+define('STORE_NAME', $storeName);
+
+function is_tenant_request() {
+    return isset($GLOBALS['tenant_context']) && is_array($GLOBALS['tenant_context']);
+}
+
 // ---- Self-healing schema guard ----
 // Previously ensure_management_schema() only ran on admin pages (called from
 // admin/includes/auth.php), so if a customer placed an order, or a rider
@@ -140,7 +225,9 @@ function maybe_heal_schema($pdo) {
     }
     @touch($marker);
 }
-maybe_heal_schema($pdo);
+if (!is_tenant_request()) {
+    maybe_heal_schema($pdo);
+}
 
 // ---- Application security helpers ----
 function csrf_token() {

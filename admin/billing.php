@@ -122,7 +122,7 @@ if($_SERVER['REQUEST_METHOD']==='POST' && isset($_POST['checkout'])){
             $hasVariantCols=false;
             try {
                 $c=$pdo->prepare("SELECT COUNT(*) FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = ? AND TABLE_NAME = 'order_items' AND COLUMN_NAME = 'vegetable_variant_id'");
-                $c->execute([DB_NAME]);
+                $c->execute([(string)$pdo->query('SELECT DATABASE()')->fetchColumn()]);
                 $hasVariantCols=$c->fetchColumn()>0;
             } catch (PDOException $e) {
                 $hasVariantCols=false;
