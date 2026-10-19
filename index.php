@@ -165,9 +165,11 @@ $dealProducts = array_values(array_filter(
     $vegetables,
     static fn(array $veg): bool => get_effective_price($veg) < (float)$veg['price']
 ));
+$showStorefrontPromotions = $category === '' || $category === 'All';
 ?>
 
 <main class="quick-storefront">
+  <?php if ($showStorefrontPromotions): ?>
   <section class="promo-hero" aria-label="Store promotions">
     <div class="container">
       <div class="promo-slider" id="promoSlider" aria-roledescription="carousel">
@@ -292,6 +294,7 @@ $dealProducts = array_values(array_filter(
       <a class="partner-spotlight-cta" href="#shop">Order Now <span aria-hidden="true">→</span></a>
     </div>
   </section>
+  <?php endif; ?>
 
   <div class="store-catalog-layout container">
     <aside class="catalog-sidebar" aria-labelledby="categoryHeading">
@@ -316,7 +319,7 @@ $dealProducts = array_values(array_filter(
     </aside>
 
     <div class="store-catalog-main">
-      <?php if ($category === '' || $category === 'All'): ?>
+      <?php if ($showStorefrontPromotions): ?>
       <section class="deal-section" aria-labelledby="dealHeading">
         <div class="quick-section-heading">
           <div><p class="section-kicker">LIMITED-TIME SAVINGS</p><h2 id="dealHeading">Sponsored / Brand Deals</h2></div>
