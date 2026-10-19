@@ -30,7 +30,7 @@ if ($orderId <= 0 || $riderId <= 0) {
 
 try {
     $pdo->beginTransaction();
-    $stmt = $pdo->prepare('SELECT id, order_status, rider_id FROM orders WHERE id = ? FOR UPDATE');
+    $stmt = $pdo->prepare('SELECT id, order_status, rider_id, rider_accepted_at FROM orders WHERE id = ? FOR UPDATE');
     $stmt->execute([$orderId]);
     $order = $stmt->fetch();
     if (!$order) {
@@ -51,8 +51,12 @@ try {
             echo json_encode(['success' => false, 'error' => 'Only assigned orders can be accepted']);
             exit;
         }
+        if (empty($order['rider_accepted_at'])) {
+            $pdo->prepare('UPDATE orders SET rider_accepted_at = NOW(), updated_at = NOW() WHERE id = ?')
+                ->execute([$orderId]);
+        }
         $pdo->commit();
-        echo json_encode(['success' => true, 'status' => $currentStatus]);
+        echo json_encode(['success' => true, 'status' => $currentStatus, 'accepted' => true]);
         exit;
     }
 
@@ -62,14 +66,21 @@ try {
             echo json_encode(['success' => false, 'error' => 'Only assigned orders can be rejected']);
             exit;
         }
-        $pdo->prepare("UPDATE orders SET rider_id = NULL, order_status = 'ready_for_pickup', updated_at = NOW() WHERE id = ?")->execute([$orderId]);
+        $pdo->prepare("UPDATE orders SET rider_id = NULL, rider_accepted_at = NULL, order_status = 'ready_for_pickup', updated_at = NOW() WHERE id = ?")->execute([$orderId]);
         $pdo->prepare("UPDATE riders SET availability_status = 'available' WHERE id = ?")->execute([$riderId]);
         $pdo->commit();
         // The rider is free again — immediately hand them the next queued
         // order at their dark store instead of leaving them idle until an
         // admin manually clicks Auto-Assign.
         auto_assign_next_order_to_rider($pdo, $riderId, $orderId);
-        echo json_encode(['success' => true, 'status' => 'ready_for_pickup', 'retry_assignment' => true]);
+        $rejectedOrder = $pdo->prepare('SELECT order_status FROM orders WHERE id = ?');
+        $rejectedOrder->execute([$orderId]);
+        if (normalize_order_status($rejectedOrder->fetchColumn()) === 'ready_for_pickup') {
+            $customerNotification = send_customer_order_status_notification($pdo, $orderId, 'ready_for_pickup');
+        } else {
+            $customerNotification = 'sent';
+        }
+        echo json_encode(['success' => true, 'status' => 'ready_for_pickup', 'retry_assignment' => true, 'customer_notification' => $customerNotification]);
         exit;
     }
 
@@ -79,9 +90,15 @@ try {
             echo json_encode(['success' => false, 'error' => 'Pickup is only allowed after rider assignment']);
             exit;
         }
+        if (empty($order['rider_accepted_at'])) {
+            $pdo->rollBack();
+            echo json_encode(['success' => false, 'error' => 'Accept the assigned order before confirming pickup']);
+            exit;
+        }
         $pdo->prepare("UPDATE orders SET order_status = 'out_for_delivery', updated_at = NOW() WHERE id = ?")->execute([$orderId]);
         $pdo->commit();
-        echo json_encode(['success' => true, 'status' => 'out_for_delivery']);
+        $customerNotification = send_customer_order_status_notification($pdo, $orderId, 'out_for_delivery');
+        echo json_encode(['success' => true, 'status' => 'out_for_delivery', 'customer_notification' => $customerNotification]);
         exit;
     }
 
@@ -93,7 +110,8 @@ try {
         }
         $pdo->prepare("UPDATE orders SET order_status = 'arriving_soon', updated_at = NOW() WHERE id = ?")->execute([$orderId]);
         $pdo->commit();
-        echo json_encode(['success' => true, 'status' => 'arriving_soon']);
+        $customerNotification = send_customer_order_status_notification($pdo, $orderId, 'arriving_soon');
+        echo json_encode(['success' => true, 'status' => 'arriving_soon', 'customer_notification' => $customerNotification]);
         exit;
     }
 
@@ -108,10 +126,11 @@ try {
         $ins = $pdo->prepare('INSERT INTO delivery_confirmations (order_id, rider_id, confirmed_by, method, note) VALUES (?, ?, ?, ?, ?)');
         $ins->execute([$orderId, $riderId, $rider['name'] ?? 'Rider', 'rider_app', 'Delivered from rider dashboard']);
         $pdo->commit();
+        $customerNotification = send_customer_order_status_notification($pdo, $orderId, 'delivered');
         // Rider just finished a delivery and is free — pull them straight
         // into the next waiting order at their dark store automatically.
         auto_assign_next_order_to_rider($pdo, $riderId);
-        echo json_encode(['success' => true, 'status' => 'delivered']);
+        echo json_encode(['success' => true, 'status' => 'delivered', 'customer_notification' => $customerNotification]);
         exit;
     }
 

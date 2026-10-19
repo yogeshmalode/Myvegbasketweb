@@ -489,6 +489,7 @@ function get_order_refresh_version(array $orders): string {
             'order_status' => (string)$order['order_status'],
             'payment_status' => (string)$order['payment_status'],
             'rider_id' => $order['rider_id'] !== null ? (int)$order['rider_id'] : null,
+            'rider_accepted_at' => $order['rider_accepted_at'] ?? null,
             'assigned_picker_id' => $order['assigned_picker_id'] !== null ? (int)$order['assigned_picker_id'] : null,
             'total_amount' => (string)$order['total_amount'],
         ];
@@ -500,9 +501,9 @@ function get_order_refresh_version(array $orders): string {
 
 function get_admin_order_refresh_version(PDO $pdo, ?int $storeId = null): string {
     if ($storeId === null) {
-        $stmt = $pdo->query('SELECT id, order_status, payment_status, rider_id, assigned_picker_id, total_amount FROM orders');
+        $stmt = $pdo->query('SELECT id, order_status, payment_status, rider_id, rider_accepted_at, assigned_picker_id, total_amount FROM orders');
     } else {
-        $stmt = $pdo->prepare('SELECT id, order_status, payment_status, rider_id, assigned_picker_id, total_amount FROM orders WHERE dark_store_id = ? OR dark_store_id IS NULL');
+        $stmt = $pdo->prepare('SELECT id, order_status, payment_status, rider_id, rider_accepted_at, assigned_picker_id, total_amount FROM orders WHERE dark_store_id = ? OR dark_store_id IS NULL');
         $stmt->execute([$storeId]);
     }
 
@@ -929,8 +930,13 @@ function auto_assign_ready_order_to_nearest_rider($pdo, $orderId) {
             return ['assigned' => false, 'reason' => 'The order dark store changed; retry assignment'];
         }
 
-        $ridersStmt = $pdo->prepare("SELECT * FROM riders
-            WHERE is_active = 1 AND availability_status = 'available' AND dark_store_id = ?
+        $ridersStmt = $pdo->prepare("SELECT r.* FROM riders r
+            WHERE r.is_active = 1 AND r.availability_status = 'available' AND r.dark_store_id = ?
+              AND NOT EXISTS (
+                  SELECT 1 FROM orders active_order
+                  WHERE active_order.rider_id = r.id
+                    AND active_order.order_status IN ('delivery_partner_assigned', 'out_for_delivery', 'arriving_soon')
+              )
             FOR UPDATE");
         $ridersStmt->execute([$darkStoreId]);
         $candidates = $ridersStmt->fetchAll();
@@ -950,7 +956,7 @@ function auto_assign_ready_order_to_nearest_rider($pdo, $orderId) {
             }
         }
 
-        $pdo->prepare("UPDATE orders SET rider_id = ?, order_status = 'delivery_partner_assigned', updated_at = NOW() WHERE id = ?")
+        $pdo->prepare("UPDATE orders SET rider_id = ?, rider_accepted_at = NULL, order_status = 'delivery_partner_assigned', updated_at = NOW() WHERE id = ?")
             ->execute([(int)$best['id'], $orderId]);
         $pdo->prepare("UPDATE riders SET availability_status = 'busy' WHERE id = ?")
             ->execute([(int)$best['id']]);
@@ -997,6 +1003,14 @@ function auto_assign_next_order_to_rider($pdo, $riderId, $excludeOrderId = null)
     }
 
     try {
+        $activeOrderSt = $pdo->prepare("SELECT 1 FROM orders
+            WHERE rider_id = ? AND order_status IN ('delivery_partner_assigned', 'out_for_delivery', 'arriving_soon')
+            LIMIT 1");
+        $activeOrderSt->execute([$riderId]);
+        if ($activeOrderSt->fetchColumn()) {
+            return null;
+        }
+
         $sql = "
             SELECT id, address_lat, address_lng, dark_store_id, order_status
             FROM orders
@@ -1036,12 +1050,13 @@ function auto_assign_next_order_to_rider($pdo, $riderId, $excludeOrderId = null)
             return null;
         }
 
-        $pdo->prepare("UPDATE orders SET rider_id = ?, order_status = 'delivery_partner_assigned', updated_at = NOW() WHERE id = ?")
+        $pdo->prepare("UPDATE orders SET rider_id = ?, rider_accepted_at = NULL, order_status = 'delivery_partner_assigned', updated_at = NOW() WHERE id = ?")
             ->execute([$riderId, $order['id']]);
         $pdo->prepare("UPDATE riders SET availability_status = 'busy' WHERE id = ?")->execute([$riderId]);
         $pdo->commit();
 
         send_order_alert("Order #{$order['id']} rider assigned", ["Order #{$order['id']} was auto-assigned to rider #$riderId as soon as they became available."]);
+        send_customer_order_status_notification($pdo, (int)$order['id'], 'delivery_partner_assigned');
         return $order['id'];
     } catch (Exception $e) {
         if ($pdo->inTransaction()) $pdo->rollBack();
@@ -1388,6 +1403,7 @@ function ensure_management_schema($pdo) {
             if (!$hasColumn('orders', 'updated_at')) $pdo->exec("ALTER TABLE orders ADD COLUMN updated_at TIMESTAMP NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP");
             if (!$hasColumn('orders', 'assigned_picker_id')) $pdo->exec("ALTER TABLE orders ADD COLUMN assigned_picker_id INT DEFAULT NULL");
             if (!$hasColumn('orders', 'rider_id')) $pdo->exec("ALTER TABLE orders ADD COLUMN rider_id INT DEFAULT NULL");
+            if (!$hasColumn('orders', 'rider_accepted_at')) $pdo->exec("ALTER TABLE orders ADD COLUMN rider_accepted_at TIMESTAMP NULL DEFAULT NULL");
             if (!$hasColumn('orders', 'manifest_id')) $pdo->exec("ALTER TABLE orders ADD COLUMN manifest_id INT DEFAULT NULL");
             if (!$hasColumn('orders', 'delivery_lat')) $pdo->exec("ALTER TABLE orders ADD COLUMN delivery_lat DECIMAL(10,7) DEFAULT NULL");
             if (!$hasColumn('orders', 'delivery_lng')) $pdo->exec("ALTER TABLE orders ADD COLUMN delivery_lng DECIMAL(10,7) DEFAULT NULL");
@@ -2081,6 +2097,43 @@ function send_notification_email($to, $subject, $htmlBody, $textBody) {
         "Content-Transfer-Encoding: 8bit\r\n\r\n" . $htmlBody . "\r\n" .
         '--' . $boundary . '--';
     return @mail($to, $subject, $body, $headers);
+}
+
+function send_customer_order_status_notification($pdo, $orderId, $status = null) {
+    $stmt = $pdo->prepare('SELECT customer_name, email, order_status FROM orders WHERE id = ?');
+    $stmt->execute([(int)$orderId]);
+    $order = $stmt->fetch();
+    if (!$order || !filter_var($order['email'], FILTER_VALIDATE_EMAIL)) {
+        return 'missing_email';
+    }
+
+    $status = normalize_order_status($status ?? $order['order_status']);
+    $statusLabel = get_order_status_options()[$status] ?? ucfirst(str_replace('_', ' ', $status));
+    $orderNumber = 'ORD-' . str_pad((string)$orderId, 5, '0', STR_PAD_LEFT);
+    $subject = SITE_NAME . ' order ' . $orderNumber . ': ' . $statusLabel;
+    $safeName = h($order['customer_name']);
+    $safeStatus = h($statusLabel);
+    $safeOrderNumber = h($orderNumber);
+    $html = '<!doctype html><html><body style="margin:0;background:#f4f7f1;font-family:Arial,sans-serif;color:#26301f;">' .
+        '<div style="max-width:560px;margin:32px auto;background:#fff;border-radius:14px;overflow:hidden;">' .
+        '<div style="padding:22px 28px;background:#1f4d36;color:#fff;font-size:20px;font-weight:bold;">' . h(SITE_NAME) . '</div>' .
+        '<div style="padding:28px;"><p>Hello ' . $safeName . ',</p>' .
+        '<p>Your order <strong>' . $safeOrderNumber . '</strong> status is now <strong>' . $safeStatus . '</strong>.</p>' .
+        '<p>We will keep you updated as your order moves through delivery.</p>' .
+        '<p style="color:#65715f;font-size:13px;margin-top:28px;">Thank you for shopping with ' . h(SITE_NAME) . '.</p></div></div></body></html>';
+    $text = "Hello {$order['customer_name']},\n\nYour order {$orderNumber} status is now {$statusLabel}.\nWe will keep you updated as your order moves through delivery.\n\nThank you for shopping with " . SITE_NAME . '.';
+
+    try {
+        $sent = send_notification_email($order['email'], $subject, $html, $text);
+        if (!$sent) {
+            error_log('Customer order status email could not be sent for order #' . (int)$orderId);
+            return 'failed';
+        }
+        return 'sent';
+    } catch (Throwable $e) {
+        error_log('Customer order status email failed for order #' . (int)$orderId . ': ' . $e->getMessage());
+        return 'failed';
+    }
 }
 
 function send_notification_confirmation($email, $productName) {

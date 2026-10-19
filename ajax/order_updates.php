@@ -33,9 +33,9 @@ if ($scope === 'admin') {
 
     $storeId = session_store_id();
     if ($page === 'deliveries.php' || $storeId === null) {
-        $stmt = $pdo->query('SELECT id, order_status, payment_status, rider_id, assigned_picker_id, total_amount FROM orders');
+        $stmt = $pdo->query('SELECT id, order_status, payment_status, rider_id, rider_accepted_at, assigned_picker_id, total_amount FROM orders');
     } else {
-        $stmt = $pdo->prepare('SELECT id, order_status, payment_status, rider_id, assigned_picker_id, total_amount FROM orders WHERE dark_store_id = ? OR dark_store_id IS NULL');
+        $stmt = $pdo->prepare('SELECT id, order_status, payment_status, rider_id, rider_accepted_at, assigned_picker_id, total_amount FROM orders WHERE dark_store_id = ? OR dark_store_id IS NULL');
         $stmt->execute([$storeId]);
     }
     $orders = $stmt->fetchAll();
@@ -46,7 +46,7 @@ if ($scope === 'admin') {
         exit;
     }
 
-    $stmt = $pdo->prepare('SELECT id, order_status, payment_status, rider_id, assigned_picker_id, total_amount FROM orders WHERE customer_id = ?');
+    $stmt = $pdo->prepare('SELECT id, order_status, payment_status, rider_id, rider_accepted_at, assigned_picker_id, total_amount FROM orders WHERE customer_id = ?');
     $stmt->execute([(int)$_SESSION['customer_id']]);
     $orders = $stmt->fetchAll();
 } elseif ($scope === 'rider') {
@@ -57,7 +57,7 @@ if ($scope === 'admin') {
     }
 
     $stmt = $pdo->prepare("
-        SELECT id, order_status, payment_status, rider_id, assigned_picker_id, total_amount
+        SELECT id, order_status, payment_status, rider_id, rider_accepted_at, assigned_picker_id, total_amount
         FROM orders
         WHERE rider_id = ?
           AND order_status IN ('delivery_partner_assigned', 'out_for_delivery', 'arriving_soon')
@@ -72,7 +72,7 @@ if ($scope === 'admin') {
         exit;
     }
 
-    $stmt = $pdo->prepare('SELECT id, customer_id, order_status, payment_status, rider_id, assigned_picker_id, total_amount FROM orders WHERE id = ?');
+    $stmt = $pdo->prepare('SELECT id, customer_id, order_status, payment_status, rider_id, rider_accepted_at, assigned_picker_id, total_amount FROM orders WHERE id = ?');
     $stmt->execute([$orderId]);
     $order = $stmt->fetch();
     if (!$order) {

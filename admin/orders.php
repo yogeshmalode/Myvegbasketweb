@@ -356,6 +356,7 @@ function postAction(url, payload, onSuccess, tabAfterSuccess = null) {
         const data = JSON.parse(text);
         if (data.success) {
           if (data.notice) alert(data.notice);
+          if (data.notification_warning) alert(data.notification_warning);
           if (onSuccess) {
             onSuccess();
           } else {

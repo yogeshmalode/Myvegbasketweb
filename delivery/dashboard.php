@@ -10,7 +10,7 @@ $riderId = (int)$rider['id'];
 
 $orders = [];
 if ($rider) {
-    $stmt = $pdo->prepare("SELECT o.id, o.customer_name, o.phone, o.address, o.address_lat, o.address_lng, o.delivery_lat, o.delivery_lng, o.order_status, o.payment_status, o.rider_id, o.assigned_picker_id, o.total_amount, o.created_at FROM orders o WHERE o.rider_id = ? AND o.order_status IN ('delivery_partner_assigned', 'out_for_delivery', 'arriving_soon') ORDER BY o.created_at DESC");
+    $stmt = $pdo->prepare("SELECT o.id, o.customer_name, o.phone, o.address, o.address_lat, o.address_lng, o.delivery_lat, o.delivery_lng, o.order_status, o.payment_status, o.rider_id, o.rider_accepted_at, o.assigned_picker_id, o.total_amount, o.created_at FROM orders o WHERE o.rider_id = ? AND o.order_status IN ('delivery_partner_assigned', 'out_for_delivery', 'arriving_soon') ORDER BY o.created_at DESC");
     $stmt->execute([$riderId]);
     $orders = $stmt->fetchAll();
 }
@@ -229,7 +229,11 @@ include __DIR__ . '/../includes/header.php';
 
         <div class="action-row">
           <?php if ($order['order_status'] === 'delivery_partner_assigned'): ?>
-            <button type="button" class="btn btn-primary" data-order-id="<?= (int)$order['id'] ?>" data-action="pickup">Confirm Pickup</button>
+            <?php if (empty($order['rider_accepted_at'])): ?>
+              <button type="button" class="btn btn-primary" data-order-id="<?= (int)$order['id'] ?>" data-action="accept">Accept Order</button>
+            <?php else: ?>
+              <button type="button" class="btn btn-primary" data-order-id="<?= (int)$order['id'] ?>" data-action="pickup">Confirm Pickup</button>
+            <?php endif; ?>
             <button type="button" class="btn" data-order-id="<?= (int)$order['id'] ?>" data-action="reject">Reject</button>
           <?php elseif ($order['order_status'] === 'out_for_delivery'): ?>
             <button type="button" class="btn btn-primary" data-order-id="<?= (int)$order['id'] ?>" data-action="arriving">Arriving Soon</button>
@@ -265,6 +269,11 @@ function runDeliveryAction(orderId, action, label) {
     try {
       const data = JSON.parse(text);
       if (data.success) {
+        if (data.customer_notification && data.customer_notification !== 'sent') {
+          alert(data.customer_notification === 'missing_email'
+            ? 'Action completed, but this order has no valid customer email address.'
+            : 'Action completed, but the customer status email could not be sent. Check Hostinger mail/SMTP configuration.');
+        }
         alert(label + ' updated successfully.');
         location.reload();
         return;
@@ -281,6 +290,7 @@ document.querySelectorAll('[data-order-id]').forEach((button) => {
     const orderId = button.dataset.orderId;
     const action = button.dataset.action;
     const labels = {
+      accept: 'Order accepted',
       pickup: 'Pickup confirmed',
       reject: 'Assignment rejected',
       arriving: 'Arriving soon',

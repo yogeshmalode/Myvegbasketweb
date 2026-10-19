@@ -61,7 +61,7 @@ if ($riderId !== null) {
 try {
     $pdo->beginTransaction();
     $pdo->prepare("UPDATE orders SET order_status = 'assigning_rider', updated_at = NOW() WHERE id = ?")->execute([$orderId]);
-    $st = $pdo->prepare("UPDATE orders SET rider_id = ?, order_status = 'delivery_partner_assigned', updated_at = NOW() WHERE id = ?");
+    $st = $pdo->prepare("UPDATE orders SET rider_id = ?, rider_accepted_at = NULL, order_status = 'delivery_partner_assigned', updated_at = NOW() WHERE id = ?");
     $st->execute([$riderId, $orderId]);
 
     // Free the previously-assigned rider (if any, and different from the new one).
@@ -79,7 +79,14 @@ try {
         auto_assign_next_order_to_rider($pdo, $previousRiderId);
     }
     send_order_alert("Order #$orderId rider assigned", ["Order #$orderId was assigned to rider #$riderId and is waiting for pickup confirmation."]);
-    echo json_encode(['success'=>true, 'rider_id' => $riderId, 'status' => 'delivery_partner_assigned']);
+    $customerNotification = send_customer_order_status_notification($pdo, $orderId, 'delivery_partner_assigned');
+    $response = ['success'=>true, 'rider_id' => $riderId, 'status' => 'delivery_partner_assigned'];
+    if ($customerNotification !== 'sent') {
+        $response['notification_warning'] = $customerNotification === 'missing_email'
+            ? 'Rider assigned, but no valid customer email is saved for this order.'
+            : 'Rider assigned, but customer status email could not be sent. Check Hostinger mail/SMTP configuration.';
+    }
+    echo json_encode($response);
 } catch (Exception $e) {
     if ($pdo->inTransaction()) $pdo->rollBack();
     echo json_encode(['success'=>false,'error'=>'Database update failed: ' . $e->getMessage()]);

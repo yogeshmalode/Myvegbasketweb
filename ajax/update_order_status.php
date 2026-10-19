@@ -79,6 +79,13 @@ try {
     if (in_array($status, ['processing', 'ready_for_pickup', 'assigning_rider', 'delivery_partner_assigned', 'out_for_delivery', 'arriving_soon', 'delivered'], true)) {
         send_order_alert("Order #$id status: $status", ["Order #$id changed from $currentStatus to $status."]);
     }
+    $customerNotification = null;
+    if ($currentStatus !== $status) {
+        $customerStatus = ($status === 'ready_for_pickup' && is_array($riderAssignment) && !empty($riderAssignment['assigned']))
+            ? 'delivery_partner_assigned'
+            : $status;
+        $customerNotification = send_customer_order_status_notification($pdo, $id, $customerStatus);
+    }
 
     $response = [
         'success' => true,
@@ -91,6 +98,14 @@ try {
             $response['notice'] = 'Ready for Dispatch. Automatically assigned to rider ' . $riderAssignment['rider_name'] . '.';
         } else {
             $response['notice'] = 'Ready for Dispatch, but rider assignment is pending: ' . $riderAssignment['reason'] . '. The order remains in the Ready tab.';
+        }
+    }
+    if ($customerNotification !== null) {
+        $response['customer_notification'] = $customerNotification;
+        if ($customerNotification !== 'sent') {
+            $response['notification_warning'] = $customerNotification === 'missing_email'
+                ? 'No valid customer email is saved for this order; no email was sent.'
+                : 'Customer status email could not be sent. Check Hostinger mail/SMTP configuration.';
         }
     }
     echo json_encode($response);

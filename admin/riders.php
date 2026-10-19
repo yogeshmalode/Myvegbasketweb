@@ -33,7 +33,15 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['update_rider'])) {
     if ($riderId > 0) {
         $st = $pdo->prepare('UPDATE riders SET dark_store_id = ?, availability_status = ? WHERE id = ?');
         $st->execute([$darkStoreId, $availability, $riderId]);
-        $_SESSION['flash'] = ['type'=>'success','message'=>'Rider updated.'];
+        $queuedOrderId = $availability === 'available'
+            ? auto_assign_next_order_to_rider($pdo, $riderId)
+            : null;
+        $_SESSION['flash'] = [
+            'type' => 'success',
+            'message' => $queuedOrderId
+                ? 'Rider updated and order #' . (int)$queuedOrderId . ' automatically assigned.'
+                : 'Rider updated.',
+        ];
     }
     redirect('riders.php');
 }
