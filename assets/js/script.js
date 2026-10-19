@@ -51,7 +51,6 @@ try {
       navigation
       && navigation.target === currentUrl.href
       && currentUrl.searchParams.has('category')
-      && Number.isFinite(navigation.catalogTop)
       && Number.isFinite(navigation.sidebarTop)
       && Number.isFinite(navigation.savedAt)
       && navigationAge >= 0
@@ -69,18 +68,20 @@ try {
 function restoreCategoryNavigationPosition() {
   if (!pendingCategoryNavigation) return;
 
-  const catalog = document.querySelector('.store-catalog-layout');
+  const products = document.querySelector('#shop');
   const sidebar = document.querySelector('.catalog-sidebar-scroll');
-  if (!catalog || !sidebar) return;
+  if (!products || !sidebar) return;
 
   const navigation = pendingCategoryNavigation;
   pendingCategoryNavigation = null;
 
   requestAnimationFrame(() => {
-    const catalogDocumentTop = window.scrollY + catalog.getBoundingClientRect().top;
+    const header = document.querySelector('.site-header');
+    const headerBottom = header?.getBoundingClientRect().bottom ?? 0;
+    const productsDocumentTop = window.scrollY + products.getBoundingClientRect().top;
     const previousScrollBehavior = document.documentElement.style.scrollBehavior;
     document.documentElement.style.scrollBehavior = 'auto';
-    window.scrollTo(0, Math.max(0, catalogDocumentTop - navigation.catalogTop));
+    window.scrollTo(0, Math.max(0, productsDocumentTop - headerBottom - 12));
     sidebar.scrollTop = navigation.sidebarTop;
     requestAnimationFrame(() => {
       document.documentElement.style.scrollBehavior = previousScrollBehavior;
@@ -136,14 +137,12 @@ document.addEventListener('DOMContentLoaded', () => {
       return;
     }
 
-    const catalog = document.querySelector('.store-catalog-layout');
     const sidebar = document.querySelector('.catalog-sidebar-scroll');
-    if (!catalog || !sidebar) return;
+    if (!sidebar) return;
 
     try {
       sessionStorage.setItem(categoryNavigationStorageKey, JSON.stringify({
         target: targetUrl.href,
-        catalogTop: catalog.getBoundingClientRect().top,
         sidebarTop: sidebar.scrollTop,
         savedAt: Date.now()
       }));

@@ -316,6 +316,7 @@ $dealProducts = array_values(array_filter(
     </aside>
 
     <div class="store-catalog-main">
+      <?php if ($category === '' || $category === 'All'): ?>
       <section class="deal-section" aria-labelledby="dealHeading">
         <div class="quick-section-heading">
           <div><p class="section-kicker">LIMITED-TIME SAVINGS</p><h2 id="dealHeading">Sponsored / Brand Deals</h2></div>
@@ -336,6 +337,7 @@ $dealProducts = array_values(array_filter(
           </a>
         <?php endif; ?>
       </section>
+      <?php endif; ?>
 
       <section class="product-section" id="shop" aria-labelledby="shopHeading">
         <div class="quick-section-heading product-heading">
