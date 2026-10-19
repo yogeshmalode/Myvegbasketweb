@@ -11,6 +11,9 @@ $stats = [
 
 $activeDeliveries = $pdo->query("SELECT o.id, o.customer_name, o.phone, o.address, o.order_status, o.delivery_lat, o.delivery_lng, r.name AS rider_name FROM orders o LEFT JOIN riders r ON r.id = o.rider_id WHERE o.order_status IN ('delivery_partner_assigned','out_for_delivery','arriving_soon') ORDER BY o.updated_at DESC LIMIT 20")->fetchAll();
 $pendingDeliveries = $pdo->query("SELECT o.id, o.customer_name, o.phone, o.address, o.order_status, r.name AS rider_name FROM orders o LEFT JOIN riders r ON r.id = o.rider_id WHERE o.order_status IN ('placed','processing','ready_for_pickup','assigning_rider') ORDER BY o.created_at DESC LIMIT 20")->fetchAll();
+$orderLiveRefreshScope = 'admin';
+$orderLiveRefreshVersion = get_admin_order_refresh_version($pdo);
+$orderLiveRefreshPage = 'deliveries.php';
 
 include __DIR__ . '/includes/admin_header.php';
 ?>

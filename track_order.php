@@ -400,14 +400,18 @@ include __DIR__ . '/includes/header.php';
               }
             }
 
-            if (res.order_status !== '<?= $order['order_status'] ?>') {
+            if (
+              res.order_status !== '<?= $order['order_status'] ?>'
+              || res.payment_status !== '<?= $order['payment_status'] ?>'
+              || Number(res.rider_id || 0) !== <?= (int)($order['rider_id'] ?? 0) ?>
+            ) {
               location.reload();
             }
           });
         }
 
         poll();
-        setInterval(poll, 10000);
+        setInterval(poll, 5000);
       </script>
 
     <?php elseif ($order['order_status'] === 'delivered'): ?>
@@ -425,17 +429,23 @@ include __DIR__ . '/includes/header.php';
           const orderId = <?= (int)$order['id'] ?>;
           const trackPhone = <?= json_encode($phone) ?>;
           const knownStatus = <?= json_encode($order['order_status']) ?>;
+          const knownPaymentStatus = <?= json_encode($order['payment_status']) ?>;
+          const knownRiderId = <?= (int)($order['rider_id'] ?? 0) ?>;
 
           function poll() {
             const url = window.__VEGBASKET_BASE__ + '/ajax/get_order_location.php?order_id=' + orderId + '&phone=' + encodeURIComponent(trackPhone);
             fetch(url).then(r => r.json()).then(res => {
-              if (res.success && res.order_status !== knownStatus) {
+              if (res.success && (
+                res.order_status !== knownStatus
+                || res.payment_status !== knownPaymentStatus
+                || Number(res.rider_id || 0) !== knownRiderId
+              )) {
                 location.reload();
               }
             });
           }
 
-          setInterval(poll, 10000);
+          setInterval(poll, 5000);
         })();
       </script>
     <?php endif; ?>

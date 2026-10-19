@@ -40,6 +40,9 @@ $recentOrders = $st->fetchAll();
 $st = $pdo->prepare("SELECT COALESCE(SUM(total_amount),0) FROM orders WHERE created_at >= DATE_SUB(CURDATE(), INTERVAL 6 DAY) AND order_status <> 'cancelled'$storeCond");
 $st->execute($storeParam);
 $weekSales = (float)$st->fetchColumn();
+$orderLiveRefreshScope = 'admin';
+$orderLiveRefreshVersion = get_admin_order_refresh_version($pdo, $restrictedStoreId);
+$orderLiveRefreshPage = 'dashboard.php';
 
 include __DIR__ . '/includes/admin_header.php';
 ?>

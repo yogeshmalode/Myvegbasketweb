@@ -481,6 +481,34 @@ function format_ist($mysqlDatetime, $format = 'd M Y, h:i A') {
     }
 }
 
+function get_order_refresh_version(array $orders): string {
+    $snapshot = [];
+    foreach ($orders as $order) {
+        $snapshot[] = [
+            'id' => (int)$order['id'],
+            'order_status' => (string)$order['order_status'],
+            'payment_status' => (string)$order['payment_status'],
+            'rider_id' => $order['rider_id'] !== null ? (int)$order['rider_id'] : null,
+            'assigned_picker_id' => $order['assigned_picker_id'] !== null ? (int)$order['assigned_picker_id'] : null,
+            'total_amount' => (string)$order['total_amount'],
+        ];
+    }
+    usort($snapshot, static fn(array $left, array $right): int => $left['id'] <=> $right['id']);
+
+    return hash('sha256', json_encode($snapshot, JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR));
+}
+
+function get_admin_order_refresh_version(PDO $pdo, ?int $storeId = null): string {
+    if ($storeId === null) {
+        $stmt = $pdo->query('SELECT id, order_status, payment_status, rider_id, assigned_picker_id, total_amount FROM orders');
+    } else {
+        $stmt = $pdo->prepare('SELECT id, order_status, payment_status, rider_id, assigned_picker_id, total_amount FROM orders WHERE dark_store_id = ? OR dark_store_id IS NULL');
+        $stmt->execute([$storeId]);
+    }
+
+    return get_order_refresh_version($stmt->fetchAll());
+}
+
 function get_order_status_options() {
     return [
         'pending'                    => 'Pending',

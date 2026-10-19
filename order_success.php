@@ -15,6 +15,21 @@ $itemStmt = $pdo->prepare("SELECT * FROM order_items WHERE order_id = ?");
 $itemStmt->execute([$orderId]);
 $items = $itemStmt->fetchAll();
 
+$guestOrderAccess = $_SESSION['guest_order_access'] ?? [];
+$customerCanTrackOrder = (
+    is_customer_logged_in()
+    && !empty($order['customer_id'])
+    && (int)$order['customer_id'] === (int)$_SESSION['customer_id']
+) || (
+    is_array($guestOrderAccess)
+    && in_array($orderId, array_map('intval', $guestOrderAccess), true)
+);
+if ($customerCanTrackOrder) {
+    $orderLiveRefreshScope = 'single';
+    $orderLiveRefreshVersion = get_order_refresh_version([$order]);
+    $orderLiveRefreshOrderId = $orderId;
+}
+
 include __DIR__ . '/includes/header.php';
 ?>
 

@@ -10,10 +10,11 @@ $riderId = (int)$rider['id'];
 
 $orders = [];
 if ($rider) {
-    $stmt = $pdo->prepare("SELECT o.id, o.customer_name, o.phone, o.address, o.address_lat, o.address_lng, o.delivery_lat, o.delivery_lng, o.order_status, o.total_amount, o.created_at FROM orders o WHERE o.rider_id = ? AND o.order_status IN ('delivery_partner_assigned', 'out_for_delivery', 'arriving_soon') ORDER BY o.created_at DESC");
+    $stmt = $pdo->prepare("SELECT o.id, o.customer_name, o.phone, o.address, o.address_lat, o.address_lng, o.delivery_lat, o.delivery_lng, o.order_status, o.payment_status, o.rider_id, o.assigned_picker_id, o.total_amount, o.created_at FROM orders o WHERE o.rider_id = ? AND o.order_status IN ('delivery_partner_assigned', 'out_for_delivery', 'arriving_soon') ORDER BY o.created_at DESC");
     $stmt->execute([$riderId]);
     $orders = $stmt->fetchAll();
 }
+$orderRefreshVersion = get_order_refresh_version($orders);
 
 $allRiders = $pdo->query('SELECT id, name, phone, vehicle FROM riders WHERE is_active = 1 ORDER BY name')->fetchAll();
 
@@ -290,4 +291,8 @@ document.querySelectorAll('[data-order-id]').forEach((button) => {
 });
 </script>
 
-<?php include __DIR__ . '/../includes/footer.php'; ?>
+<?php
+$orderLiveRefreshScope = 'rider';
+$orderLiveRefreshVersion = $orderRefreshVersion;
+include __DIR__ . '/../includes/footer.php';
+?>

@@ -27,6 +27,7 @@ $ordersSt = $pdo->prepare("
 ");
 $ordersSt->execute($orderParams);
 $orders = $ordersSt->fetchAll();
+$orderRefreshVersion = get_order_refresh_version($orders);
 
 $riders = $pdo->query("SELECT id, name FROM riders WHERE is_active = 1 ORDER BY name")->fetchAll();
 
@@ -332,6 +333,18 @@ const CSRF_TOKEN = '<?= h(csrf_token()) ?>';
 function showOrderTab(key) {
   document.querySelectorAll('.order-tab-btn').forEach(b => b.classList.toggle('active', b.dataset.tab === key));
   document.querySelectorAll('.order-tab-panel').forEach(p => p.classList.toggle('active', p.dataset.tab === key));
+}
+
+try {
+  const savedOrderTab = sessionStorage.getItem('myvegbasket_admin_order_tab');
+  const matchingOrderTab = Array.from(document.querySelectorAll('.order-tab-btn'))
+    .find(button => button.dataset.tab === savedOrderTab);
+  if (savedOrderTab && matchingOrderTab) {
+    showOrderTab(savedOrderTab);
+    sessionStorage.removeItem('myvegbasket_admin_order_tab');
+  }
+} catch (error) {
+  console.warn('Could not restore the selected orders tab.', error);
 }
 
 function postAction(url, payload, onSuccess) {
@@ -766,4 +779,9 @@ function render_picker_block($o, $pickerAdmins) {
   </div>
 </div>
 
-<?php include __DIR__ . '/includes/admin_footer.php'; ?>
+<?php
+$orderLiveRefreshScope = 'admin';
+$orderLiveRefreshVersion = $orderRefreshVersion;
+$orderLiveRefreshPage = 'orders.php';
+include __DIR__ . '/includes/admin_footer.php';
+?>

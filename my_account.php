@@ -14,6 +14,7 @@ if (!$customer) {
 $orders = $pdo->prepare("SELECT * FROM orders WHERE customer_id = ? ORDER BY created_at DESC");
 $orders->execute([$customer['id']]);
 $orders = $orders->fetchAll();
+$orderRefreshVersion = get_order_refresh_version($orders);
 
 $itemsByOrder = [];
 if ($orders) {
@@ -163,4 +164,8 @@ include __DIR__ . '/includes/header.php';
   <?php endif; ?>
 </div>
 
-<?php include __DIR__ . '/includes/footer.php'; ?>
+<?php
+$orderLiveRefreshScope = 'customer';
+$orderLiveRefreshVersion = $orderRefreshVersion;
+include __DIR__ . '/includes/footer.php';
+?>

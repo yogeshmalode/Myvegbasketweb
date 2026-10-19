@@ -25,6 +25,14 @@
   💬
 </a>
 
+<?php if (isset($orderLiveRefreshScope, $orderLiveRefreshVersion)): ?>
+<div id="orderLiveRefresh" hidden
+     data-scope="<?= h($orderLiveRefreshScope) ?>"
+     data-version="<?= h($orderLiveRefreshVersion) ?>"
+     <?= isset($orderLiveRefreshPage) ? 'data-page="' . h($orderLiveRefreshPage) . '"' : '' ?>
+     <?= isset($orderLiveRefreshOrderId) ? 'data-order-id="' . (int)$orderLiveRefreshOrderId . '"' : '' ?>></div>
+<script src="<?= BASE_URL ?>/assets/js/order-live-refresh.js?v=<?= (int)filemtime(__DIR__ . '/../assets/js/order-live-refresh.js') ?>"></script>
+<?php endif; ?>
 <script src="<?= BASE_URL ?>/assets/js/script.js?v=<?= (int)filemtime(__DIR__ . '/../assets/js/script.js') ?>"></script>
 </body>
 </html>
