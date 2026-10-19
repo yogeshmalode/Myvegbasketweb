@@ -347,21 +347,52 @@ try {
   console.warn('Could not restore the selected orders tab.', error);
 }
 
-function postAction(url, payload, onSuccess) {
+function postAction(url, payload, onSuccess, tabAfterSuccess = null) {
   payload.csrf_token = CSRF_TOKEN;
   fetch(url, { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify(payload) })
     .then(async (r) => {
       const text = await r.text();
       try {
         const data = JSON.parse(text);
-        if (data.success) { if (onSuccess) { onSuccess(); } else { location.reload(); } }
-        else { alert('Action failed: ' + (data.error || 'Unknown error')); }
+        if (data.success) {
+          if (onSuccess) {
+            onSuccess();
+          } else {
+            const activeTab = tabAfterSuccess || document.querySelector('.order-tab-btn.active')?.dataset.tab;
+            if (activeTab) {
+              try {
+                sessionStorage.setItem('myvegbasket_admin_order_tab', activeTab);
+              } catch (error) {
+                console.warn('Could not preserve the selected orders tab.', error);
+              }
+            }
+            location.reload();
+          }
+        } else {
+          let message = data.error || 'Unknown error';
+          if (data.current_status && Array.isArray(data.allowed_next_statuses)) {
+            const currentStatus = data.current_status.replaceAll('_', ' ');
+            const nextStatuses = data.allowed_next_statuses.map(status => status.replaceAll('_', ' ')).join(', ');
+            message += `\nCurrent status: ${currentStatus}. Allowed next steps: ${nextStatuses || 'none'}.`;
+          }
+          alert('Action failed: ' + message);
+        }
       } catch (e) { alert('Action failed: ' + text.slice(0, 200)); }
     }).catch(() => alert('Network error'));
 }
 
 function setOrderStatus(orderId, status) {
-  postAction('../ajax/update_order_status.php', { id: orderId, status: status });
+  const nextTabByStatus = {
+    processing: 'processing',
+    ready_for_pickup: 'ready',
+    assigning_rider: 'ready',
+    delivery_partner_assigned: 'ready',
+    out_for_delivery: 'transit',
+    arriving_soon: 'transit',
+    delivered: 'completed',
+    cancelled: 'exceptions'
+  };
+  postAction('../ajax/update_order_status.php', { id: orderId, status: status }, null, nextTabByStatus[status]);
 }
 
 function verifyPayment(orderId) {

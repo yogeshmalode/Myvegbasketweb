@@ -27,6 +27,7 @@ try {
             'success' => false,
             'error' => 'Invalid workflow step. Move the order through the required sequence.',
             'current_status' => $currentStatus,
+            'allowed_next_statuses' => get_allowed_order_status_transitions()[$currentStatus] ?? [],
         ]);
         exit;
     }
