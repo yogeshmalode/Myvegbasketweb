@@ -64,6 +64,11 @@ try {
 
     $pdo->commit();
 
+    $riderAssignment = null;
+    if ($status === 'ready_for_pickup' && $currentStatus === 'processing') {
+        $riderAssignment = auto_assign_ready_order_to_nearest_rider($pdo, $id);
+    }
+
     // The rider is free again — immediately hand them the next queued
     // order at their dark store instead of leaving them idle until an
     // admin manually clicks Auto-Assign.
@@ -74,5 +79,19 @@ try {
     if (in_array($status, ['processing', 'ready_for_pickup', 'assigning_rider', 'delivery_partner_assigned', 'out_for_delivery', 'arriving_soon', 'delivered'], true)) {
         send_order_alert("Order #$id status: $status", ["Order #$id changed from $currentStatus to $status."]);
     }
-    echo json_encode(['success'=>true,'status'=>$status,'status_display'=>get_order_status_options()[$status] ?? ucfirst(str_replace('_',' ',$status))]);
+
+    $response = [
+        'success' => true,
+        'status' => $status,
+        'status_display' => get_order_status_options()[$status] ?? ucfirst(str_replace('_',' ',$status)),
+    ];
+    if ($riderAssignment !== null) {
+        $response['rider_assignment'] = $riderAssignment['assigned'] ? 'assigned' : 'pending';
+        if ($riderAssignment['assigned']) {
+            $response['notice'] = 'Ready for Dispatch. Automatically assigned to rider ' . $riderAssignment['rider_name'] . '.';
+        } else {
+            $response['notice'] = 'Ready for Dispatch, but rider assignment is pending: ' . $riderAssignment['reason'] . '. The order remains in the Ready tab.';
+        }
+    }
+    echo json_encode($response);
 } catch(Exception $e) { echo json_encode(['success'=>false,'error'=>'DB']); }

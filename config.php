@@ -882,6 +882,99 @@ function allocate_nearest_available_rider($pdo, $darkStoreId) {
     return $best;
 }
 
+function auto_assign_ready_order_to_nearest_rider($pdo, $orderId) {
+    $orderId = (int)$orderId;
+    if ($orderId <= 0) {
+        return ['assigned' => false, 'reason' => 'Invalid order'];
+    }
+
+    try {
+        $order = get_order_with_geocoded_address($pdo, $orderId);
+        if (!$order || normalize_order_status($order['order_status']) !== 'ready_for_pickup') {
+            return ['assigned' => false, 'reason' => 'Order is no longer waiting for a rider'];
+        }
+        if (!empty($order['rider_id'])) {
+            return ['assigned' => false, 'reason' => 'A rider is already assigned'];
+        }
+
+        $darkStoreId = (int)($order['dark_store_id'] ?? 0);
+        if (!$darkStoreId) {
+            $store = find_nearest_dark_store($pdo, $order['address_lat'] ?? null, $order['address_lng'] ?? null);
+            if (!$store) {
+                return ['assigned' => false, 'reason' => 'No active dark store could be found'];
+            }
+            $darkStoreId = (int)$store['id'];
+            $pdo->prepare('UPDATE orders SET dark_store_id = ? WHERE id = ? AND dark_store_id IS NULL')
+                ->execute([$darkStoreId, $orderId]);
+            auto_assign_picker_for_order($pdo, $orderId, $darkStoreId);
+        }
+
+        $storeStmt = $pdo->prepare('SELECT lat, lng FROM dark_stores WHERE id = ? AND is_active = 1');
+        $storeStmt->execute([$darkStoreId]);
+        $store = $storeStmt->fetch();
+        if (!$store) {
+            return ['assigned' => false, 'reason' => 'The order dark store is unavailable'];
+        }
+
+        $pdo->beginTransaction();
+        $lockOrder = $pdo->prepare('SELECT id, rider_id, order_status, dark_store_id FROM orders WHERE id = ? FOR UPDATE');
+        $lockOrder->execute([$orderId]);
+        $freshOrder = $lockOrder->fetch();
+        if (!$freshOrder || normalize_order_status($freshOrder['order_status']) !== 'ready_for_pickup' || !empty($freshOrder['rider_id'])) {
+            $pdo->rollBack();
+            return ['assigned' => false, 'reason' => 'Order is no longer waiting for a rider'];
+        }
+        if ((int)$freshOrder['dark_store_id'] !== $darkStoreId) {
+            $pdo->rollBack();
+            return ['assigned' => false, 'reason' => 'The order dark store changed; retry assignment'];
+        }
+
+        $ridersStmt = $pdo->prepare("SELECT * FROM riders
+            WHERE is_active = 1 AND availability_status = 'available' AND dark_store_id = ?
+            FOR UPDATE");
+        $ridersStmt->execute([$darkStoreId]);
+        $candidates = $ridersStmt->fetchAll();
+        if (!$candidates) {
+            $pdo->rollBack();
+            return ['assigned' => false, 'reason' => 'No available riders at this dark store'];
+        }
+
+        $best = null;
+        $bestDistanceKm = null;
+        foreach ($candidates as $rider) {
+            $location = get_rider_current_location($pdo, $rider);
+            $distanceKm = haversine_km($location['lat'], $location['lng'], $store['lat'], $store['lng']);
+            if ($best === null || $distanceKm < $bestDistanceKm) {
+                $best = $rider;
+                $bestDistanceKm = $distanceKm;
+            }
+        }
+
+        $pdo->prepare("UPDATE orders SET rider_id = ?, order_status = 'delivery_partner_assigned', updated_at = NOW() WHERE id = ?")
+            ->execute([(int)$best['id'], $orderId]);
+        $pdo->prepare("UPDATE riders SET availability_status = 'busy' WHERE id = ?")
+            ->execute([(int)$best['id']]);
+        $pdo->commit();
+
+        try {
+            send_order_alert(
+                "Order #$orderId rider assigned",
+                ["Order #$orderId was automatically assigned to {$best['name']} and is waiting for pickup confirmation."]
+            );
+        } catch (Throwable $notificationError) {
+            error_log('Rider assignment alert failed for order #' . $orderId . ': ' . $notificationError->getMessage());
+        }
+
+        return ['assigned' => true, 'rider_id' => (int)$best['id'], 'rider_name' => $best['name']];
+    } catch (Throwable $e) {
+        if ($pdo->inTransaction()) {
+            $pdo->rollBack();
+        }
+        error_log('Automatic rider assignment failed for order #' . $orderId . ': ' . $e->getMessage());
+        return ['assigned' => false, 'reason' => 'Automatic assignment failed; assign a rider manually'];
+    }
+}
+
 // Called right after a rider is freed back to 'available' (order delivered,
 // cancelled, or rejected by the rider). Instead of leaving the rider idle
 // until an admin manually clicks Auto-Assign again, immediately try to hand
