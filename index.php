@@ -30,7 +30,17 @@ foreach ($vegetables as &$vegRow) {
 }
 unset($vegRow);
 
-$categories = $pdo->query("SELECT DISTINCT category FROM vegetables WHERE is_active = 1 ORDER BY category")->fetchAll(PDO::FETCH_COLUMN);
+$aisleCategories = [
+    ['name' => 'Dairy', 'icon' => '🥛'],
+    ['name' => 'Exotic Vegetable', 'icon' => '🧺'],
+    ['name' => 'Flower', 'icon' => '🧺'],
+    ['name' => 'Fruit', 'icon' => '🍎'],
+    ['name' => 'Fruit Salad', 'icon' => '🧺'],
+    ['name' => 'Juice', 'icon' => '🧺'],
+    ['name' => 'Leafy', 'icon' => '🥬'],
+    ['name' => 'Root', 'icon' => '🥔'],
+    ['name' => 'Vegetable', 'icon' => '🥦'],
+];
 
 $variantsByVeg = get_variants_by_vegetable($pdo, array_column($vegetables, 'id'));
 $activeOffers = get_active_offers($pdo);
@@ -155,21 +165,6 @@ $dealProducts = array_values(array_filter(
     $vegetables,
     static fn(array $veg): bool => get_effective_price($veg) < (float)$veg['price']
 ));
-$categoryIcons = [
-    'vegetables' => '🥬',
-    'vegetable' => '🥬',
-    'fruits' => '🍎',
-    'fruit' => '🍎',
-    'leafy greens' => '🥗',
-    'greens' => '🥗',
-    'dairy' => '🥛',
-    'herbs' => '🌿',
-    'roots' => '🥕',
-    'organic' => '🌱',
-];
-$categoryIcon = static function (string $label) use ($categoryIcons): string {
-    return $categoryIcons[strtolower(trim($label))] ?? '🧺';
-};
 ?>
 
 <main class="quick-storefront">
@@ -298,69 +293,79 @@ $categoryIcon = static function (string $label) use ($categoryIcons): string {
     </div>
   </section>
 
-  <section class="container category-section" aria-labelledby="categoryHeading">
-    <div class="quick-section-heading">
-      <div><p class="section-kicker">SHOP BY AISLE</p><h2 id="categoryHeading">What are you looking for?</h2></div>
-      <a href="#shop" class="section-text-link">View products</a>
-    </div>
-    <nav class="category-grid" aria-label="Product categories">
-      <?php foreach ($categories as $cat): ?>
-        <a class="category-tile" href="<?= BASE_URL ?>/index.php?category=<?= urlencode($cat) ?>">
-          <span class="category-icon" aria-hidden="true"><?= $categoryIcon((string)$cat) ?></span>
-          <span class="category-label" title="<?= h($cat) ?>"><?= h($cat) ?></span>
-        </a>
-      <?php endforeach; ?>
-    </nav>
-  </section>
+  <div class="store-catalog-layout container">
+    <aside class="catalog-sidebar" aria-labelledby="categoryHeading">
+      <div class="catalog-sidebar-heading">
+        <h2 id="categoryHeading">SHOP BY AISLE</h2>
+        <p>What are you looking for?</p>
+      </div>
+      <nav class="catalog-sidebar-scroll" aria-label="Product categories">
+        <div class="catalog-category-list">
+          <?php foreach ($aisleCategories as $aisle): ?>
+            <?php $isAisleActive = $category === $aisle['name']; ?>
+            <a
+              class="catalog-category-item<?= $isAisleActive ? ' is-active' : '' ?>"
+              href="<?= BASE_URL ?>/index.php?category=<?= urlencode($aisle['name']) ?><?= $search_q !== '' ? '&q=' . urlencode($search_q) : '' ?>"
+              <?= $isAisleActive ? 'aria-current="page"' : '' ?>>
+              <span class="catalog-category-icon" aria-hidden="true"><?= $aisle['icon'] ?></span>
+              <span class="catalog-category-label"><?= h($aisle['name']) ?></span>
+            </a>
+          <?php endforeach; ?>
+        </div>
+      </nav>
+    </aside>
 
-  <section class="container deal-section" aria-labelledby="dealHeading">
-    <div class="quick-section-heading">
-      <div><p class="section-kicker">LIMITED-TIME SAVINGS</p><h2 id="dealHeading">Sponsored / Brand Deals</h2></div>
-      <a href="<?= BASE_URL ?>/offers.php" class="section-text-link">All offers <span aria-hidden="true">→</span></a>
-    </div>
-    <?php if ($dealProducts): ?>
-      <div class="sponsored-row">
-        <?php foreach (array_slice($dealProducts, 0, 10) as $dealProduct): ?>
-          <?= $renderProductCard($dealProduct, true) ?>
-        <?php endforeach; ?>
-      </div>
-      <p class="ad-disclosure">Deal-priced products shown here. Paid sponsored placements will be labelled when available.</p>
-    <?php else: ?>
-      <a class="empty-ad-slot" href="<?= BASE_URL ?>/enquiry.php">
-        <span class="empty-ad-icon" aria-hidden="true">✳</span>
-        <span><strong>Brand promotion space</strong><small>Contact us to feature a verified campaign here.</small></span>
-        <span class="empty-ad-action">Enquire →</span>
-      </a>
-    <?php endif; ?>
-  </section>
+    <div class="store-catalog-main">
+      <section class="deal-section" aria-labelledby="dealHeading">
+        <div class="quick-section-heading">
+          <div><p class="section-kicker">LIMITED-TIME SAVINGS</p><h2 id="dealHeading">Sponsored / Brand Deals</h2></div>
+          <a href="<?= BASE_URL ?>/offers.php" class="section-text-link">All offers <span aria-hidden="true">→</span></a>
+        </div>
+        <?php if ($dealProducts): ?>
+          <div class="sponsored-row">
+            <?php foreach (array_slice($dealProducts, 0, 10) as $dealProduct): ?>
+              <?= $renderProductCard($dealProduct, true) ?>
+            <?php endforeach; ?>
+          </div>
+          <p class="ad-disclosure">Deal-priced products shown here. Paid sponsored placements will be labelled when available.</p>
+        <?php else: ?>
+          <a class="empty-ad-slot" href="<?= BASE_URL ?>/enquiry.php">
+            <span class="empty-ad-icon" aria-hidden="true">✳</span>
+            <span><strong>Brand promotion space</strong><small>Contact us to feature a verified campaign here.</small></span>
+            <span class="empty-ad-action">Enquire →</span>
+          </a>
+        <?php endif; ?>
+      </section>
 
-  <section class="container product-section" id="shop" aria-labelledby="shopHeading">
-    <div class="quick-section-heading product-heading">
-      <div>
-        <p class="section-kicker"><?= $category !== '' ? 'SHOP BY CATEGORY' : 'FRESH PICKS FOR YOU' ?></p>
-        <h2 id="shopHeading"><?= $category !== '' ? h($category) : ($search_q !== '' ? 'Search results' : 'Fresh from the farm') ?></h2>
-        <p class="section-description">Clear prices, fresh produce, and easy add-to-basket shopping.</p>
-      </div>
-      <?php if ($category !== '' || $search_q !== ''): ?>
-        <a href="<?= BASE_URL ?>/index.php" class="section-text-link">Clear filters</a>
-      <?php endif; ?>
-    </div>
+      <section class="product-section" id="shop" aria-labelledby="shopHeading">
+        <div class="quick-section-heading product-heading">
+          <div>
+            <p class="section-kicker"><?= $category !== '' ? 'SHOP BY CATEGORY' : 'FRESH PICKS FOR YOU' ?></p>
+            <h2 id="shopHeading"><?= $category !== '' ? h($category) : ($search_q !== '' ? 'Search results' : 'Fresh from the farm') ?></h2>
+            <p class="section-description">Clear prices, fresh produce, and easy add-to-basket shopping.</p>
+          </div>
+          <?php if ($category !== '' || $search_q !== ''): ?>
+            <a href="<?= BASE_URL ?>/index.php" class="section-text-link">Clear filters</a>
+          <?php endif; ?>
+        </div>
 
-    <?php if (empty($vegetables)): ?>
-      <div class="empty-products">
-        <span aria-hidden="true">🧺</span>
-        <h3>No products found</h3>
-        <p>Nothing matched “<?= h($search_q !== '' ? $search_q : $category) ?>”. Try another search or category.</p>
-        <a href="<?= BASE_URL ?>/index.php" class="empty-products-link">Browse all products</a>
-      </div>
-    <?php else: ?>
-      <div class="veg-grid">
-        <?php foreach ($vegetables as $veg): ?>
-          <?= $renderProductCard($veg) ?>
-        <?php endforeach; ?>
-      </div>
-    <?php endif; ?>
-  </section>
+        <?php if (empty($vegetables)): ?>
+          <div class="empty-products">
+            <span aria-hidden="true">🧺</span>
+            <h3>No products found</h3>
+            <p>Nothing matched “<?= h($search_q !== '' ? $search_q : $category) ?>”. Try another search or category.</p>
+            <a href="<?= BASE_URL ?>/index.php" class="empty-products-link">Browse all products</a>
+          </div>
+        <?php else: ?>
+          <div class="veg-grid">
+            <?php foreach ($vegetables as $veg): ?>
+              <?= $renderProductCard($veg) ?>
+            <?php endforeach; ?>
+          </div>
+        <?php endif; ?>
+      </section>
+    </div>
+  </div>
 </main>
 
 <div id="notifyMeOverlay" role="dialog" aria-modal="true" aria-labelledby="notifyMeTitle"
