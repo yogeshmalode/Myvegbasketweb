@@ -25,6 +25,6 @@
   💬
 </a>
 
-<script src="<?= BASE_URL ?>/assets/js/script.js"></script>
+<script src="<?= BASE_URL ?>/assets/js/script.js?v=<?= (int)filemtime(__DIR__ . '/../assets/js/script.js') ?>"></script>
 </body>
 </html>

@@ -36,6 +36,58 @@ function updateCartBadges(count, total) {
   document.querySelectorAll('#cartDrawerTotal').forEach(el => el.textContent = '₹' + total);
 }
 
+const categoryNavigationStorageKey = 'myvegbasket_category_navigation';
+let pendingCategoryNavigation = null;
+
+try {
+  const savedNavigation = sessionStorage.getItem(categoryNavigationStorageKey);
+  if (savedNavigation) {
+    const currentUrl = new URL(window.location.href);
+    currentUrl.hash = '';
+    const navigation = JSON.parse(savedNavigation);
+    const navigationAge = Date.now() - navigation?.savedAt;
+
+    if (
+      navigation
+      && navigation.target === currentUrl.href
+      && currentUrl.searchParams.has('category')
+      && Number.isFinite(navigation.catalogTop)
+      && Number.isFinite(navigation.sidebarTop)
+      && Number.isFinite(navigation.savedAt)
+      && navigationAge >= 0
+      && navigationAge < 120000
+    ) {
+      pendingCategoryNavigation = navigation;
+      if ('scrollRestoration' in history) history.scrollRestoration = 'manual';
+    }
+    sessionStorage.removeItem(categoryNavigationStorageKey);
+  }
+} catch (error) {
+  console.warn('Could not restore the category navigation position.', error);
+}
+
+function restoreCategoryNavigationPosition() {
+  if (!pendingCategoryNavigation) return;
+
+  const catalog = document.querySelector('.store-catalog-layout');
+  const sidebar = document.querySelector('.catalog-sidebar-scroll');
+  if (!catalog || !sidebar) return;
+
+  const navigation = pendingCategoryNavigation;
+  pendingCategoryNavigation = null;
+
+  requestAnimationFrame(() => {
+    const catalogDocumentTop = window.scrollY + catalog.getBoundingClientRect().top;
+    const previousScrollBehavior = document.documentElement.style.scrollBehavior;
+    document.documentElement.style.scrollBehavior = 'auto';
+    window.scrollTo(0, Math.max(0, catalogDocumentTop - navigation.catalogTop));
+    sidebar.scrollTop = navigation.sidebarTop;
+    requestAnimationFrame(() => {
+      document.documentElement.style.scrollBehavior = previousScrollBehavior;
+    });
+  });
+}
+
 function refreshCartDrawer() {
   fetch(apiUrl('/ajax/get_cart.php'))
     .then(r => r.text())
@@ -56,6 +108,50 @@ function closeCart() {
 }
 
 document.addEventListener('DOMContentLoaded', () => {
+  restoreCategoryNavigationPosition();
+
+  document.addEventListener('click', event => {
+    const categoryLink = event.target instanceof Element
+      ? event.target.closest('.catalog-category-item')
+      : null;
+    if (
+      !categoryLink
+      || event.defaultPrevented
+      || event.button !== 0
+      || event.metaKey
+      || event.ctrlKey
+      || event.shiftKey
+      || event.altKey
+      || (categoryLink.target && categoryLink.target !== '_self')
+    ) {
+      return;
+    }
+
+    const targetUrl = new URL(categoryLink.href, window.location.href);
+    if (
+      targetUrl.origin !== window.location.origin
+      || targetUrl.pathname !== window.location.pathname
+      || !targetUrl.searchParams.has('category')
+    ) {
+      return;
+    }
+
+    const catalog = document.querySelector('.store-catalog-layout');
+    const sidebar = document.querySelector('.catalog-sidebar-scroll');
+    if (!catalog || !sidebar) return;
+
+    try {
+      sessionStorage.setItem(categoryNavigationStorageKey, JSON.stringify({
+        target: targetUrl.href,
+        catalogTop: catalog.getBoundingClientRect().top,
+        sidebarTop: sidebar.scrollTop,
+        savedAt: Date.now()
+      }));
+    } catch (error) {
+      console.warn('Could not save the category navigation position.', error);
+    }
+  }, true);
+
   document.getElementById('openCartBtn')?.addEventListener('click', openCart);
   document.getElementById('closeCartBtn')?.addEventListener('click', closeCart);
   document.getElementById('cartOverlay')?.addEventListener('click', closeCart);
