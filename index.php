@@ -34,6 +34,12 @@ $categories = $pdo->query("SELECT DISTINCT category FROM vegetables WHERE is_act
 
 $variantsByVeg = get_variants_by_vegetable($pdo, array_column($vegetables, 'id'));
 $activeOffers = get_active_offers($pdo);
+$adProducts = $pdo->query(
+    "SELECT * FROM vegetables WHERE is_active = 1
+     ORDER BY (image_path IS NOT NULL AND image_path <> '') DESC, id DESC LIMIT 4"
+)->fetchAll();
+$heroAdProduct = $adProducts[0] ?? null;
+$partnerAdProducts = array_slice($adProducts, 1, 3);
 
 include __DIR__ . '/includes/header.php';
 
@@ -191,7 +197,14 @@ $categoryIcon = static function (string $label) use ($categoryIcons): string {
                 <p><?= h($offerBadge) ?><?= !empty($offer['coupon_code']) ? ' · Use code ' . h($offer['coupon_code']) : '' ?></p>
                 <a href="<?= BASE_URL ?>/offers.php" class="promo-cta">Explore offer <span aria-hidden="true">→</span></a>
               </div>
-              <div class="promo-art" aria-hidden="true"><span>🥬</span><span>🥕</span><span>🍅</span></div>
+              <?php if ($heroAdProduct): ?>
+                <div class="promo-art promo-art-photo">
+                  <div class="promo-product-photo"><?= veg_thumb_html($heroAdProduct) ?></div>
+                  <span class="promo-product-caption"><?= h($heroAdProduct['name']) ?></span>
+                </div>
+              <?php else: ?>
+                <div class="promo-art" aria-hidden="true"><span>🥬</span><span>🥕</span><span>🍅</span></div>
+              <?php endif; ?>
             </article>
           <?php endforeach; ?>
         <?php else: ?>
@@ -202,7 +215,14 @@ $categoryIcon = static function (string $label) use ($categoryIcons): string {
               <p>Everyday fruits and vegetables, ready for your basket.</p>
               <a href="#shop" class="promo-cta">Shop fresh picks <span aria-hidden="true">→</span></a>
             </div>
-            <div class="promo-art" aria-hidden="true"><span>🥬</span><span>🥕</span><span>🍅</span></div>
+            <?php if ($heroAdProduct): ?>
+              <div class="promo-art promo-art-photo">
+                <div class="promo-product-photo"><?= veg_thumb_html($heroAdProduct) ?></div>
+                <span class="promo-product-caption"><?= h($heroAdProduct['name']) ?></span>
+              </div>
+            <?php else: ?>
+              <div class="promo-art" aria-hidden="true"><span>🥬</span><span>🥕</span><span>🍅</span></div>
+            <?php endif; ?>
           </article>
         <?php endif; ?>
         <?php if (count($activeOffers) > 1): ?>
@@ -223,7 +243,15 @@ $categoryIcon = static function (string $label) use ($categoryIcons): string {
       <p>Feature your brand or local campaign on MyVegBasket.</p>
       <a href="<?= BASE_URL ?>/enquiry.php">Partner with us <span aria-hidden="true">→</span></a>
     </div>
-    <div class="partner-ad-art" aria-hidden="true"><span>🥛</span><span>🥭</span><span>🌿</span></div>
+    <?php if ($partnerAdProducts): ?>
+      <div class="partner-ad-art" aria-label="Featured products">
+        <?php foreach ($partnerAdProducts as $adProduct): ?>
+          <span class="partner-product-photo"><?= veg_thumb_html($adProduct) ?></span>
+        <?php endforeach; ?>
+      </div>
+    <?php else: ?>
+      <div class="partner-ad-art" aria-hidden="true"><span>🥛</span><span>🥭</span><span>🌿</span></div>
+    <?php endif; ?>
   </section>
 
   <section class="container category-section" aria-labelledby="categoryHeading">
