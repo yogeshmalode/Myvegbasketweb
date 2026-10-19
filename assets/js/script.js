@@ -60,6 +60,111 @@ document.addEventListener('DOMContentLoaded', () => {
   document.getElementById('closeCartBtn')?.addEventListener('click', closeCart);
   document.getElementById('cartOverlay')?.addEventListener('click', closeCart);
 
+  const locationModal = document.getElementById('deliveryLocationModal');
+  const locationInput = document.getElementById('deliveryAreaInput');
+  const locationValue = document.getElementById('deliveryLocationValue');
+  const locationForm = document.getElementById('deliveryLocationForm');
+  const locationButton = document.getElementById('deliveryLocationBtn');
+  const storedAreaKey = 'myvegbasket_delivery_area';
+  let locationTrigger = null;
+  const setLocationModalOpen = isOpen => {
+    if (!locationModal) return;
+    locationModal.hidden = !isOpen;
+    locationButton?.setAttribute('aria-expanded', String(isOpen));
+    if (isOpen) {
+      locationTrigger = document.activeElement;
+      if (locationInput && locationValue?.textContent !== 'Choose your area') {
+        locationInput.value = locationValue.textContent;
+      }
+      locationInput?.focus();
+    } else {
+      locationTrigger?.focus();
+    }
+  };
+
+  if (locationValue) {
+    try {
+      locationValue.textContent = localStorage.getItem(storedAreaKey) || 'Choose your area';
+    } catch (error) {
+      console.warn('Delivery area preference storage is unavailable.', error);
+    }
+  }
+
+  locationButton?.addEventListener('click', () => setLocationModalOpen(true));
+  document.getElementById('deliveryLocationClose')?.addEventListener('click', () => setLocationModalOpen(false));
+  locationModal?.addEventListener('click', event => {
+    if (event.target === locationModal) setLocationModalOpen(false);
+  });
+  document.addEventListener('keydown', event => {
+    if (event.key === 'Escape' && locationModal && !locationModal.hidden) setLocationModalOpen(false);
+  });
+  locationForm?.addEventListener('submit', event => {
+    event.preventDefault();
+    const area = locationInput?.value.trim();
+    if (!area || !locationValue) return;
+    try {
+      localStorage.setItem(storedAreaKey, area);
+      locationValue.textContent = area;
+      setLocationModalOpen(false);
+    } catch (error) {
+      console.error('Could not save the delivery area preference.', error);
+      showToast('Could not save this area on your device. Please try again.');
+    }
+  });
+
+  const searchForm = document.querySelector('.search-form');
+  const searchInput = searchForm?.querySelector('input[name="q"]');
+  document.getElementById('searchMicBtn')?.addEventListener('click', () => {
+    const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+    if (!SpeechRecognition || !searchForm || !searchInput) {
+      showToast('Voice search is not supported by this browser.');
+      return;
+    }
+    const recognition = new SpeechRecognition();
+    recognition.lang = 'en-IN';
+    recognition.interimResults = false;
+    recognition.maxAlternatives = 1;
+    recognition.addEventListener('result', event => {
+      const transcript = event.results?.[0]?.[0]?.transcript?.trim();
+      if (transcript) {
+        searchInput.value = transcript;
+        searchForm.requestSubmit();
+      }
+    });
+    recognition.addEventListener('error', event => {
+      if (event.error !== 'no-speech' && event.error !== 'aborted') {
+        showToast('Voice search could not start. Please use the search field.');
+      }
+    });
+    try {
+      recognition.start();
+    } catch (error) {
+      console.error('Voice search could not start.', error);
+      showToast('Voice search could not start. Please use the search field.');
+    }
+  });
+
+  const promoSlider = document.getElementById('promoSlider');
+  if (promoSlider) {
+    const slides = Array.from(promoSlider.querySelectorAll('.promo-slide'));
+    const counter = document.getElementById('promoSlideCount');
+    let activeSlide = Math.max(0, slides.findIndex(slide => slide.classList.contains('is-active')));
+    const showSlide = index => {
+      activeSlide = (index + slides.length) % slides.length;
+      slides.forEach((slide, slideIndex) => {
+        const active = slideIndex === activeSlide;
+        slide.hidden = !active;
+        slide.classList.toggle('is-active', active);
+      });
+      if (counter) counter.textContent = `${activeSlide + 1} / ${slides.length}`;
+    };
+    document.getElementById('promoPrevious')?.addEventListener('click', () => showSlide(activeSlide - 1));
+    document.getElementById('promoNext')?.addEventListener('click', () => showSlide(activeSlide + 1));
+    if (slides.length > 1 && !window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
+      window.setInterval(() => showSlide(activeSlide + 1), 6500);
+    }
+  }
+
   let pendingNotify = null;
   const notifyOverlay = document.getElementById('notifyMeOverlay');
   const notifyForm = document.getElementById('notifyMeForm');
@@ -186,7 +291,7 @@ document.addEventListener('DOMContentLoaded', () => {
         const price = parseFloat(option.dataset.price);
         const unavailable = !Number.isFinite(price) || price <= 0;
         addButton.disabled = unavailable;
-        addButton.textContent = unavailable ? 'Price unavailable' : 'Add to basket';
+        addButton.textContent = unavailable ? 'Price unavailable' : 'ADD';
       }
     });
   });
@@ -211,7 +316,7 @@ document.addEventListener('DOMContentLoaded', () => {
         .then(r => r.json())
         .then(data => {
           btn.disabled = false;
-          btn.textContent = 'Add to basket';
+          btn.textContent = 'ADD';
           if (data.success) {
             updateCartBadges(data.cart_count, data.cart_total);
             showToast(data.message);
@@ -224,7 +329,7 @@ document.addEventListener('DOMContentLoaded', () => {
         })
         .catch(() => {
           btn.disabled = false;
-          btn.textContent = 'Add to basket';
+          btn.textContent = 'ADD';
           showToast('Network error, please try again.');
         });
     });

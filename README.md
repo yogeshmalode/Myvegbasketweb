@@ -119,6 +119,7 @@ Requests to the exact `central_hosts` keep using the current central-store conne
 
 Central admins can manage tenants at **Admin → Administration → Tenants** (`admin/tenants.php`). The page generates a 48-hour DNS TXT challenge; add the displayed `_myvegbasket-verification.<tenant-domain>` record with the provided token, then click **Check DNS TXT & verify**. It checks DNS from PHP and will not mark a domain verified until the token resolves. DNS ownership proof does not configure cPanel's domain/virtual host or TLS certificate; set those up separately.
 
+
 For one-click database/schema provisioning, configure these environment variables for PHP-FPM/cPanel before opening Tenant Management:
 
 ```text

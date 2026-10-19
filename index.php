@@ -30,7 +30,7 @@ foreach ($vegetables as &$vegRow) {
 }
 unset($vegRow);
 
-$categories = $pdo->query("SELECT DISTINCT category FROM vegetables ORDER BY category")->fetchAll(PDO::FETCH_COLUMN);
+$categories = $pdo->query("SELECT DISTINCT category FROM vegetables WHERE is_active = 1 ORDER BY category")->fetchAll(PDO::FETCH_COLUMN);
 
 $variantsByVeg = get_variants_by_vegetable($pdo, array_column($vegetables, 'id'));
 $activeOffers = get_active_offers($pdo);
@@ -67,160 +67,229 @@ if ($vegetables): ?>
 </script>
 <?php endif; ?>
 
-<?php if ($activeOffers): ?>
-<a href="<?= BASE_URL ?>/offers.php" style="display:block; background:var(--carrot); overflow:hidden; text-decoration:none; position:relative;">
-  <div class="offers-ticker-track">
-    <?php
-      // Repeat the offer list a few times so the strip loops seamlessly
-      // regardless of how many offers are active.
-      $tickerItems = array_merge($activeOffers, $activeOffers, $activeOffers);
-      foreach ($tickerItems as $offer):
-        $badge = $offer['discount_type'] === 'percent' ? number_format($offer['discount_value'], 0) . '% OFF'
-               : ($offer['discount_type'] === 'flat' ? SITE_CURRENCY . number_format($offer['discount_value'], 0) . ' OFF'
-               : 'FREE DELIVERY');
+<?php
+$renderProductCard = static function (array $veg, bool $compact = false) use ($pdo, $variantsByVeg): string {
+    $variants = $variantsByVeg[$veg['id']] ?? [];
+    $cartPrice = $variants
+        ? (float)$variants[0]['price']
+        : get_price_for_customer($pdo, $veg, current_customer_type());
+    $onSale = !$variants
+        && !in_array(current_customer_type(), ['hotel', 'shop'], true)
+        && get_effective_price($veg) < (float)$veg['price'];
+    ob_start();
     ?>
-      <span class="offers-ticker-item">
-        🎉 <strong><?= h($badge) ?></strong> — <?= h($offer['title']) ?><?= $offer['coupon_code'] ? ' · code ' . h($offer['coupon_code']) : '' ?>
-      </span>
-    <?php endforeach; ?>
-  </div>
-</a>
-<?php endif; ?>
-
-<section class="hero">
-  <div class="container hero-inner">
-    <div>
-      <span class="eyebrow">🚜 Harvested this morning</span>
-      <h1>Farm-fresh vegetables, <span class="accent">delivered today.</span></h1>
-      <p>Skip the crowded market. Pick your vegetables, add them to your basket, and pay online — we'll have them at your door within hours.</p>
-      <a href="#shop" class="btn btn-primary">Start shopping 🛒</a>
-    </div>
-    <div class="hero-stamp">
-      <div class="stamp-circle">FRESH<br>TODAY</div>
-      <h3>Today's basket average</h3>
-      <div class="big-num"><?= SITE_CURRENCY ?><?= number_format(count($vegetables) ? array_sum(array_column($vegetables,'price'))/count($vegetables) : 0, 0) ?></div>
-      <p style="color:#5B6656; margin-top:6px;">per kg across <?= count($vegetables) ?> items in stock</p>
-    </div>
-  </div>
-</section>
-
-
-<div class="container" id="shop">
-  <div class="section-head">
-    <h2>Today's Vegetable Stall</h2>
-    <p>Prices update daily based on the morning harvest.</p>
-  </div>
-
-  <div class="chip-row">
-    <a href="<?= BASE_URL ?>/index.php" class="chip <?= $category==='' ? 'active' : '' ?>">All</a>
-    <?php foreach ($categories as $cat): ?>
-      <a href="<?= BASE_URL ?>/index.php?category=<?= urlencode($cat) ?>" class="chip <?= $category===$cat ? 'active' : '' ?>"><?= h($cat) ?></a>
-    <?php endforeach; ?>
-  </div>
-
-  <?php if (empty($vegetables)): ?>
-    <p style="text-align:center; color:#5B6656; padding:40px 0;">No vegetables matched "<?= h($search_q) ?>". Try another search.</p>
-  <?php else: ?>
-  <div class="veg-grid">
-    <?php foreach ($vegetables as $veg): ?>
-      <div class="veg-card" data-id="<?= $veg['id'] ?>">
-        <div class="veg-thumb" style="overflow:hidden; background:#fff; border:1px solid #E4E9DD;"><?= veg_thumb_html($veg) ?></div>
-        <h4>
-          <?= h($veg['name']) ?>
-          <?php if (!empty($veg['name_mr'])): ?>
-            <span style="font-weight:600; color:#5B6656; font-size:0.85rem;">/ <?= h($veg['name_mr']) ?></span>
-          <?php endif; ?>
-        </h4>
-        <div class="veg-desc"><?= h($veg['description']) ?></div>
-
-        <?php $variants = $variantsByVeg[$veg['id']] ?? []; ?>
-        <?php $cartPrice = $variants
-            ? (float)$variants[0]['price']
-            : get_price_for_customer($pdo, $veg, current_customer_type()); ?>
-
-        <?php if ($variants): ?>
-          <div class="form-group" style="margin-bottom:10px;">
-            <select class="variant-select" style="width:100%; padding:8px 10px; border-radius:8px; border:1px solid #D9E0CD; font-weight:600; font-size:0.9rem;">
-              <?php foreach ($variants as $v): ?>
-                <option value="<?= $v['id'] ?>" data-price="<?= $v['price'] ?>" data-label="<?= h($v['label']) ?>">
-                  <?= h($v['label']) ?> — <?= SITE_CURRENCY ?><?= number_format($v['price'],2) ?>
-                </option>
-              <?php endforeach; ?>
-            </select>
-          </div>
-          <div class="price-tag">
-            <span class="amount"><?= SITE_CURRENCY ?><?= number_format($variants[0]['price'],2) ?></span>
-            <span class="unit">per pack</span>
-          </div>
-        <?php else: ?>
-          <?php $custType = current_customer_type(); ?>
-          <?php if (in_array($custType, ['hotel', 'shop'], true)): ?>
-            <?php $b2bPrice = get_price_for_customer($pdo, $veg, $custType); ?>
-            <div class="price-tag" style="border-color:#2f6f4f;">
-              <span class="amount"><?= SITE_CURRENCY ?><?= number_format($b2bPrice, 2) ?></span>
-              <span class="unit">per <?= h($veg['unit']) ?></span>
-            </div>
-            <div style="display:inline-block; background:#2f6f4f; color:#fff; font-weight:700; font-size:0.7rem; padding:2px 8px; border-radius:999px; margin-top:6px;">
-              WHOLESALE PRICE
-            </div>
-          <?php else: ?>
-          <?php $onSale = get_effective_price($veg) < (float)$veg['price']; ?>
-          <div class="price-tag" style="<?= $onSale ? 'border-color:var(--tomato);' : '' ?>">
-            <?php if ($onSale): ?>
-              <span style="text-decoration:line-through; color:#9CA88F; font-size:0.8rem; margin-right:6px;"><?= SITE_CURRENCY ?><?= number_format($veg['price'],2) ?></span>
-              <span class="amount" style="color:var(--tomato);"><?= SITE_CURRENCY ?><?= number_format($veg['sale_price'],2) ?></span>
-              <span class="unit">per <?= h($veg['unit']) ?></span>
-            <?php else: ?>
-              <span class="amount"><?= SITE_CURRENCY ?><?= number_format($veg['price'],2) ?></span>
-              <span class="unit">per <?= h($veg['unit']) ?></span>
-            <?php endif; ?>
-          </div>
-          <?php if ($onSale): ?>
-            <div style="display:inline-block; background:var(--tomato); color:#fff; font-weight:700; font-size:0.7rem; padding:2px 8px; border-radius:999px; margin-top:6px;">
-              SALE — <?= round((1 - $veg['sale_price']/$veg['price']) * 100) ?>% OFF
-            </div>
-          <?php endif; ?>
-          <?php endif; ?>
-        <?php endif; ?>
-
-
-        <?php if ($veg['stock'] > 0 && $veg['stock'] <= 10): ?>
-          <div class="stock-low">Only <?= (int)$veg['stock'] ?> left!</div>
-        <?php elseif ($veg['stock'] <= 0): ?>
-          <div class="stock-low">Currently out of stock</div>
-        <?php endif; ?>
-        <div class="veg-footer">
-          <?php if ($veg['stock'] > 0): ?>
-            <div class="qty-box">
-              <button type="button" class="qty-minus">−</button>
-              <input type="number" class="qty-input" value="1" min="1" max="<?= (int)$veg['stock'] ?>">
-              <button type="button" class="qty-plus">+</button>
-            </div>
-            <button type="button" class="add-btn"
-                    data-id="<?= $veg['id'] ?>"
-                    data-name="<?= h($veg['name']) ?>"
-                    data-price="<?= $cartPrice ?>"
-                    data-unit="<?= h($veg['unit']) ?>"
-                    data-csrf="<?= h(csrf_token()) ?>"
-                    data-logged-in="<?= is_customer_logged_in() ? '1' : '0' ?>"
-                    <?= $cartPrice <= 0 ? 'disabled' : '' ?>>
-              <?= $cartPrice <= 0 ? 'Price unavailable' : 'Add to basket' ?>
-            </button>
-          <?php else: ?>
-            <button type="button" class="notify-btn"
-                    data-id="<?= (int)$veg['id'] ?>"
-                    data-csrf="<?= h(csrf_token()) ?>"
-                    data-logged-in="<?= is_customer_logged_in() ? '1' : '0' ?>"
-                    style="width:100%; border:0; border-radius:8px; padding:10px 14px; background:#1F4D36; color:#fff; font-weight:700; cursor:pointer;">
-              Notify me
-            </button>
-          <?php endif; ?>
-        </div>
+    <article class="veg-card quick-product-card<?= $compact ? ' sponsored-product-card' : '' ?>" data-id="<?= (int)$veg['id'] ?>">
+      <div class="quick-product-image">
+        <?= veg_thumb_html($veg) ?>
+        <?php if ($compact): ?><span class="product-promo-badge">Offer</span><?php endif; ?>
       </div>
-    <?php endforeach; ?>
-  </div>
-  <?php endif; ?>
-</div>
+      <div class="quick-product-copy">
+        <h3><?= h($veg['name']) ?><?php if (!empty($veg['name_mr'])): ?> <span>/ <?= h($veg['name_mr']) ?></span><?php endif; ?></h3>
+        <p class="veg-desc"><?= h($veg['description']) ?></p>
+      </div>
+
+      <?php if ($variants): ?>
+        <label class="product-variant-label">
+          <span class="visually-hidden">Choose pack size for <?= h($veg['name']) ?></span>
+          <select class="variant-select">
+            <?php foreach ($variants as $variant): ?>
+              <option value="<?= (int)$variant['id'] ?>" data-price="<?= h($variant['price']) ?>" data-label="<?= h($variant['label']) ?>">
+                <?= h($variant['label']) ?> — <?= SITE_CURRENCY ?><?= number_format((float)$variant['price'], 2) ?>
+              </option>
+            <?php endforeach; ?>
+          </select>
+        </label>
+      <?php endif; ?>
+
+      <div class="quick-product-price">
+        <div class="price-tag<?= $onSale ? ' on-sale' : '' ?>">
+          <?php if ($onSale): ?><span class="old-price"><?= SITE_CURRENCY ?><?= number_format((float)$veg['price'], 2) ?></span><?php endif; ?>
+          <span class="amount"><?= SITE_CURRENCY ?><?= number_format($onSale ? get_effective_price($veg) : $cartPrice, 2) ?></span>
+          <span class="unit"><?= $variants ? 'per pack' : 'per ' . h($veg['unit']) ?></span>
+        </div>
+        <?php if ($onSale): ?>
+          <span class="product-sale-badge"><?= (int)round((1 - get_effective_price($veg) / (float)$veg['price']) * 100) ?>% off</span>
+        <?php elseif (in_array(current_customer_type(), ['hotel', 'shop'], true) && !$variants): ?>
+          <span class="wholesale-badge">Wholesale</span>
+        <?php endif; ?>
+      </div>
+
+      <?php if ($veg['stock'] > 0 && $veg['stock'] <= 10): ?>
+        <p class="stock-low">Only <?= (int)$veg['stock'] ?> left</p>
+      <?php elseif ($veg['stock'] <= 0): ?>
+        <p class="stock-low">Currently out of stock</p>
+      <?php endif; ?>
+
+      <div class="veg-footer">
+        <?php if ($veg['stock'] > 0): ?>
+          <div class="qty-box">
+            <button type="button" class="qty-minus" aria-label="Decrease quantity">−</button>
+            <input type="number" class="qty-input" value="1" min="1" max="<?= (int)$veg['stock'] ?>" aria-label="Quantity">
+            <button type="button" class="qty-plus" aria-label="Increase quantity">+</button>
+          </div>
+          <button type="button" class="add-btn"
+                  data-id="<?= (int)$veg['id'] ?>"
+                  data-name="<?= h($veg['name']) ?>"
+                  data-price="<?= h($cartPrice) ?>"
+                  data-unit="<?= h($veg['unit']) ?>"
+                  data-csrf="<?= h(csrf_token()) ?>"
+                  data-logged-in="<?= is_customer_logged_in() ? '1' : '0' ?>"
+                  <?= $cartPrice <= 0 ? 'disabled' : '' ?>>
+            <?= $cartPrice <= 0 ? 'Price unavailable' : 'ADD' ?>
+          </button>
+        <?php else: ?>
+          <button type="button" class="notify-btn"
+                  data-id="<?= (int)$veg['id'] ?>"
+                  data-csrf="<?= h(csrf_token()) ?>"
+                  data-logged-in="<?= is_customer_logged_in() ? '1' : '0' ?>">
+            Notify me
+          </button>
+        <?php endif; ?>
+      </div>
+    </article>
+    <?php
+    return (string)ob_get_clean();
+};
+
+$dealProducts = array_values(array_filter(
+    $vegetables,
+    static fn(array $veg): bool => get_effective_price($veg) < (float)$veg['price']
+));
+$categoryIcons = [
+    'vegetables' => '🥬',
+    'vegetable' => '🥬',
+    'fruits' => '🍎',
+    'fruit' => '🍎',
+    'leafy greens' => '🥗',
+    'greens' => '🥗',
+    'dairy' => '🥛',
+    'herbs' => '🌿',
+    'roots' => '🥕',
+    'organic' => '🌱',
+];
+$categoryIcon = static function (string $label) use ($categoryIcons): string {
+    return $categoryIcons[strtolower(trim($label))] ?? '🧺';
+};
+?>
+
+<main class="quick-storefront">
+  <section class="promo-hero" aria-label="Store promotions">
+    <div class="container">
+      <div class="promo-slider" id="promoSlider" aria-roledescription="carousel">
+        <?php if ($activeOffers): ?>
+          <?php foreach ($activeOffers as $index => $offer):
+            $offerBadge = $offer['discount_type'] === 'percent'
+                ? number_format((float)$offer['discount_value'], 0) . '% OFF'
+                : ($offer['discount_type'] === 'flat'
+                    ? SITE_CURRENCY . number_format((float)$offer['discount_value'], 0) . ' OFF'
+                    : 'FREE DELIVERY');
+          ?>
+            <article class="promo-slide<?= $index === 0 ? ' is-active' : '' ?>" <?= $index === 0 ? '' : 'hidden' ?>>
+              <div class="promo-copy">
+                <span class="promo-eyebrow">TODAY'S FRESH DEAL</span>
+                <h1><?= h($offer['title']) ?></h1>
+                <p><?= h($offerBadge) ?><?= !empty($offer['coupon_code']) ? ' · Use code ' . h($offer['coupon_code']) : '' ?></p>
+                <a href="<?= BASE_URL ?>/offers.php" class="promo-cta">Explore offer <span aria-hidden="true">→</span></a>
+              </div>
+              <div class="promo-art" aria-hidden="true"><span>🥬</span><span>🥕</span><span>🍅</span></div>
+            </article>
+          <?php endforeach; ?>
+        <?php else: ?>
+          <article class="promo-slide is-active">
+            <div class="promo-copy">
+              <span class="promo-eyebrow">FRESH FROM THE MARKET</span>
+              <h1>Good food, picked for your day.</h1>
+              <p>Everyday fruits and vegetables, ready for your basket.</p>
+              <a href="#shop" class="promo-cta">Shop fresh picks <span aria-hidden="true">→</span></a>
+            </div>
+            <div class="promo-art" aria-hidden="true"><span>🥬</span><span>🥕</span><span>🍅</span></div>
+          </article>
+        <?php endif; ?>
+        <?php if (count($activeOffers) > 1): ?>
+          <div class="promo-controls" aria-label="Promotion slides">
+            <button type="button" id="promoPrevious" aria-label="Previous promotion">‹</button>
+            <span id="promoSlideCount">1 / <?= count($activeOffers) ?></span>
+            <button type="button" id="promoNext" aria-label="Next promotion">›</button>
+          </div>
+        <?php endif; ?>
+      </div>
+    </div>
+  </section>
+
+  <section class="container partner-ad-slot" aria-label="Brand and partner promotions">
+    <div class="partner-ad-copy">
+      <span class="ad-label">PARTNER SPOTLIGHT</span>
+      <h2>Reach shoppers in your neighbourhood</h2>
+      <p>Feature your brand or local campaign on MyVegBasket.</p>
+      <a href="<?= BASE_URL ?>/enquiry.php">Partner with us <span aria-hidden="true">→</span></a>
+    </div>
+    <div class="partner-ad-art" aria-hidden="true"><span>🥛</span><span>🥭</span><span>🌿</span></div>
+  </section>
+
+  <section class="container category-section" aria-labelledby="categoryHeading">
+    <div class="quick-section-heading">
+      <div><p class="section-kicker">SHOP BY AISLE</p><h2 id="categoryHeading">What are you looking for?</h2></div>
+      <a href="#shop" class="section-text-link">View products</a>
+    </div>
+    <nav class="category-grid" aria-label="Product categories">
+      <?php foreach ($categories as $cat): ?>
+        <a class="category-tile" href="<?= BASE_URL ?>/index.php?category=<?= urlencode($cat) ?>">
+          <span class="category-icon" aria-hidden="true"><?= $categoryIcon((string)$cat) ?></span>
+          <span class="category-label" title="<?= h($cat) ?>"><?= h($cat) ?></span>
+        </a>
+      <?php endforeach; ?>
+    </nav>
+  </section>
+
+  <section class="container deal-section" aria-labelledby="dealHeading">
+    <div class="quick-section-heading">
+      <div><p class="section-kicker">LIMITED-TIME SAVINGS</p><h2 id="dealHeading">Sponsored / Brand Deals</h2></div>
+      <a href="<?= BASE_URL ?>/offers.php" class="section-text-link">All offers <span aria-hidden="true">→</span></a>
+    </div>
+    <?php if ($dealProducts): ?>
+      <div class="sponsored-row">
+        <?php foreach (array_slice($dealProducts, 0, 10) as $dealProduct): ?>
+          <?= $renderProductCard($dealProduct, true) ?>
+        <?php endforeach; ?>
+      </div>
+      <p class="ad-disclosure">Deal-priced products shown here. Paid sponsored placements will be labelled when available.</p>
+    <?php else: ?>
+      <a class="empty-ad-slot" href="<?= BASE_URL ?>/enquiry.php">
+        <span class="empty-ad-icon" aria-hidden="true">✳</span>
+        <span><strong>Brand promotion space</strong><small>Contact us to feature a verified campaign here.</small></span>
+        <span class="empty-ad-action">Enquire →</span>
+      </a>
+    <?php endif; ?>
+  </section>
+
+  <section class="container product-section" id="shop" aria-labelledby="shopHeading">
+    <div class="quick-section-heading product-heading">
+      <div>
+        <p class="section-kicker"><?= $category !== '' ? 'SHOP BY CATEGORY' : 'FRESH PICKS FOR YOU' ?></p>
+        <h2 id="shopHeading"><?= $category !== '' ? h($category) : ($search_q !== '' ? 'Search results' : 'Fresh from the farm') ?></h2>
+        <p class="section-description">Clear prices, fresh produce, and easy add-to-basket shopping.</p>
+      </div>
+      <?php if ($category !== '' || $search_q !== ''): ?>
+        <a href="<?= BASE_URL ?>/index.php" class="section-text-link">Clear filters</a>
+      <?php endif; ?>
+    </div>
+
+    <?php if (empty($vegetables)): ?>
+      <div class="empty-products">
+        <span aria-hidden="true">🧺</span>
+        <h3>No products found</h3>
+        <p>Nothing matched “<?= h($search_q !== '' ? $search_q : $category) ?>”. Try another search or category.</p>
+        <a href="<?= BASE_URL ?>/index.php" class="empty-products-link">Browse all products</a>
+      </div>
+    <?php else: ?>
+      <div class="veg-grid">
+        <?php foreach ($vegetables as $veg): ?>
+          <?= $renderProductCard($veg) ?>
+        <?php endforeach; ?>
+      </div>
+    <?php endif; ?>
+  </section>
+</main>
 
 <div id="notifyMeOverlay" role="dialog" aria-modal="true" aria-labelledby="notifyMeTitle"
      style="display:none; position:fixed; inset:0; background:rgba(20,30,20,0.6); z-index:1100; align-items:center; justify-content:center; padding:20px;">

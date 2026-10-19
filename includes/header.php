@@ -55,7 +55,7 @@ $__canonical = SITE_URL . strtok($_SERVER['REQUEST_URI'] ?? '/', '?');
 </script>
 
 <link rel="preconnect" href="https://fonts.googleapis.com">
-<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;700&family=Inter:wght@400;500;600;700&family=DM+Mono:wght@500&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="<?= BASE_URL ?>/assets/css/style.css">
 <script>window.__VEGBASKET_BASE__ = "<?= BASE_URL ?>";</script>
 
@@ -93,14 +93,27 @@ $__canonical = SITE_URL . strtok($_SERVER['REQUEST_URI'] ?? '/', '?');
 </style>
 
 <header class="site-header">
+  <div class="delivery-location-row">
+    <button type="button" class="delivery-location-picker" id="deliveryLocationBtn" aria-label="Set delivery area" aria-haspopup="dialog" aria-controls="deliveryLocationModal" aria-expanded="false">
+      <span class="location-pin" aria-hidden="true">⌖</span>
+      <span class="location-copy">
+        <span class="location-kicker">DELIVERY AREA</span>
+        <span class="location-value" id="deliveryLocationValue">Choose your area</span>
+      </span>
+      <span class="location-chevron" aria-hidden="true">⌄</span>
+    </button>
+    <span class="location-helper">Delivery address confirmed at checkout</span>
+  </div>
   <div class="header-inner">
     <a href="<?= BASE_URL ?>/index.php" class="logo">
-      <img src="<?= BASE_URL ?>/assets/images/logo-horizontal-white.png" alt="<?= h(SITE_NAME) ?>" style="height:42px; width:auto; display:block;">
+      <img src="<?= BASE_URL ?>/assets/images/logo-icon.png" alt="" style="height:38px; width:38px; display:block;">
+      <span><?= h(SITE_NAME) ?></span>
     </a>
 
     <form class="search-form" action="<?= BASE_URL ?>/index.php" method="get">
       <input type="text" name="q" placeholder="Search tomato, onion, spinach..." value="<?= h($search_q) ?>">
-      <button type="submit">Search</button>
+      <button type="button" class="search-mic" id="searchMicBtn" aria-label="Search by voice" title="Search by voice">🎙</button>
+      <button type="submit" aria-label="Search">⌕</button>
     </form>
 
     <div class="nav-actions">
@@ -173,6 +186,20 @@ $__canonical = SITE_URL . strtok($_SERVER['REQUEST_URI'] ?? '/', '?');
     <a href="<?= BASE_URL ?>/admin/dashboard.php" style="display:block; padding:12px 4px; color:#fff; text-decoration:none; font-weight:600;">⚙️ Admin</a>
   </div>
 </header>
+
+<div class="location-modal" id="deliveryLocationModal" role="dialog" aria-modal="true" aria-labelledby="deliveryLocationTitle" hidden>
+  <div class="location-modal-card">
+    <button type="button" class="location-modal-close" id="deliveryLocationClose" aria-label="Close location dialog">×</button>
+    <p class="section-kicker">DELIVERY AREA</p>
+    <h2 id="deliveryLocationTitle">Where should we deliver?</h2>
+    <p>Your delivery address is confirmed securely at checkout.</p>
+    <form id="deliveryLocationForm">
+      <label for="deliveryAreaInput">Area or neighbourhood</label>
+      <input id="deliveryAreaInput" name="area" type="text" maxlength="80" placeholder="e.g. Hadapsar, Pune" autocomplete="address-level2" required>
+      <button type="submit">Save area</button>
+    </form>
+  </div>
+</div>
 
 <script>
   (function () {
