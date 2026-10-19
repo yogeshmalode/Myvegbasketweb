@@ -34,12 +34,6 @@ $categories = $pdo->query("SELECT DISTINCT category FROM vegetables WHERE is_act
 
 $variantsByVeg = get_variants_by_vegetable($pdo, array_column($vegetables, 'id'));
 $activeOffers = get_active_offers($pdo);
-$adProducts = $pdo->query(
-    "SELECT * FROM vegetables WHERE is_active = 1
-     ORDER BY (image_path IS NOT NULL AND image_path <> '') DESC, id DESC LIMIT 4"
-)->fetchAll();
-$heroAdProduct = $adProducts[0] ?? null;
-$partnerAdProducts = array_slice($adProducts, 1, 3);
 
 include __DIR__ . '/includes/header.php';
 
@@ -189,21 +183,54 @@ $categoryIcon = static function (string $label) use ($categoryIcons): string {
                 : ($offer['discount_type'] === 'flat'
                     ? SITE_CURRENCY . number_format((float)$offer['discount_value'], 0) . ' OFF'
                     : 'FREE DELIVERY');
+            $isWelcomeImageOffer = strtoupper(trim((string)($offer['coupon_code'] ?? ''))) === 'WELCOME10'
+                && $offer['discount_type'] === 'percent'
+                && (float)$offer['discount_value'] === 10.0;
+            $isFreeDeliveryImageOffer = strtoupper(trim((string)($offer['coupon_code'] ?? ''))) === 'FREESHIP'
+                && $offer['discount_type'] === 'free_delivery';
+            $hasCustomOfferImage = $isWelcomeImageOffer || $isFreeDeliveryImageOffer;
+            $offerImagePath = $isFreeDeliveryImageOffer
+                ? 'free-delivery-weekend-banner.png'
+                : 'welcome-offer-banner.png';
+            $offerImageAlt = $isFreeDeliveryImageOffer
+                ? 'MyVegBasket Free Delivery Weekend: get free delivery with code FREESHIP'
+                : 'MyVegBasket Welcome Offer: get 10% off with code WELCOME10';
           ?>
-            <article class="promo-slide<?= $index === 0 ? ' is-active' : '' ?>" <?= $index === 0 ? '' : 'hidden' ?>>
-              <div class="promo-copy">
-                <span class="promo-eyebrow">TODAY'S FRESH DEAL</span>
-                <h1><?= h($offer['title']) ?></h1>
-                <p><?= h($offerBadge) ?><?= !empty($offer['coupon_code']) ? ' · Use code ' . h($offer['coupon_code']) : '' ?></p>
-                <a href="<?= BASE_URL ?>/offers.php" class="promo-cta">Explore offer <span aria-hidden="true">→</span></a>
-              </div>
-              <?php if ($heroAdProduct): ?>
-                <div class="promo-art promo-art-photo">
-                  <div class="promo-product-photo"><?= veg_thumb_html($heroAdProduct) ?></div>
-                  <span class="promo-product-caption"><?= h($heroAdProduct['name']) ?></span>
+            <article class="promo-slide<?= $index === 0 ? ' is-active' : '' ?><?= $hasCustomOfferImage ? ' promo-slide-image' : '' ?>" <?= $index === 0 ? '' : 'hidden' ?>>
+              <?php if ($hasCustomOfferImage): ?>
+                <?php if ($isWelcomeImageOffer): ?>
+                <div class="promo-image-message">
+                  <span class="promo-eyebrow">FRESH FROM OUR FARM PARTNERS</span>
+                  <h1>Make room for something fresh.</h1>
+                  <p>Explore seasonal picks and enjoy a little extra in your basket.</p>
+                  <a href="<?= BASE_URL ?>/offers.php" class="promo-cta">Shop the welcome offer <span aria-hidden="true">→</span></a>
                 </div>
+                <?php else: ?>
+                <div class="promo-image-message">
+                  <span class="promo-eyebrow">A LITTLE EXTRA FOR YOUR WEEKEND</span>
+                  <h1>Fresh groceries, delivered free.</h1>
+                  <p>Fill your basket with farm-fresh favourites and enjoy free delivery.</p>
+                  <a href="<?= BASE_URL ?>/offers.php" class="promo-cta">Shop the free-delivery offer <span aria-hidden="true">→</span></a>
+                </div>
+                <?php endif; ?>
+                <a class="promo-image-link" href="<?= BASE_URL ?>/offers.php" aria-label="<?= h($isFreeDeliveryImageOffer ? 'Explore the Free Delivery Weekend offer with code FREESHIP' : 'Explore the Welcome Offer: 10% off with code WELCOME10') ?>">
+                  <img src="<?= BASE_URL ?>/assets/images/<?= h($offerImagePath) ?>" alt="<?= h($offerImageAlt) ?>" fetchpriority="<?= $index === 0 ? 'high' : 'auto' ?>" loading="<?= $index === 0 ? 'eager' : 'lazy' ?>" decoding="async">
+                </a>
               <?php else: ?>
-                <div class="promo-art" aria-hidden="true"><span>🥬</span><span>🥕</span><span>🍅</span></div>
+                <div class="promo-copy">
+                  <span class="promo-eyebrow">TODAY'S FRESH DEAL</span>
+                  <h1><?= h($offer['title']) ?></h1>
+                  <p><?= h($offerBadge) ?><?= !empty($offer['coupon_code']) ? ' · Use code ' . h($offer['coupon_code']) : '' ?></p>
+                  <a href="<?= BASE_URL ?>/offers.php" class="promo-cta">Explore offer <span aria-hidden="true">→</span></a>
+                </div>
+                <?php if ($heroAdProduct): ?>
+                  <div class="promo-art promo-art-photo">
+                    <div class="promo-product-photo"><?= veg_thumb_html($heroAdProduct) ?></div>
+                    <span class="promo-product-caption"><?= h($heroAdProduct['name']) ?></span>
+                  </div>
+                <?php else: ?>
+                  <div class="promo-art" aria-hidden="true"><span>🥬</span><span>🥕</span><span>🍅</span></div>
+                <?php endif; ?>
               <?php endif; ?>
             </article>
           <?php endforeach; ?>
@@ -226,7 +253,13 @@ $categoryIcon = static function (string $label) use ($categoryIcons): string {
           </article>
         <?php endif; ?>
         <?php if (count($activeOffers) > 1): ?>
-          <div class="promo-controls" aria-label="Promotion slides">
+          <div class="promo-controls<?= array_filter($activeOffers, static fn(array $offer): bool =>
+              (strtoupper(trim((string)($offer['coupon_code'] ?? ''))) === 'WELCOME10'
+                  && $offer['discount_type'] === 'percent'
+                  && (float)$offer['discount_value'] === 10.0)
+              || (strtoupper(trim((string)($offer['coupon_code'] ?? ''))) === 'FREESHIP'
+                  && $offer['discount_type'] === 'free_delivery')
+          ) ? ' promo-controls-image' : '' ?>" aria-label="Promotion slides">
             <button type="button" id="promoPrevious" aria-label="Previous promotion">‹</button>
             <span id="promoSlideCount">1 / <?= count($activeOffers) ?></span>
             <button type="button" id="promoNext" aria-label="Next promotion">›</button>
@@ -236,22 +269,33 @@ $categoryIcon = static function (string $label) use ($categoryIcons): string {
     </div>
   </section>
 
-  <section class="container partner-ad-slot" aria-label="Brand and partner promotions">
-    <div class="partner-ad-copy">
-      <span class="ad-label">PARTNER SPOTLIGHT</span>
-      <h2>Reach shoppers in your neighbourhood</h2>
-      <p>Feature your brand or local campaign on MyVegBasket.</p>
-      <a href="<?= BASE_URL ?>/enquiry.php">Partner with us <span aria-hidden="true">→</span></a>
-    </div>
-    <?php if ($partnerAdProducts): ?>
-      <div class="partner-ad-art" aria-label="Featured products">
-        <?php foreach ($partnerAdProducts as $adProduct): ?>
-          <span class="partner-product-photo"><?= veg_thumb_html($adProduct) ?></span>
-        <?php endforeach; ?>
+  <section class="container partner-spotlight-section" aria-labelledby="whyShopHeading">
+    <header class="partner-spotlight-heading">
+      <h2 id="whyShopHeading">WHY SHOP WITH US?</h2>
+      <p>Freshness and savings delivered to your doorstep</p>
+    </header>
+    <div class="partner-spotlight-card">
+      <div class="partner-spotlight-copy">
+        <div class="partner-spotlight-eyebrow-row">
+          <span class="partner-spotlight-eyebrow">MyVegBasket Exclusive</span>
+          <span class="partner-spotlight-badge">FEATURED</span>
+        </div>
+        <h3>Your Local Veggie Market, <span>Online</span></h3>
+        <p class="partner-spotlight-marathi" lang="mr">आता भाजी मार्केट तुमच्या मोबाईलवर!</p>
+        <ul class="partner-spotlight-benefits">
+          <li><span aria-hidden="true">✓</span> Directly from local farms</li>
+          <li><span aria-hidden="true">✓</span> Superfast home delivery</li>
+        </ul>
       </div>
-    <?php else: ?>
-      <div class="partner-ad-art" aria-hidden="true"><span>🥛</span><span>🥭</span><span>🌿</span></div>
-    <?php endif; ?>
+      <div class="partner-spotlight-image">
+        <img
+          src="<?= BASE_URL ?>/assets/images/partner-spotlight-banner.png"
+          alt="MyVegBasket brings your local vegetable market online with fresh produce and convenient delivery"
+          loading="lazy"
+          decoding="async">
+      </div>
+      <a class="partner-spotlight-cta" href="#shop">Order Now <span aria-hidden="true">→</span></a>
+    </div>
   </section>
 
   <section class="container category-section" aria-labelledby="categoryHeading">
