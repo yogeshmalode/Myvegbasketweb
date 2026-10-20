@@ -283,13 +283,26 @@ $gigPayoutTotals = [];
 $commonBillableKmStmt = $pdo->query('SELECT common_billable_km FROM gig_payout_settings WHERE setting_id = 1');
 $commonBillableKm = $commonBillableKmStmt->fetchColumn();
 if ($isAdmin) {
-    $workerRows = $pdo->query("SELECT 'staff' AS worker_type, a.id AS worker_id, a.username AS worker_name,
-            a.role AS worker_role, a.email AS contact, ds.name AS store_name, a.dark_store_id IS NOT NULL AS has_store
+    $workerRows = $pdo->query("SELECT
+            CONVERT('staff' USING utf8mb4) COLLATE utf8mb4_unicode_ci AS worker_type,
+            a.id AS worker_id,
+            CONVERT(a.username USING utf8mb4) COLLATE utf8mb4_unicode_ci AS worker_name,
+            CONVERT(a.role USING utf8mb4) COLLATE utf8mb4_unicode_ci AS worker_role,
+            CONVERT(a.email USING utf8mb4) COLLATE utf8mb4_unicode_ci AS contact,
+            CONVERT(ds.name USING utf8mb4) COLLATE utf8mb4_unicode_ci AS store_name,
+            a.dark_store_id IS NOT NULL AS has_store
         FROM admins a
         LEFT JOIN dark_stores ds ON ds.id = a.dark_store_id
         WHERE a.role IN ('staff', 'delivery')
         UNION ALL
-        SELECT 'rider', r.id, r.name, 'rider', r.phone, ds.name, r.dark_store_id IS NOT NULL
+        SELECT
+            CONVERT('rider' USING utf8mb4) COLLATE utf8mb4_unicode_ci,
+            r.id,
+            CONVERT(r.name USING utf8mb4) COLLATE utf8mb4_unicode_ci,
+            CONVERT('rider' USING utf8mb4) COLLATE utf8mb4_unicode_ci,
+            CONVERT(r.phone USING utf8mb4) COLLATE utf8mb4_unicode_ci,
+            CONVERT(ds.name USING utf8mb4) COLLATE utf8mb4_unicode_ci,
+            r.dark_store_id IS NOT NULL
         FROM riders r
         LEFT JOIN dark_stores ds ON ds.id = r.dark_store_id
         ORDER BY worker_type, worker_name")->fetchAll();
