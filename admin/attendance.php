@@ -592,9 +592,20 @@ include __DIR__ . '/includes/admin_header.php';
   <form method="get" class="attendance-card attendance-form" style="margin-bottom:18px;">
     <div class="form-group"><label for="attendanceStart">From</label><input id="attendanceStart" type="date" name="start" value="<?= h($start) ?>" required></div>
     <div class="form-group"><label for="attendanceEnd">To</label><input id="attendanceEnd" type="date" name="end" value="<?= h($end) ?>" required></div>
-    <?php if ($selectedWorkerKey): ?><input type="hidden" name="worker" value="<?= h($selectedWorkerKey) ?>"><?php endif; ?>
-    <button class="btn btn-primary">View Report</button>
+    <div class="form-group">
+      <label for="attendanceWorker">Select employee</label>
+      <select id="attendanceWorker" name="worker">
+        <option value="">All employees overview</option>
+        <?php foreach ($workers as $key => $worker): ?>
+          <option value="<?= h($key) ?>" <?= $selectedWorkerKey === $key ? 'selected' : '' ?>>
+            <?= h($worker['worker_name']) ?> · <?= h(ucfirst($worker['worker_role'])) ?> · <?= h($worker['worker_type']) ?>
+          </option>
+        <?php endforeach; ?>
+      </select>
+    </div>
+    <button class="btn btn-primary"><?= $selectedWorker ? 'View employee report' : 'View overview' ?></button>
   </form>
+  <?php if (!$selectedWorker): ?>
   <div class="section-head"><h3>Live Worker Time Cards</h3><p>Each card shows the selected period's presence and productive time plus a live timer for anyone currently clocked in. Select a worker to open their full report.</p></div>
   <div class="worker-time-grid">
     <?php foreach ($workers as $key => $worker):
@@ -619,6 +630,7 @@ include __DIR__ . '/includes/admin_header.php';
     <?php endforeach; ?>
     <?php if (!$workers): ?><div class="attendance-card">No staff or rider accounts found.</div><?php endif; ?>
   </div>
+  <?php endif; ?>
 
   <?php if (isset($_GET['worker']) && !$selectedWorker): ?>
     <div class="alert alert-error">The selected worker could not be found. Choose a worker from the cards below.</div>
@@ -635,6 +647,15 @@ include __DIR__ . '/includes/admin_header.php';
         </div>
       </div>
       <div class="attendance-grid">
+        <div class="attendance-card">
+          <div class="attendance-muted">Current shift</div>
+          <?php if ($workerStats[$selectedWorkerKey]['open_since']): ?>
+            <div class="attendance-muted">Clocked in since <?= h(format_ist($workerStats[$selectedWorkerKey]['open_since'])) ?></div>
+            <div class="worker-live-clock" data-live-start="<?= (new DateTimeImmutable($workerStats[$selectedWorkerKey]['open_since'], new DateTimeZone('UTC')))->getTimestamp() ?>">00:00:00</div>
+          <?php else: ?>
+            <div class="attendance-summary">Clocked out</div>
+          <?php endif; ?>
+        </div>
         <div class="attendance-card"><div class="attendance-muted">Presence</div><div class="attendance-summary"><?= h(attendance_duration_label($workerStats[$selectedWorkerKey]['presence_seconds'])) ?></div></div>
         <div class="attendance-card"><div class="attendance-muted">Productive time</div><div class="attendance-summary"><?= h(attendance_duration_label($workerStats[$selectedWorkerKey]['seconds'])) ?></div></div>
         <div class="attendance-card"><div class="attendance-muted">Completed orders</div><div class="attendance-summary"><?= count($selectedWorkerOrders) ?></div></div>
@@ -667,6 +688,7 @@ include __DIR__ . '/includes/admin_header.php';
       </table></div>
     </section>
   <?php endif; ?>
+  <?php if (!$selectedWorker): ?>
   <div class="attendance-grid">
     <div class="attendance-card"><div class="attendance-muted">Workers</div><div class="attendance-summary"><?= count($workers) ?></div></div>
     <div class="attendance-card"><div class="attendance-muted">Productive Worker Hours (break deducted)</div><div class="attendance-summary"><?= h(attendance_duration_label($totalWorkedSeconds)) ?></div></div>
@@ -851,6 +873,7 @@ include __DIR__ . '/includes/admin_header.php';
     <?php if (!$adjustmentRows): ?><tr><td colspan="6">No corrections in this date range.</td></tr><?php endif; ?>
     </tbody>
   </table></div>
+  <?php endif; ?>
 <?php endif; ?>
 
 <script>
