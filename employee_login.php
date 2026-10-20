@@ -1,7 +1,43 @@
 <?php
 require_once __DIR__ . '/config.php';
-$page_title = 'Employee Login';
-$meta_description = 'Choose the correct MyVegBasket login for staff, delivery team, riders, and gig riders.';
+require_once __DIR__ . '/lib/team_portal_access.php';
+ensure_team_portal_access_schema($pdo);
+
+$settings = team_portal_access_settings($pdo);
+$ipHash = team_portal_ip_hash();
+$portalError = '';
+$portalMessage = '';
+if (!empty($_SESSION['team_portal_message'])) {
+    $portalMessage = $_SESSION['team_portal_message'];
+    unset($_SESSION['team_portal_message']);
+}
+
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['verify_team_portal'])) {
+    require_csrf();
+    $lockSeconds = team_portal_pin_lock_seconds($pdo, $ipHash);
+    if ($lockSeconds > 0) {
+        $portalError = 'Too many incorrect PIN attempts. Try again in ' . ceil($lockSeconds / 60) . ' minute(s).';
+    } elseif (empty($settings['pin_hash'])) {
+        $portalError = 'The Team Portal PIN has not been set. Please contact an administrator.';
+    } else {
+        $pin = (string)($_POST['access_pin'] ?? '');
+        if (preg_match('/^[0-9]{8,12}$/', $pin) && password_verify($pin, $settings['pin_hash'])) {
+            clear_team_portal_pin_failures($pdo, $ipHash);
+            session_regenerate_id(true);
+            $_SESSION['team_portal_verified_at'] = time();
+            $_SESSION['team_portal_pin_version'] = (int)$settings['pin_version'];
+            redirect('employee_login.php');
+        }
+        $isLocked = record_team_portal_pin_failure($pdo, $ipHash);
+        $portalError = $isLocked
+            ? 'Too many incorrect PIN attempts. Access is locked for 15 minutes.'
+            : 'Incorrect Team Portal PIN.';
+    }
+}
+
+$portalVerified = team_portal_has_access($pdo);
+$page_title = 'Team Portal';
+$meta_description = 'Secure access to MyVegBasket team sign-in options.';
 include __DIR__ . '/includes/header.php';
 ?>
 <style>
@@ -14,12 +50,14 @@ include __DIR__ . '/includes/header.php';
   .employee-login-card .icon { font-size:2rem; }
   .employee-login-card h2 { margin:0; color:#173b2e; font-size:1.2rem; }
   .employee-login-card p { flex:1; margin:0 0 8px; color:#5b6656; line-height:1.5; }
+  .team-portal-pin-card { max-width:440px; margin:0 auto; }
 </style>
 
 <main class="employee-login-shell">
+  <?php if ($portalVerified): ?>
   <div class="employee-login-heading">
-    <h1>Employee Login</h1>
-    <p>Select your role to open the correct sign-in page.</p>
+    <h1>Team Portal</h1>
+    <p>Select your role to continue to the correct sign-in page.</p>
   </div>
   <div class="employee-login-grid">
     <section class="employee-login-card">
@@ -47,6 +85,30 @@ include __DIR__ . '/includes/header.php';
       <a class="btn btn-block" href="<?= BASE_URL ?>/admin/login.php?employee=admin">Admin Login</a>
     </section>
   </div>
+  <?php else: ?>
+  <div class="employee-login-heading">
+    <h1>Team Portal</h1>
+    <p>Enter the access PIN provided by your administrator.</p>
+  </div>
+  <section class="employee-login-card team-portal-pin-card">
+    <?php if ($portalMessage): ?><div class="alert alert-success"><?= h($portalMessage) ?></div><?php endif; ?>
+    <?php if ($portalError): ?><div class="alert alert-error"><?= h($portalError) ?></div><?php endif; ?>
+    <?php if (empty($settings['pin_hash'])): ?>
+      <p>The portal access PIN has not been configured yet. Please contact an administrator.</p>
+    <?php else: ?>
+      <form method="post">
+        <input type="hidden" name="csrf_token" value="<?= h(csrf_token()) ?>">
+        <input type="hidden" name="verify_team_portal" value="1">
+        <div class="form-group">
+          <label for="access_pin">Team Portal access PIN</label>
+          <input id="access_pin" name="access_pin" type="password" inputmode="numeric" pattern="[0-9]{8,12}" minlength="8" maxlength="12" autocomplete="off" required>
+        </div>
+        <button class="btn btn-primary btn-block" type="submit">Continue to Team Portal</button>
+      </form>
+    <?php endif; ?>
+    <p><a href="<?= BASE_URL ?>/team_portal_recovery.php" style="color:#3F8B52;">Admin: reset a forgotten portal PIN by email</a></p>
+  </section>
+  <?php endif; ?>
 </main>
 
 <?php include __DIR__ . '/includes/footer.php'; ?>
