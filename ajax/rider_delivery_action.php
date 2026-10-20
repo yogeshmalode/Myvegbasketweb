@@ -45,6 +45,18 @@ try {
     }
 
     $currentStatus = normalize_order_status($order['order_status']);
+    if (in_array($action, ['accept', 'reject', 'pickup', 'arriving', 'deliver'], true)) {
+        $attendanceStmt = $pdo->prepare("SELECT 1 FROM worker_attendance
+            WHERE worker_type = 'rider' AND worker_id = ? AND clock_out_at IS NULL
+            LIMIT 1");
+        $attendanceStmt->execute([$riderId]);
+        if (!$attendanceStmt->fetchColumn()) {
+            $pdo->rollBack();
+            echo json_encode(['success' => false, 'error' => 'Clock in before working on delivery orders']);
+            exit;
+        }
+    }
+
     if ($action === 'accept') {
         if ($currentStatus !== 'delivery_partner_assigned') {
             $pdo->rollBack();

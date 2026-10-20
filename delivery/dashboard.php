@@ -7,6 +7,14 @@ if (!$rider) {
     redirect('login.php');
 }
 $riderId = (int)$rider['id'];
+$compensationStmt = $pdo->prepare("SELECT employment_type, pay_mode, per_km_rate FROM worker_compensation
+    WHERE worker_type = 'rider' AND worker_id = ?");
+$compensationStmt->execute([$riderId]);
+$riderCompensation = $compensationStmt->fetch() ?: [
+    'employment_type' => 'full_time',
+    'pay_mode' => 'attendance_only',
+    'per_km_rate' => null,
+];
 
 $orders = [];
 if ($rider) {
@@ -14,6 +22,21 @@ if ($rider) {
     $stmt->execute([$riderId]);
     $orders = $stmt->fetchAll();
 }
+$attendanceStmt = $pdo->prepare("SELECT id, clock_in_at FROM worker_attendance
+    WHERE worker_type = 'rider' AND worker_id = ? AND clock_out_at IS NULL
+    ORDER BY id DESC LIMIT 1");
+$attendanceStmt->execute([$riderId]);
+$openShift = $attendanceStmt->fetch() ?: null;
+$attendanceHistoryStmt = $pdo->prepare("SELECT clock_in_at, clock_out_at, shift_summary
+    FROM worker_attendance WHERE worker_type = 'rider' AND worker_id = ?
+    ORDER BY clock_in_at DESC LIMIT 14");
+$attendanceHistoryStmt->execute([$riderId]);
+$attendanceHistory = $attendanceHistoryStmt->fetchAll();
+$historyStmt = $pdo->prepare("SELECT id, customer_name, address, total_amount, delivered_at
+    FROM orders WHERE rider_id = ? AND order_status = 'delivered'
+    ORDER BY delivered_at DESC, id DESC LIMIT 50");
+$historyStmt->execute([$riderId]);
+$completedOrders = $historyStmt->fetchAll();
 $orderRefreshVersion = get_order_refresh_version($orders);
 
 $allRiders = $pdo->query('SELECT id, name, phone, vehicle FROM riders WHERE is_active = 1 ORDER BY name')->fetchAll();
@@ -191,6 +214,44 @@ include __DIR__ . '/../includes/header.php';
       </div>
     </div>
 
+    <div class="rider-card">
+      <div class="rider-topline">
+        <div>
+          <div class="eyebrow">Attendance</div>
+          <div class="metric-value"><?= $openShift ? 'Clocked in since ' . h(format_ist($openShift['clock_in_at'])) : 'Not clocked in' ?></div>
+          <div class="metric-label" style="margin-top:8px;">Elapsed this shift (hh:mm:ss)</div>
+          <div class="metric-value" style="font-variant-numeric:tabular-nums;color:#0c6a4a;" <?= $openShift ? 'data-live-start="' . (new DateTimeImmutable($openShift['clock_in_at'], new DateTimeZone('UTC')))->getTimestamp() . '"' : '' ?>>00:00:00</div>
+          <p class="address-copy">Clock in to accept and update delivery orders. Active deliveries must be completed before clocking out.<?= $riderCompensation['employment_type'] !== 'gig' ? ' A work summary is required at shift end.' : '' ?></p>
+        </div>
+        <button type="button" class="btn btn-primary" data-attendance-action="<?= $openShift ? 'clock_out' : 'clock_in' ?>" data-requires-summary="<?= $openShift && $riderCompensation['employment_type'] !== 'gig' ? '1' : '0' ?>">
+          <?= $openShift ? 'Clock Out' : 'Clock In' ?>
+        </button>
+      </div>
+      <?php if ($attendanceHistory): ?>
+        <div style="overflow-x:auto;margin-top:12px;">
+          <table style="width:100%;border-collapse:collapse;min-width:480px;">
+            <thead><tr><th style="text-align:left;padding:9px;border-bottom:1px solid #e8eee9;">Shift start</th><th style="text-align:left;padding:9px;border-bottom:1px solid #e8eee9;">Shift end</th><th style="text-align:left;padding:9px;border-bottom:1px solid #e8eee9;">Hours</th><th style="text-align:left;padding:9px;border-bottom:1px solid #e8eee9;">Shift summary</th></tr></thead>
+            <tbody>
+            <?php foreach ($attendanceHistory as $shift):
+              $shiftStart = new DateTimeImmutable($shift['clock_in_at'], new DateTimeZone('UTC'));
+              $shiftEnd = $shift['clock_out_at']
+                  ? new DateTimeImmutable($shift['clock_out_at'], new DateTimeZone('UTC'))
+                  : new DateTimeImmutable('now', new DateTimeZone('UTC'));
+              $shiftSeconds = max(0, $shiftEnd->getTimestamp() - $shiftStart->getTimestamp());
+            ?>
+              <tr>
+                <td style="padding:9px;border-bottom:1px solid #eef2ef;"><?= h(format_ist($shift['clock_in_at'])) ?></td>
+                <td style="padding:9px;border-bottom:1px solid #eef2ef;"><?= $shift['clock_out_at'] ? h(format_ist($shift['clock_out_at'])) : 'In progress' ?></td>
+                <td style="padding:9px;border-bottom:1px solid #eef2ef;"><?= intdiv($shiftSeconds, 3600) ?>h <?= intdiv($shiftSeconds % 3600, 60) ?>m <?= $shiftSeconds % 60 ?>s</td>
+                <td style="padding:9px;border-bottom:1px solid #eef2ef;"><?= nl2br(h($shift['shift_summary'] ?: '—')) ?></td>
+              </tr>
+            <?php endforeach; ?>
+            </tbody>
+          </table>
+        </div>
+      <?php endif; ?>
+    </div>
+
     <?php foreach ($orders as $order): ?>
       <?php
       $customerLat = !empty($order['address_lat']) ? (float)$order['address_lat'] : null;
@@ -255,10 +316,78 @@ include __DIR__ . '/../includes/header.php';
         No active deliveries assigned to this rider right now.
       </div>
     <?php endif; ?>
+
+    <div class="rider-card">
+      <div class="rider-topline"><div><div class="eyebrow">Completed deliveries</div><h3 class="rider-name"><?= count($completedOrders) ?> recent orders</h3></div></div>
+      <?php if ($completedOrders): ?>
+        <div style="overflow-x:auto;">
+          <table style="width:100%; border-collapse:collapse; min-width:560px;">
+            <thead><tr><th style="text-align:left;padding:10px;border-bottom:1px solid #e8eee9;">Order</th><th style="text-align:left;padding:10px;border-bottom:1px solid #e8eee9;">Customer</th><th style="text-align:left;padding:10px;border-bottom:1px solid #e8eee9;">Delivered</th><th style="text-align:right;padding:10px;border-bottom:1px solid #e8eee9;">Total</th></tr></thead>
+            <tbody>
+            <?php foreach ($completedOrders as $completed): ?>
+              <tr>
+                <td style="padding:10px;border-bottom:1px solid #eef2ef;">#ORD-<?= str_pad((string)$completed['id'], 5, '0', STR_PAD_LEFT) ?></td>
+                <td style="padding:10px;border-bottom:1px solid #eef2ef;"><?= h($completed['customer_name']) ?></td>
+                <td style="padding:10px;border-bottom:1px solid #eef2ef;"><?= h(format_ist($completed['delivered_at'])) ?></td>
+                <td style="padding:10px;border-bottom:1px solid #eef2ef;text-align:right;"><?= h(SITE_CURRENCY . number_format((float)$completed['total_amount'], 2)) ?></td>
+              </tr>
+            <?php endforeach; ?>
+            </tbody>
+          </table>
+        </div>
+      <?php else: ?>
+        <p class="address-copy">No completed deliveries yet.</p>
+      <?php endif; ?>
+    </div>
   <?php endif; ?>
 </div>
 
 <script>
+document.querySelectorAll('[data-attendance-action]').forEach((button) => {
+  button.addEventListener('click', async () => {
+    let shiftSummary = '';
+    if (button.dataset.attendanceAction === 'clock_out' && button.dataset.requiresSummary === '1') {
+      shiftSummary = prompt('Enter a short summary of your work and completed deliveries:') || '';
+      if (!shiftSummary.trim()) {
+        alert('A shift summary is required before clocking out.');
+        return;
+      }
+    }
+    button.disabled = true;
+    try {
+      const response = await fetch('../ajax/worker_attendance_action.php', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({
+          action: button.dataset.attendanceAction,
+          shift_summary: shiftSummary,
+          csrf_token: '<?= h(csrf_token()) ?>'
+        })
+      });
+      const data = await response.json();
+      if (!response.ok || !data.success) throw new Error(data.error || 'Attendance could not be saved.');
+      location.reload();
+    } catch (error) {
+      alert(error.message || 'Network error while recording attendance.');
+      button.disabled = false;
+    }
+  });
+});
+
+function updateAttendanceClocks() {
+  const nowSeconds = Math.floor(Date.now() / 1000);
+  document.querySelectorAll('[data-live-start]').forEach((clock) => {
+    const elapsed = Math.max(0, nowSeconds - Number(clock.dataset.liveStart));
+    const hours = Math.floor(elapsed / 3600);
+    const minutes = Math.floor((elapsed % 3600) / 60);
+    const seconds = elapsed % 60;
+    clock.textContent = String(hours).padStart(2, '0') + ':' +
+      String(minutes).padStart(2, '0') + ':' + String(seconds).padStart(2, '0');
+  });
+}
+updateAttendanceClocks();
+window.setInterval(updateAttendanceClocks, 1000);
+
 function runDeliveryAction(orderId, action, label) {
   fetch('../ajax/rider_delivery_action.php', {
     method: 'POST',

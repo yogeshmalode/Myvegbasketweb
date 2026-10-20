@@ -64,6 +64,7 @@ $current_page = basename($_SERVER['PHP_SELF']);
         ['stock_transfer.php','🚛','Stock Transfer'],
         ['store_procurement.php','🏪','Store Procurement'],
         ['reports.php','▥','Reports (P&L)'],
+        ['attendance.php','🕒','Attendance & Hours'],
       ],
       'Hotel & Shop (B2B)' => [
         ['b2b_customers.php','🏨','B2B Customers'],

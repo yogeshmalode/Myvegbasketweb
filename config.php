@@ -501,9 +501,9 @@ function get_order_refresh_version(array $orders): string {
 
 function get_admin_order_refresh_version(PDO $pdo, ?int $storeId = null): string {
     if ($storeId === null) {
-        $stmt = $pdo->query('SELECT id, order_status, payment_status, rider_id, rider_accepted_at, assigned_picker_id, total_amount FROM orders');
+        $stmt = $pdo->query('SELECT id, order_status, payment_status, rider_id, rider_accepted_at, assigned_picker_id, packing_completed_at, total_amount FROM orders');
     } else {
-        $stmt = $pdo->prepare('SELECT id, order_status, payment_status, rider_id, rider_accepted_at, assigned_picker_id, total_amount FROM orders WHERE dark_store_id = ? OR dark_store_id IS NULL');
+        $stmt = $pdo->prepare('SELECT id, order_status, payment_status, rider_id, rider_accepted_at, assigned_picker_id, packing_completed_at, total_amount FROM orders WHERE dark_store_id = ? OR dark_store_id IS NULL');
         $stmt->execute([$storeId]);
     }
 
@@ -851,7 +851,10 @@ function allocate_nearest_available_rider($pdo, $darkStoreId) {
     if (empty($darkStoreId)) return null;
 
     try {
-        $st = $pdo->prepare("SELECT * FROM riders WHERE is_active = 1 AND availability_status = 'available' AND dark_store_id = ?");
+        $st = $pdo->prepare("SELECT r.* FROM riders r
+            WHERE r.is_active = 1 AND r.availability_status = 'available' AND r.dark_store_id = ?
+              AND EXISTS (SELECT 1 FROM worker_attendance wa
+                  WHERE wa.worker_type = 'rider' AND wa.worker_id = r.id AND wa.clock_out_at IS NULL)");
         $st->execute([$darkStoreId]);
         $candidates = $st->fetchAll();
     } catch (PDOException $e) {
@@ -932,6 +935,8 @@ function auto_assign_ready_order_to_nearest_rider($pdo, $orderId) {
 
         $ridersStmt = $pdo->prepare("SELECT r.* FROM riders r
             WHERE r.is_active = 1 AND r.availability_status = 'available' AND r.dark_store_id = ?
+              AND EXISTS (SELECT 1 FROM worker_attendance wa
+                  WHERE wa.worker_type = 'rider' AND wa.worker_id = r.id AND wa.clock_out_at IS NULL)
               AND NOT EXISTS (
                   SELECT 1 FROM orders active_order
                   WHERE active_order.rider_id = r.id
@@ -1008,6 +1013,13 @@ function auto_assign_next_order_to_rider($pdo, $riderId, $excludeOrderId = null)
             LIMIT 1");
         $activeOrderSt->execute([$riderId]);
         if ($activeOrderSt->fetchColumn()) {
+            return null;
+        }
+        $attendanceSt = $pdo->prepare("SELECT 1 FROM worker_attendance
+            WHERE worker_type = 'rider' AND worker_id = ? AND clock_out_at IS NULL
+            LIMIT 1");
+        $attendanceSt->execute([$riderId]);
+        if (!$attendanceSt->fetchColumn()) {
             return null;
         }
 
@@ -1263,12 +1275,12 @@ function ensure_management_schema($pdo) {
                 'staff' => [
                     'dashboard.php', 'billing.php', 'vegetables.php', 'categories.php', 'inventory.php',
                     'orders.php', 'wastage.php', 'offers.php', 'subscriptions.php',
-                    'catalog_pricing.php', 'b2b_billing.php',
+                    'catalog_pricing.php', 'b2b_billing.php', 'attendance.php',
                 ],
                 'delivery' => [
                     'dashboard.php', 'orders.php', 'deliveries.php', 'riders.php',
                     'dark_stores.php', 'scan_delivery.php', 'manifest.php',
-                    'picking_sheet.php', 'route_sheet.php',
+                    'picking_sheet.php', 'route_sheet.php', 'attendance.php',
                 ],
             ];
             $insPerm = $pdo->prepare("INSERT IGNORE INTO role_page_permissions (role, page) VALUES (?, ?)");
@@ -1311,6 +1323,12 @@ function ensure_management_schema($pdo) {
         if (!$migrationApplied('grant_staff_b2b_billing_2026_10')) {
             $pdo->prepare("INSERT IGNORE INTO role_page_permissions (role, page) VALUES ('staff', 'b2b_billing.php')")->execute();
             $markMigrationApplied('grant_staff_b2b_billing_2026_10');
+        }
+        if (!$migrationApplied('grant_worker_attendance_2026_10')) {
+            $insAttendancePermission = $pdo->prepare("INSERT IGNORE INTO role_page_permissions (role, page) VALUES (?, 'attendance.php')");
+            $insAttendancePermission->execute(['staff']);
+            $insAttendancePermission->execute(['delivery']);
+            $markMigrationApplied('grant_worker_attendance_2026_10');
         }
 
         // ---- Product categories: a proper managed list instead of free-
@@ -1404,6 +1422,7 @@ function ensure_management_schema($pdo) {
             if (!$hasColumn('orders', 'assigned_picker_id')) $pdo->exec("ALTER TABLE orders ADD COLUMN assigned_picker_id INT DEFAULT NULL");
             if (!$hasColumn('orders', 'rider_id')) $pdo->exec("ALTER TABLE orders ADD COLUMN rider_id INT DEFAULT NULL");
             if (!$hasColumn('orders', 'rider_accepted_at')) $pdo->exec("ALTER TABLE orders ADD COLUMN rider_accepted_at TIMESTAMP NULL DEFAULT NULL");
+            if (!$hasColumn('orders', 'packing_completed_at')) $pdo->exec("ALTER TABLE orders ADD COLUMN packing_completed_at DATETIME DEFAULT NULL");
             if (!$hasColumn('orders', 'manifest_id')) $pdo->exec("ALTER TABLE orders ADD COLUMN manifest_id INT DEFAULT NULL");
             if (!$hasColumn('orders', 'delivery_lat')) $pdo->exec("ALTER TABLE orders ADD COLUMN delivery_lat DECIMAL(10,7) DEFAULT NULL");
             if (!$hasColumn('orders', 'delivery_lng')) $pdo->exec("ALTER TABLE orders ADD COLUMN delivery_lng DECIMAL(10,7) DEFAULT NULL");
@@ -1629,6 +1648,66 @@ function ensure_management_schema($pdo) {
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4");
         }
+
+        $pdo->exec("CREATE TABLE IF NOT EXISTS worker_attendance (
+            id INT AUTO_INCREMENT PRIMARY KEY,
+            worker_type ENUM('staff','rider') NOT NULL,
+            worker_id INT NOT NULL,
+            clock_in_at DATETIME NOT NULL,
+            clock_out_at DATETIME DEFAULT NULL,
+            shift_summary TEXT DEFAULT NULL,
+            correction_reason VARCHAR(500) DEFAULT NULL,
+            corrected_by INT DEFAULT NULL,
+            corrected_at DATETIME DEFAULT NULL,
+            created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            KEY idx_attendance_worker_time (worker_type, worker_id, clock_in_at),
+            KEY idx_attendance_open_shift (worker_type, worker_id, clock_out_at)
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4");
+        if (!$hasColumn('worker_attendance', 'shift_summary')) {
+            $pdo->exec("ALTER TABLE worker_attendance ADD COLUMN shift_summary TEXT DEFAULT NULL");
+        }
+        $pdo->exec("CREATE TABLE IF NOT EXISTS worker_attendance_adjustments (
+            id INT AUTO_INCREMENT PRIMARY KEY,
+            attendance_id INT NOT NULL,
+            adjusted_by INT NOT NULL,
+            old_clock_out_at DATETIME DEFAULT NULL,
+            new_clock_out_at DATETIME NOT NULL,
+            reason VARCHAR(500) NOT NULL,
+            created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            KEY idx_attendance_adjustment_record (attendance_id, created_at)
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4");
+        $pdo->exec("CREATE TABLE IF NOT EXISTS worker_compensation (
+            worker_type ENUM('staff','rider') NOT NULL,
+            worker_id INT NOT NULL,
+            employment_type ENUM('full_time','part_time','gig') NOT NULL DEFAULT 'full_time',
+            pay_mode ENUM('attendance_only','hourly','monthly','per_km') NOT NULL DEFAULT 'attendance_only',
+            shift_work_minutes SMALLINT UNSIGNED NOT NULL DEFAULT 480,
+            break_minutes SMALLINT UNSIGNED NOT NULL DEFAULT 60,
+            hourly_rate DECIMAL(10,2) DEFAULT NULL,
+            monthly_salary DECIMAL(10,2) DEFAULT NULL,
+            per_km_rate DECIMAL(10,2) DEFAULT NULL,
+            updated_by INT DEFAULT NULL,
+            updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+            PRIMARY KEY (worker_type, worker_id)
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4");
+        $pdo->exec("CREATE TABLE IF NOT EXISTS gig_order_payouts (
+            id INT AUTO_INCREMENT PRIMARY KEY,
+            order_id INT NOT NULL,
+            rider_id INT NOT NULL,
+            billable_km DECIMAL(8,2) NOT NULL,
+            rate_per_km DECIMAL(10,2) NOT NULL,
+            payout_amount DECIMAL(10,2) NOT NULL,
+            confirmed_by INT NOT NULL,
+            confirmed_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            UNIQUE KEY uniq_gig_order_payout (order_id),
+            KEY idx_gig_payout_rider_time (rider_id, confirmed_at)
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4");
+        $pdo->exec("CREATE TABLE IF NOT EXISTS gig_payout_settings (
+            setting_id TINYINT UNSIGNED NOT NULL PRIMARY KEY,
+            common_billable_km DECIMAL(8,2) NOT NULL,
+            updated_by INT DEFAULT NULL,
+            updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4");
 
         if (!$hasTable('delivery_manifests')) {
             $pdo->exec("CREATE TABLE IF NOT EXISTS delivery_manifests (

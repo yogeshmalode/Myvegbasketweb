@@ -50,10 +50,31 @@ if ($auto) {
 }
 
 if ($riderId !== null) {
-    $rider = $pdo->prepare('SELECT id FROM riders WHERE id = ? AND is_active = 1');
+    $rider = $pdo->prepare('SELECT id, availability_status FROM riders WHERE id = ? AND is_active = 1');
     $rider->execute([$riderId]);
-    if (!$rider->fetch()) {
+    $riderRow = $rider->fetch();
+    if (!$riderRow) {
         echo json_encode(['success'=>false,'error'=>'Selected rider is invalid or inactive']);
+        exit;
+    }
+    if ($riderRow['availability_status'] !== 'available' && $riderId !== $previousRiderId) {
+        echo json_encode(['success'=>false,'error'=>'Selected rider is not available']);
+        exit;
+    }
+    $attendance = $pdo->prepare("SELECT 1 FROM worker_attendance
+        WHERE worker_type = 'rider' AND worker_id = ? AND clock_out_at IS NULL LIMIT 1");
+    $attendance->execute([$riderId]);
+    if (!$attendance->fetchColumn()) {
+        echo json_encode(['success'=>false,'error'=>'Selected rider must clock in before an order can be assigned']);
+        exit;
+    }
+    $otherActiveOrder = $pdo->prepare("SELECT id FROM orders
+        WHERE rider_id = ? AND id <> ?
+          AND order_status IN ('delivery_partner_assigned', 'out_for_delivery', 'arriving_soon')
+        LIMIT 1");
+    $otherActiveOrder->execute([$riderId, $orderId]);
+    if ($otherActiveOrder->fetchColumn()) {
+        echo json_encode(['success'=>false,'error'=>'Selected rider already has an active delivery']);
         exit;
     }
 }

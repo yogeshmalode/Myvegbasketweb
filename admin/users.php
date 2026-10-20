@@ -7,17 +7,36 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['create_user'])) {
     require_csrf();
     $username = trim($_POST['username'] ?? '');
     $userPass = trim($_POST['password'] ?? '');
-    $role = in_array($_POST['role'] ?? '', ['admin', 'staff', 'delivery'], true) ? $_POST['role'] : 'staff';
+    $role = $_POST['role'] ?? '';
+    $employmentType = $_POST['employment_type'] ?? '';
     $storeId = ($role !== 'admin' && !empty($_POST['dark_store_id'])) ? (int)$_POST['dark_store_id'] : null;
-    if (strlen($username) < 3 || strlen($userPass) < 6) {
-        $_SESSION['flash'] = ['type' => 'error', 'message' => 'Username must be 3+ characters and password 6+ characters.'];
+    if (!in_array($role, ['admin', 'staff', 'delivery'], true)
+        || strlen($username) < 3 || strlen($userPass) < 6
+        || ($role !== 'admin' && !in_array($employmentType, ['full_time', 'part_time'], true))) {
+        $_SESSION['flash'] = ['type' => 'error', 'message' => 'Select a valid role and worker type. Username must be 3+ characters and password 6+ characters.'];
     } else {
         try {
+            $pdo->beginTransaction();
             $st = $pdo->prepare("INSERT INTO admins (username, password, role, dark_store_id) VALUES (?, ?, ?, ?)");
             $st->execute([$username, password_hash($userPass, PASSWORD_DEFAULT), $role, $storeId]);
-            $_SESSION['flash'] = ['type' => 'success', 'message' => 'User created.'];
+            if ($role !== 'admin') {
+                $workerMinutes = $employmentType === 'part_time' ? 240 : 480;
+                $breakMinutes = $employmentType === 'part_time' ? 30 : 60;
+                $payMode = 'attendance_only';
+                $saveCompensation = $pdo->prepare("INSERT INTO worker_compensation
+                    (worker_type, worker_id, employment_type, pay_mode, shift_work_minutes, break_minutes, updated_by)
+                    VALUES ('staff', ?, ?, ?, ?, ?, ?)");
+                $saveCompensation->execute([(int)$pdo->lastInsertId(), $employmentType, $payMode, $workerMinutes, $breakMinutes, (int)($_SESSION['admin_id'] ?? 0)]);
+            }
+            $pdo->commit();
+            $_SESSION['flash'] = ['type' => 'success', 'message' => $role === 'admin' ? 'Admin account created.' : 'Worker account created with ' . ($employmentType === 'full_time' ? 'full-time' : 'part-time') . ' settings.'];
         } catch (PDOException $e) {
+            if ($pdo->inTransaction()) $pdo->rollBack();
             $_SESSION['flash'] = ['type' => 'error', 'message' => 'Could not create user; username may already exist.'];
+        } catch (Throwable $e) {
+            if ($pdo->inTransaction()) $pdo->rollBack();
+            error_log('Worker account creation failed: ' . $e->getMessage());
+            $_SESSION['flash'] = ['type' => 'error', 'message' => 'Could not create account. No user was created; please try again.'];
         }
     }
     header('Location: users.php');
@@ -63,8 +82,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['reset_password'])) {
     exit;
 }
 
-$q = $pdo->prepare("SELECT a.id, a.username, a.email, a.role, a.dark_store_id, a.can_procure, a.created_at, ds.name AS store_name, ds.procurement_mode
-    FROM admins a LEFT JOIN dark_stores ds ON ds.id = a.dark_store_id ORDER BY a.id");
+$q = $pdo->prepare("SELECT a.id, a.username, a.email, a.role, a.dark_store_id, a.can_procure, a.created_at,
+        ds.name AS store_name, ds.procurement_mode, compensation.employment_type
+    FROM admins a
+    LEFT JOIN dark_stores ds ON ds.id = a.dark_store_id
+    LEFT JOIN worker_compensation compensation
+      ON compensation.worker_type = 'staff' AND compensation.worker_id = a.id
+    ORDER BY a.id");
 $q->execute();
 $users = $q->fetchAll();
 $stores = $pdo->query("SELECT id, name, procurement_mode FROM dark_stores WHERE is_active = 1 ORDER BY name")->fetchAll();
@@ -82,10 +106,18 @@ include __DIR__ . '/includes/admin_header.php';
     <div class="form-group"><label>Password</label><input type="password" name="password" required minlength="6"></div>
     <div class="form-group">
       <label>Role</label>
-      <select name="role" id="newUserRole" onchange="document.getElementById('newUserStoreWrap').style.display = this.value==='admin' ? 'none' : 'block';">
+      <select name="role" id="newUserRole" onchange="updateNewUserFields()" required>
         <option value="staff">Staff</option>
         <option value="admin">Admin</option>
         <option value="delivery">Delivery</option>
+      </select>
+    </div>
+    <div class="form-group" id="newUserEmploymentWrap">
+      <label for="newUserEmployment">Worker type <span aria-hidden="true">*</span></label>
+      <select name="employment_type" id="newUserEmployment" required>
+        <option value="">Select permanent or part-time</option>
+        <option value="full_time">Permanent / full-time</option>
+        <option value="part_time">Part-time</option>
       </select>
     </div>
     <div class="form-group" id="newUserStoreWrap">
@@ -100,14 +132,27 @@ include __DIR__ . '/includes/admin_header.php';
     <button class="btn btn-primary">Create User</button>
   </form>
 </div>
+<script>
+function updateNewUserFields() {
+  const isAdmin = document.getElementById('newUserRole').value === 'admin';
+  const storeWrap = document.getElementById('newUserStoreWrap');
+  const employmentWrap = document.getElementById('newUserEmploymentWrap');
+  const employmentSelect = document.getElementById('newUserEmployment');
+  storeWrap.style.display = isAdmin ? 'none' : 'block';
+  employmentWrap.style.display = isAdmin ? 'none' : 'block';
+  employmentSelect.required = !isAdmin;
+}
+updateNewUserFields();
+</script>
 <div class="table-wrap" style="margin-top:25px">
   <table>
-    <tr><th>Username</th><th>Email</th><th>Role</th><th>Store</th><th>Can Procure</th><th>Created</th><th>Security</th></tr>
+    <tr><th>Username</th><th>Email</th><th>Role</th><th>Worker type</th><th>Store</th><th>Can Procure</th><th>Created</th><th>Security</th></tr>
     <?php foreach ($users as $u): ?>
       <tr>
         <td><?= h($u['username']) ?></td>
         <td><?= h($u['email'] ?: '—') ?></td>
         <td><?= h(ucfirst($u['role'])) ?></td>
+        <td><?= $u['employment_type'] ? h($u['employment_type'] === 'full_time' ? 'Permanent / full-time' : 'Part-time') : '—' ?></td>
         <td>
           <?php if ($u['role'] === 'admin'): ?>
             <span style="color:#5B6656;">All stores</span>

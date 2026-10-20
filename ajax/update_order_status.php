@@ -43,6 +43,9 @@ try {
     if ($status === 'processing' && $currentStatus === 'placed') {
         $updateFields[] = 'packing_started_at = NOW()';
     }
+    if ($status === 'ready_for_pickup' && $currentStatus === 'processing') {
+        $updateFields[] = 'packing_completed_at = UTC_TIMESTAMP()';
+    }
     if ($status === 'delivered') {
         $updateFields[] = 'delivered_at = NOW()';
     }

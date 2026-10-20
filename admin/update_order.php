@@ -48,12 +48,19 @@ if ($id && $type === 'payment' && in_array($value, $allowedPaymentValues, true))
             if ($normalized === 'processing' && $currentStatus === 'placed') {
                 $fields[] = 'packing_started_at = NOW()';
             }
+            if ($normalized === 'ready_for_pickup' && $currentStatus === 'processing') {
+                $fields[] = 'packing_completed_at = UTC_TIMESTAMP()';
+            }
             if ($normalized === 'delivered') {
                 $fields[] = 'delivered_at = NOW()';
             }
             $params[] = $id;
             $stmt = $pdo->prepare("UPDATE orders SET " . implode(', ', $fields) . " WHERE id = ?");
             $stmt->execute($params);
+            $riderAssignment = null;
+            if ($normalized === 'ready_for_pickup' && $currentStatus === 'processing') {
+                $riderAssignment = auto_assign_ready_order_to_nearest_rider($pdo, $id);
+            }
             if (in_array($normalized, ['delivered', 'cancelled'], true) && !empty($order['rider_id'])) {
                 $pdo->prepare("UPDATE riders SET availability_status = 'available' WHERE id = ?")->execute([(int)$order['rider_id']]);
                 // Rider just freed up — immediately hand them the next
@@ -65,7 +72,13 @@ if ($id && $type === 'payment' && in_array($value, $allowedPaymentValues, true))
                 // actually sold — put it back on the shelf now.
                 restock_cancelled_order($pdo, $id);
             }
-            $_SESSION['flash'] = ['type' => 'success', 'message' => "Order #$id status set to " . str_replace('_', ' ', $normalized) . "."];
+            $message = "Order #$id status set to " . str_replace('_', ' ', $normalized) . ".";
+            if ($riderAssignment) {
+                $message .= $riderAssignment['assigned']
+                    ? ' Automatically assigned to rider ' . $riderAssignment['rider_name'] . '.'
+                    : ' Rider assignment pending: ' . $riderAssignment['reason'] . '.';
+            }
+            $_SESSION['flash'] = ['type' => 'success', 'message' => $message];
             $ok = true;
         }
     }
