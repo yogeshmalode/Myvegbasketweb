@@ -2,10 +2,21 @@
 require_once __DIR__ . '/includes/auth.php';
 $page_title = 'Picking Sheet';
 $orderIdsParam = $_GET['orders'] ?? '';
-$orderIds = array_values(array_filter(array_map('intval', explode(',', $orderIdsParam))));
+$orderIds = array_values(array_unique(array_filter(array_map('intval', explode(',', $orderIdsParam)))));
 if (!$orderIds) {
     echo '<p>No orders specified.</p>';
     exit;
+}
+
+if (session_store_id() !== null) {
+    $scopePlaceholders = implode(',', array_fill(0, count($orderIds), '?'));
+    $scopeStmt = $pdo->prepare("SELECT COUNT(DISTINCT id) FROM orders
+        WHERE id IN ($scopePlaceholders) AND (dark_store_id = ? OR dark_store_id IS NULL)");
+    $scopeStmt->execute(array_merge($orderIds, [session_store_id()]));
+    if ((int)$scopeStmt->fetchColumn() !== count($orderIds)) {
+        http_response_code(403);
+        exit('Access denied.');
+    }
 }
 
 $placeholders = implode(',', array_fill(0, count($orderIds), '?'));

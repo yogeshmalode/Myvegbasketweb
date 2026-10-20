@@ -1,9 +1,15 @@
 <?php
 require_once __DIR__ . '/includes/auth.php';
 
-$id    = (int)($_GET['id'] ?? 0);
-$type  = $_GET['type'] ?? '';
-$value = $_GET['value'] ?? '';
+if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
+    http_response_code(405);
+    exit('Method not allowed.');
+}
+require_csrf();
+
+$id    = (int)($_POST['id'] ?? 0);
+$type  = $_POST['type'] ?? '';
+$value = $_POST['value'] ?? '';
 
 // A store-restricted staff/delivery login can only act on orders belonging
 // to their own store (or one whose store hasn't been auto-resolved yet) —

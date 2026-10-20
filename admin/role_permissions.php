@@ -29,12 +29,22 @@ $allPages = [
     'route_sheet.php' => 'Route Sheet',
 ];
 $roles = ['staff', 'delivery'];
+$rolePages = [
+    'staff' => [
+        'orders.php' => $allPages['orders.php'],
+        'picking_sheet.php' => $allPages['picking_sheet.php'],
+        'attendance.php' => 'Attendance & Hours',
+    ],
+    'delivery' => $allPages,
+];
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     require_csrf();
     $role = in_array($_POST['role'] ?? '', $roles, true) ? $_POST['role'] : null;
     if ($role) {
-        $selectedPages = array_intersect((array)($_POST['pages'] ?? []), array_keys($allPages));
+        $selectedPages = $role === 'staff'
+            ? array_keys($rolePages['staff'])
+            : array_intersect((array)($_POST['pages'] ?? []), array_keys($rolePages[$role]));
         $pdo->prepare('DELETE FROM role_page_permissions WHERE role = ?')->execute([$role]);
         if ($selectedPages) {
             $ins = $pdo->prepare('INSERT IGNORE INTO role_page_permissions (role, page) VALUES (?, ?)');
@@ -53,7 +63,7 @@ foreach ($roles as $role) {
 }
 include __DIR__ . '/includes/admin_header.php';
 ?>
-<div class="section-head"><h2>Role Permissions</h2><p>Choose exactly which pages Staff and Delivery accounts can open. Admin always has full access.</p></div>
+<div class="section-head"><h2>Role Permissions</h2><p>Staff access is limited to Orders, Picking Sheet, and Attendance &amp; Hours. Delivery permissions can be selected below. Admin always has full access.</p></div>
 <?php if(!empty($_SESSION['flash'])){ echo '<div class="alert alert-'.h($_SESSION['flash']['type']).'">'.h($_SESSION['flash']['message']).'</div>'; unset($_SESSION['flash']); } ?>
 
 <div style="display:flex; gap:20px; flex-wrap:wrap;">
@@ -64,14 +74,18 @@ include __DIR__ . '/includes/admin_header.php';
       <input type="hidden" name="csrf_token" value="<?= h(csrf_token()) ?>">
       <input type="hidden" name="role" value="<?= h($role) ?>">
       <div style="display:grid; grid-template-columns:1fr 1fr; gap:6px; margin:12px 0;">
-        <?php foreach ($allPages as $page => $label): ?>
+        <?php foreach ($rolePages[$role] as $page => $label): ?>
           <label style="display:flex; align-items:center; gap:6px; font-weight:600; font-size:0.85rem;">
-            <input type="checkbox" name="pages[]" value="<?= h($page) ?>" <?= in_array($page, $currentPerms[$role], true) ? 'checked' : '' ?>>
+            <input type="checkbox" name="pages[]" value="<?= h($page) ?>" <?= $role === 'staff' || in_array($page, $currentPerms[$role], true) ? 'checked' : '' ?> <?= $role === 'staff' ? 'disabled' : '' ?>>
             <?= h($label) ?>
           </label>
         <?php endforeach; ?>
       </div>
-      <button class="btn btn-primary">Save <?= ucfirst($role) ?> Permissions</button>
+      <?php if ($role === 'staff'): ?>
+        <p>These are the fixed staff permissions. Other management options remain Admin-only.</p>
+      <?php else: ?>
+        <button class="btn btn-primary">Save <?= ucfirst($role) ?> Permissions</button>
+      <?php endif; ?>
     </form>
   </div>
 <?php endforeach; ?>

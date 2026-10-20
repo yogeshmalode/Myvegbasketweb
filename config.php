@@ -296,6 +296,19 @@ function require_page_access($pdo, $currentPage) {
     if ($role === 'admin' || $role === null) return;
     if (in_array($currentPage, rbac_always_allowed_pages(), true)) return;
 
+    // Order actions are used from the Orders workspace and follow the same
+    // role permission as that page.
+    $orderWorkflowPages = [
+        'update_order.php',
+        'update_order_status.php',
+        'assign_picker.php',
+        'assign_rider.php',
+        'picking_sheet.php',
+    ];
+    if (in_array($currentPage, $orderWorkflowPages, true)) {
+        $currentPage = 'orders.php';
+    }
+
     // store_procurement.php isn't gated by the normal per-role table — it's
     // a per-user grant (admins.can_procure) combined with that user's own
     // store being in 'independent' mode, so it needs its own check instead
@@ -1329,6 +1342,18 @@ function ensure_management_schema($pdo) {
             $insAttendancePermission->execute(['staff']);
             $insAttendancePermission->execute(['delivery']);
             $markMigrationApplied('grant_worker_attendance_2026_10');
+        }
+        if (!$migrationApplied('grant_staff_order_operations_2026_10')) {
+            $insOrderPermission = $pdo->prepare("INSERT IGNORE INTO role_page_permissions (role, page) VALUES ('staff', ?)");
+            $insOrderPermission->execute(['orders.php']);
+            $insOrderPermission->execute(['picking_sheet.php']);
+            $markMigrationApplied('grant_staff_order_operations_2026_10');
+        }
+        if (!$migrationApplied('limit_staff_permissions_2026_10')) {
+            $pdo->exec("DELETE FROM role_page_permissions
+                WHERE role = 'staff'
+                  AND page NOT IN ('orders.php', 'picking_sheet.php', 'attendance.php')");
+            $markMigrationApplied('limit_staff_permissions_2026_10');
         }
 
         // ---- Product categories: a proper managed list instead of free-

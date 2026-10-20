@@ -15,6 +15,12 @@ $ord = $pdo->prepare('SELECT id, rider_id, dark_store_id, address_lat, address_l
 $ord->execute([$orderId]);
 $order = $ord->fetch();
 if (!$order) { echo json_encode(['success'=>false,'error'=>'Order not found']); exit; }
+if (session_store_id() !== null && $order['dark_store_id'] !== null
+    && (int)$order['dark_store_id'] !== session_store_id()) {
+    http_response_code(403);
+    echo json_encode(['success'=>false,'error'=>'This order belongs to a different store']);
+    exit;
+}
 $currentStatus = normalize_order_status($order['order_status']);
 if (!in_array($currentStatus, ['ready_for_pickup', 'assigning_rider', 'delivery_partner_assigned'], true)) {
     echo json_encode(['success'=>false,'error'=>'Rider can only be assigned after the order is ready for pickup.']);

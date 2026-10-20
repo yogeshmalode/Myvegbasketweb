@@ -14,10 +14,17 @@ if ($orderId <= 0) {
     exit;
 }
 
-$ord = $pdo->prepare('SELECT id FROM orders WHERE id = ?');
+$ord = $pdo->prepare('SELECT id, dark_store_id FROM orders WHERE id = ?');
 $ord->execute([$orderId]);
-if (!$ord->fetch()) {
+$order = $ord->fetch();
+if (!$order) {
     echo json_encode(['success'=>false,'error'=>'Order not found']);
+    exit;
+}
+if (session_store_id() !== null && $order['dark_store_id'] !== null
+    && (int)$order['dark_store_id'] !== session_store_id()) {
+    http_response_code(403);
+    echo json_encode(['success'=>false,'error'=>'This order belongs to a different store']);
     exit;
 }
 

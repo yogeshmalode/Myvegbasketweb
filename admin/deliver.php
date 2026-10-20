@@ -30,7 +30,7 @@ include __DIR__ . '/includes/admin_header.php';
     <label style="display:block; font-weight:600; margin-bottom:6px;">Order status</label>
     <select
       style="font-weight:700; font-size:0.9rem; padding:8px 12px; border-radius:8px; border:1px solid #D9E0CD; cursor:pointer;"
-      onchange="if(this.value) window.location='update_order.php?id=<?= $order['id'] ?>&type=order&value='+this.value;">
+      onchange="if(this.value) submitOrderStatus(this.value);">
       <?php foreach ($orderStatusOptions as $val => $label): ?>
         <option value="<?= $val ?>" <?= $order['order_status'] === $val ? 'selected' : '' ?>><?= h($label) ?></option>
       <?php endforeach; ?>
@@ -71,6 +71,21 @@ include __DIR__ . '/includes/admin_header.php';
 </div>
 
 <script>
+function submitOrderStatus(status) {
+  const form = document.createElement('form');
+  form.method = 'post';
+  form.action = 'update_order.php';
+  [['id', <?= (int)$order['id'] ?>], ['type', 'order'], ['value', status], ['csrf_token', '<?= h(csrf_token()) ?>']].forEach(([name, value]) => {
+    const input = document.createElement('input');
+    input.type = 'hidden';
+    input.name = name;
+    input.value = value;
+    form.appendChild(input);
+  });
+  document.body.appendChild(form);
+  form.submit();
+}
+
 const orderId = <?= (int)$order['id'] ?>;
 const addressLat = <?= $order['address_lat'] !== null ? (float)$order['address_lat'] : 'null' ?>;
 const addressLng = <?= $order['address_lng'] !== null ? (float)$order['address_lng'] : 'null' ?>;

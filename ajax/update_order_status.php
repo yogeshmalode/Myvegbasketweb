@@ -11,12 +11,19 @@ $allowed = array_keys(get_order_status_options());
 if ($id<=0 || !in_array($status, $allowed, true)) { echo json_encode(['success'=>false,'error'=>'Invalid']); exit; }
 try {
     $pdo->beginTransaction();
-    $orderStmt = $pdo->prepare('SELECT id, order_status, rider_id FROM orders WHERE id = ? FOR UPDATE');
+    $orderStmt = $pdo->prepare('SELECT id, order_status, rider_id, dark_store_id FROM orders WHERE id = ? FOR UPDATE');
     $orderStmt->execute([$id]);
     $order = $orderStmt->fetch();
     if (!$order) {
         $pdo->rollBack();
         echo json_encode(['success'=>false,'error'=>'Order not found']);
+        exit;
+    }
+    if (session_store_id() !== null && $order['dark_store_id'] !== null
+        && (int)$order['dark_store_id'] !== session_store_id()) {
+        $pdo->rollBack();
+        http_response_code(403);
+        echo json_encode(['success'=>false,'error'=>'This order belongs to a different store']);
         exit;
     }
 

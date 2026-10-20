@@ -399,7 +399,18 @@ function setOrderStatus(orderId, status) {
 
 function verifyPayment(orderId) {
   if (!confirm('Mark order #' + orderId + ' as paid? Only do this after you have verified the UPI payment in your app.')) return;
-  window.location = 'update_order.php?id=' + orderId + '&type=payment&value=paid';
+  const form = document.createElement('form');
+  form.method = 'post';
+  form.action = 'update_order.php';
+  [['id', orderId], ['type', 'payment'], ['value', 'paid'], ['csrf_token', CSRF_TOKEN]].forEach(([name, value]) => {
+    const input = document.createElement('input');
+    input.type = 'hidden';
+    input.name = name;
+    input.value = value;
+    form.appendChild(input);
+  });
+  document.body.appendChild(form);
+  form.submit();
 }
 
 function assignRider(orderId) {

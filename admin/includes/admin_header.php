@@ -22,6 +22,7 @@ $current_page = basename($_SERVER['PHP_SELF']);
     <span class="admin-user-avatar"><?= h(strtoupper(substr($admin_username,0,1))) ?></span>
     <span class="admin-user-copy"><strong><?= h($admin_username) ?></strong><small><?= h($admin_role_label) ?></small></span>
     <span class="admin-user-chevron">⌄</span>
+    <a href="logout.php" aria-label="Log out" style="margin-left:12px; padding:8px 12px; border:1px solid rgba(255,255,255,.55); border-radius:8px; color:#fff; font-size:.85rem; font-weight:700; white-space:nowrap;">⇥ Logout</a>
   </div>
 </header>
 
