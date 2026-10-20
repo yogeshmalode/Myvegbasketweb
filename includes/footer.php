@@ -8,6 +8,7 @@
       <h4 style="color:#fff; font-size:1rem;">Shop</h4>
       <p><a href="<?= BASE_URL ?>/index.php" style="color:#B7C9AC;">All vegetables</a></p>
       <p><a href="<?= BASE_URL ?>/cart.php" style="color:#B7C9AC;">My cart</a></p>
+      <p><a href="<?= BASE_URL ?>/employee_login.php" style="color:#B7C9AC;">Team Portal</a></p>
       <p><a href="<?= BASE_URL ?>/photo_credits.php" style="color:#B7C9AC;">Product photo credits</a></p>
     </div>
     <div>

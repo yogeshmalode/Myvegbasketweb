@@ -126,6 +126,9 @@ include __DIR__ . '/../includes/header.php';
         </div>
         <button type="submit" class="btn btn-primary btn-block">Login</button>
       </form>
+      <p style="text-align:center; margin:16px 0 0;">
+        <a href="<?= BASE_URL ?>/employee_login.php" style="color:#3F8B52; font-size:0.9rem;">&larr; Choose employee login</a>
+      </p>
     </div>
   </div>
 </div>

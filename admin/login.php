@@ -5,6 +5,13 @@ if (is_admin_logged_in()) {
     redirect('dashboard.php');
 }
 
+$employeeRole = $_POST['employee'] ?? $_GET['employee'] ?? '';
+$employeeRoles = [
+    'staff' => ['role' => 'staff', 'title' => 'Staff Login'],
+    'delivery' => ['role' => 'delivery', 'title' => 'Delivery Staff Login'],
+    'admin' => ['role' => 'admin', 'title' => 'Admin Login'],
+];
+$loginContext = is_string($employeeRole) ? ($employeeRoles[$employeeRole] ?? null) : null;
 $error = '';
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     require_csrf();
@@ -19,14 +26,18 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     if ($lockSeconds > 0) {
         $error = 'Too many failed attempts. Try again in ' . ceil($lockSeconds / 60) . ' minute(s).';
     } elseif ($admin && password_verify($password, $admin['password'])) {
-        reset_failed_login($pdo, 'admins', $admin['id']);
-        session_regenerate_id(true);
-        $_SESSION['admin_id'] = $admin['id'];
-        $_SESSION['admin_username'] = $admin['username'];
-        $_SESSION['admin_role'] = $admin['role'] ?? 'admin';
-        $_SESSION['admin_store_id'] = $admin['dark_store_id'] ?? null;
-        $_SESSION['admin_must_change_password'] = !empty($admin['must_change_password']);
-        redirect('dashboard.php');
+        if ($loginContext && $admin['role'] !== $loginContext['role']) {
+            $error = 'This account does not match the selected login. Return to Employee Login and choose the correct role.';
+        } else {
+            reset_failed_login($pdo, 'admins', $admin['id']);
+            session_regenerate_id(true);
+            $_SESSION['admin_id'] = $admin['id'];
+            $_SESSION['admin_username'] = $admin['username'];
+            $_SESSION['admin_role'] = $admin['role'] ?? 'admin';
+            $_SESSION['admin_store_id'] = $admin['dark_store_id'] ?? null;
+            $_SESSION['admin_must_change_password'] = !empty($admin['must_change_password']);
+            redirect('dashboard.php');
+        }
     } else {
         if ($admin) record_failed_login($pdo, 'admins', $admin['id']);
         $error = 'Invalid username or password.';
@@ -37,18 +48,19 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 <html lang="en">
 <head>
 <meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Admin Login | MyVegBasket</title>
+<title><?= h($loginContext['title'] ?? 'Admin / Staff Login') ?> | MyVegBasket</title>
 <link rel="stylesheet" href="../assets/css/style.css">
 </head>
 <body style="display:flex; align-items:center; justify-content:center; min-height:100vh;">
 <div class="form-card" style="max-width:380px; width:100%;">
-  <h2 style="margin-bottom:6px; display:flex; align-items:center; justify-content:center; gap:8px;"><img src="<?= BASE_URL ?>/assets/images/logo-icon.png" alt="" style="height:30px; width:auto;"> MyVegBasket Admin</h2>
-  <p style="color:#5B6656; margin-bottom:20px; font-size:0.9rem;">Sign in to manage the vegetable catalog.</p>
+  <h2 style="margin-bottom:6px; display:flex; align-items:center; justify-content:center; gap:8px;"><img src="<?= BASE_URL ?>/assets/images/logo-icon.png" alt="" style="height:30px; width:auto;"> MyVegBasket <?= h($loginContext['title'] ?? 'Admin / Staff Login') ?></h2>
+  <p style="color:#5B6656; margin-bottom:20px; font-size:0.9rem;">Use the username and password assigned to this account.</p>
 
   <?php if ($error): ?><div class="alert alert-error"><?= h($error) ?></div><?php endif; ?>
 
   <form method="post">
     <input type="hidden" name="csrf_token" value="<?= h(csrf_token()) ?>">
+    <?php if ($loginContext): ?><input type="hidden" name="employee" value="<?= h($employeeRole) ?>"><?php endif; ?>
     <div class="form-group">
       <label for="username">Username</label>
       <input type="text" id="username" name="username" required autofocus>
@@ -60,7 +72,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     <button type="submit" class="btn btn-primary btn-block">Log in</button>
   </form>
   <p style="text-align:center; margin-top:14px;"><a href="forgot_password.php" style="color:#3F8B52; font-size:0.9rem;">Forgot password?</a></p>
-  <p style="text-align:center; margin-top:16px;"><a href="<?= BASE_URL ?>/index.php" style="color:#3F8B52; font-size:0.9rem;">&larr; Back to store</a></p>
+  <p style="text-align:center; margin-top:16px;"><a href="<?= BASE_URL ?>/employee_login.php" style="color:#3F8B52; font-size:0.9rem;">&larr; Choose employee login</a></p>
 </div>
 </body>
 </html>
