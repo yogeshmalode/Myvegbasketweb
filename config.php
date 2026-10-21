@@ -2755,19 +2755,29 @@ function veg_emoji($name) {
 // products never require a code change), then a local image from the
 // /img directory when available, otherwise a curated fallback, then the
 // emoji fallback.
-function veg_thumb_html($veg, $showLoader = false) {
-    $renderImage = static function($src, $alt, $extraAttributes = '') use ($showLoader) {
+function veg_thumb_html($veg, $showLoader = false, $loading = 'lazy', $fetchPriority = 'auto') {
+    $loading = $loading === 'eager' ? 'eager' : 'lazy';
+    $fetchPriority = in_array($fetchPriority, ['high', 'low'], true) ? $fetchPriority : 'auto';
+    $renderImage = static function($src, $alt, $extraAttributes = '') use ($showLoader, $loading, $fetchPriority) {
         $loader = $showLoader
             ? '<span class="product-image-placeholder animate-pulse" aria-hidden="true"></span>'
             : '';
         $onload = $showLoader ? ' onload="this.previousElementSibling.classList.add(\'is-hidden\')"' : '';
         $onerror = $showLoader ? ' onerror="this.previousElementSibling.classList.add(\'is-hidden\')"' : '';
-        return $loader . '<img src="' . h($src) . '" alt="' . h($alt) . '" loading="lazy" decoding="async"'
+        return $loader . '<img src="' . h($src) . '" alt="' . h($alt) . '" loading="' . $loading . '" fetchpriority="' . $fetchPriority . '" decoding="async"'
             . $extraAttributes . $onload . $onerror
             . ' style="width:100%; height:100%; object-fit:contain; display:block; border-radius:10px; background:#fff; padding:6px; box-sizing:border-box;">';
     };
     if (!empty($veg['image_path']) && file_exists(__DIR__ . '/' . ltrim($veg['image_path'], '/'))) {
-        return $renderImage(BASE_URL . '/' . ltrim($veg['image_path'], '/'), $veg['name']);
+        $imagePath = ltrim($veg['image_path'], '/');
+        $extension = strtolower(pathinfo($imagePath, PATHINFO_EXTENSION));
+        if (in_array($extension, ['jpg', 'jpeg', 'png'], true)) {
+            $webpPath = substr($imagePath, 0, -strlen($extension)) . 'webp';
+            if (is_file(__DIR__ . '/' . $webpPath)) {
+                $imagePath = $webpPath;
+            }
+        }
+        return $renderImage(BASE_URL . '/' . $imagePath, $veg['name']);
     }
 
     $slug = strtolower(preg_replace('/[^a-z0-9]/i', '', $veg['name']));
@@ -2858,6 +2868,10 @@ function veg_thumb_html($veg, $showLoader = false) {
                 continue;
             }
 
+            $webpFile = pathinfo($file, PATHINFO_FILENAME) . '.webp';
+            if (is_file($directory . '/' . $webpFile)) {
+                $file = $webpFile;
+            }
             $relative = '/img/' . $file;
             return $renderImage(BASE_URL . $relative, $veg['name']);
         }
@@ -2870,7 +2884,7 @@ function veg_thumb_html($veg, $showLoader = false) {
         return $localMatch;
     }
 
-    foreach (['jpg', 'jpeg', 'png', 'webp'] as $ext) {
+    foreach (['webp', 'jpg', 'jpeg', 'png'] as $ext) {
         foreach ($candidates as $fileName) {
             $relative = "/img/$fileName.$ext";
             if (file_exists(__DIR__ . $relative)) {
@@ -2879,7 +2893,7 @@ function veg_thumb_html($veg, $showLoader = false) {
         }
     }
 
-    foreach (['jpg', 'jpeg', 'png', 'webp'] as $ext) {
+    foreach (['webp', 'jpg', 'jpeg', 'png'] as $ext) {
         $relative = "/assets/images/$slug.$ext";
         if (file_exists(__DIR__ . $relative)) {
             return $renderImage(BASE_URL . $relative, $veg['name']);
@@ -2891,7 +2905,7 @@ function veg_thumb_html($veg, $showLoader = false) {
         $remote = 'https://commons.wikimedia.org/wiki/Special:Redirect/file/' . rawurlencode($file);
         $fallback = veg_emoji($veg['name']);
         return ($showLoader ? '<span class="product-image-placeholder animate-pulse" aria-hidden="true"></span>' : '')
-             . '<img src="' . h($remote) . '" alt="' . h($veg['name']) . '" loading="lazy" decoding="async" referrerpolicy="no-referrer" '
+             . '<img src="' . h($remote) . '" alt="' . h($veg['name']) . '" loading="' . $loading . '" fetchpriority="' . $fetchPriority . '" decoding="async" referrerpolicy="no-referrer" '
              . ($showLoader ? 'onload="this.previousElementSibling.classList.add(\'is-hidden\')" ' : '')
              . 'onerror="this.style.display=\'none\';var p=this.previousElementSibling;if(p&&p.classList.contains(\'product-image-placeholder\'))p.classList.add(\'is-hidden\');this.nextElementSibling.style.display=\'flex\';" '
              . 'style="width:100%; height:100%; object-fit:contain; display:block; border-radius:10px; background:#fff; padding:6px; box-sizing:border-box;">'

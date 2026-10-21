@@ -78,7 +78,7 @@ if ($vegetables): ?>
 <?php endif; ?>
 
 <?php
-$renderProductCard = static function (array $veg, bool $compact = false) use ($pdo, $variantsByVeg): string {
+$renderProductCard = static function (array $veg, bool $compact = false, bool $eagerImage = false, bool $prioritizeImage = false) use ($pdo, $variantsByVeg): string {
     $variants = $variantsByVeg[$veg['id']] ?? [];
     $cartPrice = $variants
         ? (float)$variants[0]['price']
@@ -90,7 +90,7 @@ $renderProductCard = static function (array $veg, bool $compact = false) use ($p
     ?>
     <article class="veg-card quick-product-card<?= $compact ? ' sponsored-product-card' : '' ?>" data-id="<?= (int)$veg['id'] ?>">
       <div class="quick-product-image relative w-full aspect-square bg-gray-100 rounded-xl overflow-hidden">
-        <?= veg_thumb_html($veg, true) ?>
+        <?= veg_thumb_html($veg, true, $eagerImage ? 'eager' : 'lazy', $prioritizeImage ? 'high' : 'auto') ?>
         <?php if ($compact): ?><span class="product-promo-badge">Offer</span><?php endif; ?>
       </div>
       <div class="quick-product-copy">
@@ -327,8 +327,8 @@ $showStorefrontPromotions = $category === '' || $category === 'All';
         </div>
         <?php if ($dealProducts): ?>
           <div class="sponsored-row">
-            <?php foreach (array_slice($dealProducts, 0, 10) as $dealProduct): ?>
-              <?= $renderProductCard($dealProduct, true) ?>
+            <?php foreach (array_slice($dealProducts, 0, 10) as $dealIndex => $dealProduct): ?>
+              <?= $renderProductCard($dealProduct, true, $dealIndex === 0, $dealIndex === 0) ?>
             <?php endforeach; ?>
           </div>
           <p class="ad-disclosure">Deal-priced products shown here. Paid sponsored placements will be labelled when available.</p>
@@ -363,8 +363,8 @@ $showStorefrontPromotions = $category === '' || $category === 'All';
           </div>
         <?php else: ?>
           <div class="veg-grid">
-            <?php foreach ($vegetables as $veg): ?>
-              <?= $renderProductCard($veg) ?>
+            <?php foreach ($vegetables as $productIndex => $veg): ?>
+              <?= $renderProductCard($veg, false, $productIndex < 4, $productIndex === 0) ?>
             <?php endforeach; ?>
           </div>
         <?php endif; ?>
