@@ -47,3 +47,17 @@ Options All -Indexes
 # Disable server signature start
 	ServerSignature Off
 # Disable server signature end
+
+# Cache product images for one month. Keep the rule limited to image files.
+<IfModule mod_expires.c>
+	ExpiresActive On
+	<FilesMatch "\.(webp|png|jpe?g)$">
+		ExpiresDefault "access plus 1 month"
+	</FilesMatch>
+</IfModule>
+
+<IfModule mod_headers.c>
+	<FilesMatch "\.(webp|png|jpe?g)$">
+		Header set Cache-Control "public, max-age=2592000"
+	</FilesMatch>
+</IfModule>

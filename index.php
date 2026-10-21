@@ -89,8 +89,8 @@ $renderProductCard = static function (array $veg, bool $compact = false) use ($p
     ob_start();
     ?>
     <article class="veg-card quick-product-card<?= $compact ? ' sponsored-product-card' : '' ?>" data-id="<?= (int)$veg['id'] ?>">
-      <div class="quick-product-image">
-        <?= veg_thumb_html($veg) ?>
+      <div class="quick-product-image relative w-full aspect-square bg-gray-100 rounded-xl overflow-hidden">
+        <?= veg_thumb_html($veg, true) ?>
         <?php if ($compact): ?><span class="product-promo-badge">Offer</span><?php endif; ?>
       </div>
       <div class="quick-product-copy">

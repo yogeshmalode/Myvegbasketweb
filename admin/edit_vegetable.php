@@ -135,7 +135,7 @@ include __DIR__ . '/includes/admin_header.php';
     </div>
     <div class="form-group">
       <label for="image">Product photo (optional)</label>
-      <p style="color:#5B6656; font-size:0.82rem; margin:2px 0 10px;">Browse a photo from your computer — JPG, PNG, or WEBP, up to 5 MB. Uploading a new one replaces the current photo automatically.</p>
+      <p style="color:#5B6656; font-size:0.82rem; margin:2px 0 10px;">Browse a photo from your computer — JPG, PNG, or WEBP, up to 5 MB. JPG and PNG photos are automatically converted to WebP.</p>
       <?php if (!empty($veg['image_path'])): ?>
         <div style="margin-bottom:10px;">
           <img src="<?= h(BASE_URL . '/' . ltrim($veg['image_path'], '/')) ?>" alt="Current photo" style="width:120px; height:120px; object-fit:contain; background:#fff; border:1px solid #D9E0CD; border-radius:10px; padding:6px;">

@@ -2,6 +2,7 @@
 // =========================================================
 // VegBasket - Central Configuration
 // =========================================================
+require_once __DIR__ . '/lib/vegetable_image_optimizer.php';
 
 // ---- Database settings (edit these for your server) ----
 define('DB_HOST', 'localhost');
@@ -2603,22 +2604,37 @@ function handle_vegetable_image_upload($fileField, $oldPath = null) {
 
     $allowedMimes = ['image/jpeg' => 'jpg', 'image/png' => 'png', 'image/webp' => 'webp'];
     $finfo = finfo_open(FILEINFO_MIME_TYPE);
+    if (!$finfo) {
+        return ['path' => null, 'error' => 'Could not validate the uploaded image on this server.'];
+    }
     $mime = finfo_file($finfo, $file['tmp_name']);
     finfo_close($finfo);
     if (!isset($allowedMimes[$mime])) {
         return ['path' => null, 'error' => 'Please upload a JPG, PNG, or WEBP image.'];
     }
+    $imageInfo = @getimagesize($file['tmp_name']);
+    if (!$imageInfo || ($imageInfo['mime'] ?? '') !== $mime) {
+        return ['path' => null, 'error' => 'The uploaded file is not a valid JPG, PNG, or WEBP image.'];
+    }
 
     $uploadDir = __DIR__ . '/uploads/vegetables';
     if (!is_dir($uploadDir)) {
-        mkdir($uploadDir, 0755, true);
+        if (!mkdir($uploadDir, 0755, true) && !is_dir($uploadDir)) {
+            return ['path' => null, 'error' => 'Could not create the vegetable image upload directory.'];
+        }
     }
 
-    $ext = $allowedMimes[$mime];
+    $convertToWebp = in_array($mime, ['image/jpeg', 'image/png'], true);
+    $ext = $convertToWebp ? 'webp' : $allowedMimes[$mime];
     $filename = bin2hex(random_bytes(8)) . '.' . $ext;
     $destination = $uploadDir . '/' . $filename;
 
-    if (!move_uploaded_file($file['tmp_name'], $destination)) {
+    if ($convertToWebp) {
+        $conversionError = convert_vegetable_image_to_webp($file['tmp_name'], $destination, $mime);
+        if ($conversionError !== null) {
+            return ['path' => null, 'error' => $conversionError];
+        }
+    } elseif (!move_uploaded_file($file['tmp_name'], $destination)) {
         return ['path' => null, 'error' => 'Could not save the uploaded image. Please try again.'];
     }
 
@@ -2739,10 +2755,19 @@ function veg_emoji($name) {
 // products never require a code change), then a local image from the
 // /img directory when available, otherwise a curated fallback, then the
 // emoji fallback.
-function veg_thumb_html($veg) {
+function veg_thumb_html($veg, $showLoader = false) {
+    $renderImage = static function($src, $alt, $extraAttributes = '') use ($showLoader) {
+        $loader = $showLoader
+            ? '<span class="product-image-placeholder animate-pulse" aria-hidden="true"></span>'
+            : '';
+        $onload = $showLoader ? ' onload="this.previousElementSibling.classList.add(\'is-hidden\')"' : '';
+        $onerror = $showLoader ? ' onerror="this.previousElementSibling.classList.add(\'is-hidden\')"' : '';
+        return $loader . '<img src="' . h($src) . '" alt="' . h($alt) . '" loading="lazy" decoding="async"'
+            . $extraAttributes . $onload . $onerror
+            . ' style="width:100%; height:100%; object-fit:contain; display:block; border-radius:10px; background:#fff; padding:6px; box-sizing:border-box;">';
+    };
     if (!empty($veg['image_path']) && file_exists(__DIR__ . '/' . ltrim($veg['image_path'], '/'))) {
-        return '<img src="' . BASE_URL . '/' . ltrim(h($veg['image_path']), '/') . '" alt="' . h($veg['name']) . '" loading="lazy" decoding="async" '
-             . 'style="width:100%; height:100%; object-fit:contain; display:block; border-radius:10px; background:#fff; padding:6px; box-sizing:border-box;">';
+        return $renderImage(BASE_URL . '/' . ltrim($veg['image_path'], '/'), $veg['name']);
     }
 
     $slug = strtolower(preg_replace('/[^a-z0-9]/i', '', $veg['name']));
@@ -2813,7 +2838,7 @@ function veg_thumb_html($veg) {
         strtolower(preg_replace('/[^a-z0-9]+/i', '', (string)($localAliasMap[$slug] ?? $veg['name']))),
     ])));
 
-    $matchLocalImage = function($directory) use ($candidates, $veg) {
+    $matchLocalImage = function($directory) use ($candidates, $veg, $renderImage) {
         if (!is_dir($directory)) {
             return null;
         }
@@ -2834,8 +2859,7 @@ function veg_thumb_html($veg) {
             }
 
             $relative = '/img/' . $file;
-            return '<img src="' . BASE_URL . $relative . '" alt="' . h($veg['name']) . '" loading="lazy" decoding="async" '
-                 . 'style="width:100%; height:100%; object-fit:contain; display:block; border-radius:10px; background:#fff; padding:6px; box-sizing:border-box;">';
+            return $renderImage(BASE_URL . $relative, $veg['name']);
         }
 
         return null;
@@ -2850,8 +2874,7 @@ function veg_thumb_html($veg) {
         foreach ($candidates as $fileName) {
             $relative = "/img/$fileName.$ext";
             if (file_exists(__DIR__ . $relative)) {
-                return '<img src="' . BASE_URL . $relative . '" alt="' . h($veg['name']) . '" loading="lazy" decoding="async" '
-                     . 'style="width:100%; height:100%; object-fit:contain; display:block; border-radius:10px; background:#fff; padding:6px; box-sizing:border-box;">';
+                return $renderImage(BASE_URL . $relative, $veg['name']);
             }
         }
     }
@@ -2859,8 +2882,7 @@ function veg_thumb_html($veg) {
     foreach (['jpg', 'jpeg', 'png', 'webp'] as $ext) {
         $relative = "/assets/images/$slug.$ext";
         if (file_exists(__DIR__ . $relative)) {
-            return '<img src="' . BASE_URL . $relative . '" alt="' . h($veg['name']) . '" loading="lazy" decoding="async" '
-                 . 'style="width:100%; height:100%; object-fit:contain; display:block; border-radius:10px; background:#fff; padding:6px; box-sizing:border-box;">';
+            return $renderImage(BASE_URL . $relative, $veg['name']);
         }
     }
 
@@ -2868,8 +2890,10 @@ function veg_thumb_html($veg) {
         $file = $photoMap[$slug];
         $remote = 'https://commons.wikimedia.org/wiki/Special:Redirect/file/' . rawurlencode($file);
         $fallback = veg_emoji($veg['name']);
-        return '<img src="' . h($remote) . '" alt="' . h($veg['name']) . '" loading="lazy" decoding="async" referrerpolicy="no-referrer" '
-             . 'onerror="this.style.display=\'none\';this.nextElementSibling.style.display=\'flex\';" '
+        return ($showLoader ? '<span class="product-image-placeholder animate-pulse" aria-hidden="true"></span>' : '')
+             . '<img src="' . h($remote) . '" alt="' . h($veg['name']) . '" loading="lazy" decoding="async" referrerpolicy="no-referrer" '
+             . ($showLoader ? 'onload="this.previousElementSibling.classList.add(\'is-hidden\')" ' : '')
+             . 'onerror="this.style.display=\'none\';var p=this.previousElementSibling;if(p&&p.classList.contains(\'product-image-placeholder\'))p.classList.add(\'is-hidden\');this.nextElementSibling.style.display=\'flex\';" '
              . 'style="width:100%; height:100%; object-fit:contain; display:block; border-radius:10px; background:#fff; padding:6px; box-sizing:border-box;">'
              . '<span aria-hidden="true" style="display:none; width:100%; height:100%; align-items:center; justify-content:center; font-size:3.4rem; background:#fff; border-radius:10px;">'
              . $fallback . '</span>';

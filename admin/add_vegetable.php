@@ -92,7 +92,7 @@ include __DIR__ . '/includes/admin_header.php';
     </div>
     <div class="form-group">
       <label for="image">Product photo (optional)</label>
-      <p style="color:#5B6656; font-size:0.82rem; margin:2px 0 10px;">Browse a photo from your computer — JPG, PNG, or WEBP, up to 5 MB. No code changes needed; it's used immediately for this product.</p>
+      <p style="color:#5B6656; font-size:0.82rem; margin:2px 0 10px;">Browse a photo from your computer — JPG, PNG, or WEBP, up to 5 MB. JPG and PNG photos are automatically converted to WebP.</p>
       <input type="file" id="image" name="image" accept="image/jpeg,image/png,image/webp" onchange="previewVegImage(this)">
       <div id="imagePreviewWrap" style="margin-top:10px; display:none;">
         <img id="imagePreview" src="" alt="Preview" style="width:120px; height:120px; object-fit:contain; background:#fff; border:1px solid #D9E0CD; border-radius:10px; padding:6px;">
