@@ -1,5 +1,6 @@
 <?php
 require_once __DIR__ . '/../config.php';
+require_once __DIR__ . '/../lib/worker_attendance.php';
 header('Content-Type: application/json; charset=utf-8');
 
 require_rider_login();
@@ -29,6 +30,7 @@ if ($orderId <= 0 || $riderId <= 0) {
 }
 
 try {
+    close_due_worker_attendance($pdo, 'rider', $riderId);
     $pdo->beginTransaction();
     $stmt = $pdo->prepare('SELECT id, order_status, rider_id, rider_accepted_at FROM orders WHERE id = ? FOR UPDATE');
     $stmt->execute([$orderId]);
@@ -50,7 +52,13 @@ try {
             WHERE worker_type = 'rider' AND worker_id = ? AND clock_out_at IS NULL
             LIMIT 1");
         $attendanceStmt->execute([$riderId]);
-        if (!$attendanceStmt->fetchColumn()) {
+        $isClockedIn = (bool)$attendanceStmt->fetchColumn();
+        $canRejectAssignedOrder = $action === 'reject' && $currentStatus === 'delivery_partner_assigned';
+        $canFinishAcceptedOrder = !empty($order['rider_accepted_at'])
+            && (($action === 'pickup' && $currentStatus === 'delivery_partner_assigned')
+                || ($action === 'arriving' && $currentStatus === 'out_for_delivery')
+                || ($action === 'deliver' && in_array($currentStatus, ['out_for_delivery', 'arriving_soon'], true)));
+        if (!$isClockedIn && !$canRejectAssignedOrder && !$canFinishAcceptedOrder) {
             $pdo->rollBack();
             echo json_encode(['success' => false, 'error' => 'Clock in before working on delivery orders']);
             exit;
@@ -79,8 +87,11 @@ try {
             exit;
         }
         $pdo->prepare("UPDATE orders SET rider_id = NULL, rider_accepted_at = NULL, order_status = 'ready_for_pickup', updated_at = NOW() WHERE id = ?")->execute([$orderId]);
-        $pdo->prepare("UPDATE riders SET availability_status = 'available' WHERE id = ?")->execute([$riderId]);
+        $pdo->prepare("UPDATE riders SET availability_status = CASE
+            WHEN EXISTS (SELECT 1 FROM worker_attendance WHERE worker_type = 'rider' AND worker_id = ? AND clock_out_at IS NULL)
+            THEN 'available' ELSE 'offline' END WHERE id = ?")->execute([$riderId, $riderId]);
         $pdo->commit();
+        close_due_worker_attendance($pdo, 'rider', $riderId);
         // The rider is free again — immediately hand them the next queued
         // order at their dark store instead of leaving them idle until an
         // admin manually clicks Auto-Assign.
@@ -134,11 +145,14 @@ try {
             exit;
         }
         $pdo->prepare("UPDATE orders SET order_status = 'delivered', updated_at = NOW(), delivered_at = NOW() WHERE id = ?")->execute([$orderId]);
-        $pdo->prepare("UPDATE riders SET availability_status = 'available' WHERE id = ?")->execute([$riderId]);
+        $pdo->prepare("UPDATE riders SET availability_status = CASE
+            WHEN EXISTS (SELECT 1 FROM worker_attendance WHERE worker_type = 'rider' AND worker_id = ? AND clock_out_at IS NULL)
+            THEN 'available' ELSE 'offline' END WHERE id = ?")->execute([$riderId, $riderId]);
         $ins = $pdo->prepare('INSERT INTO delivery_confirmations (order_id, rider_id, confirmed_by, method, note) VALUES (?, ?, ?, ?, ?)');
         $ins->execute([$orderId, $riderId, $rider['name'] ?? 'Rider', 'rider_app', 'Delivered from rider dashboard']);
         $pdo->commit();
         $customerNotification = send_customer_order_status_notification($pdo, $orderId, 'delivered');
+        close_due_worker_attendance($pdo, 'rider', $riderId);
         // Rider just finished a delivery and is free — pull them straight
         // into the next waiting order at their dark store automatically.
         auto_assign_next_order_to_rider($pdo, $riderId);

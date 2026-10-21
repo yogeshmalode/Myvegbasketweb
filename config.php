@@ -1702,6 +1702,17 @@ function ensure_management_schema($pdo) {
             created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
             KEY idx_attendance_adjustment_record (attendance_id, created_at)
         ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4");
+        $pdo->exec("CREATE TABLE IF NOT EXISTS worker_overtime_requests (
+            id INT AUTO_INCREMENT PRIMARY KEY,
+            attendance_id INT NOT NULL,
+            requested_minutes SMALLINT UNSIGNED NOT NULL,
+            status ENUM('pending','approved','rejected') NOT NULL DEFAULT 'pending',
+            requested_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            decided_by INT DEFAULT NULL,
+            decided_at DATETIME DEFAULT NULL,
+            UNIQUE KEY uniq_overtime_request_attendance (attendance_id),
+            KEY idx_overtime_request_status (status, requested_at)
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4");
         $pdo->exec("CREATE TABLE IF NOT EXISTS worker_compensation (
             worker_type ENUM('staff','rider') NOT NULL,
             worker_id INT NOT NULL,

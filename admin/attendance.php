@@ -1,9 +1,11 @@
 <?php
 require_once __DIR__ . '/includes/auth.php';
+require_once __DIR__ . '/../lib/worker_attendance.php';
 require_role(['admin', 'staff', 'delivery']);
 $page_title = 'Worker Attendance';
 $isAdmin = admin_role() === 'admin';
 $workerId = (int)($_SESSION['admin_id'] ?? 0);
+close_due_worker_attendance($pdo, $isAdmin ? null : 'staff', $isAdmin ? null : $workerId);
 
 function attendance_local_datetime_to_utc($value) {
     $value = trim((string)$value);
@@ -16,6 +18,57 @@ function attendance_local_datetime_to_utc($value) {
 }
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
+
+    if (isset($_POST['decide_overtime'])) {
+        require_csrf();
+        if (!$isAdmin) {
+            http_response_code(403);
+            exit('Access denied.');
+        }
+
+        $requestId = (int)($_POST['overtime_request_id'] ?? 0);
+        $decision = $_POST['overtime_decision'] ?? '';
+        if ($requestId <= 0 || !in_array($decision, ['approved', 'rejected'], true)) {
+            $_SESSION['flash'] = ['type' => 'error', 'message' => 'Choose a valid overtime request decision.'];
+            header('Location: attendance.php');
+            exit;
+        }
+
+        try {
+            $pdo->beginTransaction();
+            $requestStmt = $pdo->prepare("SELECT request.id, request.status, attendance.worker_type,
+                    attendance.worker_id, attendance.clock_in_at, compensation.shift_work_minutes,
+                    compensation.break_minutes
+                FROM worker_overtime_requests request
+                JOIN worker_attendance attendance ON attendance.id = request.attendance_id
+                LEFT JOIN worker_compensation compensation
+                  ON compensation.worker_type = attendance.worker_type AND compensation.worker_id = attendance.worker_id
+                WHERE request.id = ? AND attendance.clock_out_at IS NULL
+                FOR UPDATE");
+            $requestStmt->execute([$requestId]);
+            $overtimeRequest = $requestStmt->fetch();
+            if (!$overtimeRequest || $overtimeRequest['status'] !== 'pending') {
+                throw new RuntimeException('This overtime request is no longer pending or the shift has ended.');
+            }
+            if ($decision === 'approved') {
+                $scheduledEnd = (new DateTimeImmutable($overtimeRequest['clock_in_at'], new DateTimeZone('UTC')))
+                    ->modify('+' . ((int)($overtimeRequest['shift_work_minutes'] ?? 480) + (int)($overtimeRequest['break_minutes'] ?? 60)) . ' minutes');
+                if ($scheduledEnd <= new DateTimeImmutable('now', new DateTimeZone('UTC'))) {
+                    throw new RuntimeException('Overtime must be approved before the regular shift ends.');
+                }
+            }
+            $pdo->prepare('UPDATE worker_overtime_requests SET status = ?, decided_by = ?, decided_at = UTC_TIMESTAMP() WHERE id = ?')
+                ->execute([$decision, $workerId, $requestId]);
+            $pdo->commit();
+            $_SESSION['flash'] = ['type' => 'success', 'message' => 'Overtime request ' . $decision . '.'];
+        } catch (Throwable $e) {
+            if ($pdo->inTransaction()) $pdo->rollBack();
+            $_SESSION['flash'] = ['type' => 'error', 'message' => $e instanceof RuntimeException ? $e->getMessage() : 'Overtime decision could not be saved.'];
+            if (!$e instanceof RuntimeException) error_log('Overtime decision failed: ' . $e->getMessage());
+        }
+        header('Location: attendance.php');
+        exit;
+    }
 
     if (isset($_POST['save_common_gig_km'])) {
         require_csrf();
@@ -258,9 +311,12 @@ $rangeStartUtc = (new DateTimeImmutable($start . ' 00:00:00', new DateTimeZone('
 $rangeEndUtc = (new DateTimeImmutable($end . ' 00:00:00', new DateTimeZone('Asia/Kolkata')))
     ->modify('+1 day')->setTimezone(new DateTimeZone('UTC'))->format('Y-m-d H:i:s');
 
-$selfShiftStmt = $pdo->prepare("SELECT id, clock_in_at FROM worker_attendance
-    WHERE worker_type = 'staff' AND worker_id = ? AND clock_out_at IS NULL
-    ORDER BY id DESC LIMIT 1");
+$selfShiftStmt = $pdo->prepare("SELECT attendance.id, attendance.clock_in_at,
+        overtime.status AS overtime_status, overtime.requested_minutes AS overtime_minutes
+    FROM worker_attendance attendance
+    LEFT JOIN worker_overtime_requests overtime ON overtime.attendance_id = attendance.id
+    WHERE attendance.worker_type = 'staff' AND attendance.worker_id = ? AND attendance.clock_out_at IS NULL
+    ORDER BY attendance.id DESC LIMIT 1");
 $selfShiftStmt->execute([$workerId]);
 $selfOpenShift = $selfShiftStmt->fetch() ?: null;
 $selfHistoryStmt = $pdo->prepare("SELECT id, clock_in_at, clock_out_at, correction_reason, shift_summary
@@ -268,9 +324,9 @@ $selfHistoryStmt = $pdo->prepare("SELECT id, clock_in_at, clock_out_at, correcti
     ORDER BY clock_in_at DESC LIMIT 20");
 $selfHistoryStmt->execute([$workerId]);
 $selfHistory = $selfHistoryStmt->fetchAll();
-$selfCompensationStmt = $pdo->prepare('SELECT employment_type FROM worker_compensation WHERE worker_type = ? AND worker_id = ?');
+$selfCompensationStmt = $pdo->prepare('SELECT employment_type, shift_work_minutes, break_minutes FROM worker_compensation WHERE worker_type = ? AND worker_id = ?');
 $selfCompensationStmt->execute(['staff', $workerId]);
-$selfCompensation = $selfCompensationStmt->fetch() ?: ['employment_type' => 'full_time'];
+$selfCompensation = $selfCompensationStmt->fetch() ?: ['employment_type' => 'full_time', 'shift_work_minutes' => 480, 'break_minutes' => 60];
 
 $workers = [];
 $shiftRows = [];
@@ -278,10 +334,12 @@ $workerStats = [];
 $compensationProfiles = [];
 $completedOrders = [];
 $totalWorkedSeconds = 0;
+$totalOvertimeSeconds = 0;
 $gigPayoutOrders = [];
 $gigPayoutTotals = [];
 $commonBillableKmStmt = $pdo->query('SELECT common_billable_km FROM gig_payout_settings WHERE setting_id = 1');
 $commonBillableKm = $commonBillableKmStmt->fetchColumn();
+$overtimeRequests = [];
 if ($isAdmin) {
     $workerRows = $pdo->query("SELECT
             CONVERT('staff' USING utf8mb4) COLLATE utf8mb4_unicode_ci AS worker_type,
@@ -309,9 +367,15 @@ if ($isAdmin) {
     foreach ($workerRows as $worker) {
         $key = $worker['worker_type'] . ':' . (int)$worker['worker_id'];
         $workers[$key] = $worker;
-        $workerStats[$key] = ['seconds' => 0, 'presence_seconds' => 0, 'shifts' => 0, 'open' => false, 'open_since' => null];
+        $workerStats[$key] = ['seconds' => 0, 'presence_seconds' => 0, 'overtime_seconds' => 0, 'shifts' => 0, 'open' => false, 'open_since' => null];
         $completedOrders[$key] = 0;
     }
+    $overtimeRequests = $pdo->query("SELECT request.id, request.requested_minutes, request.requested_at,
+            attendance.worker_type, attendance.worker_id, attendance.clock_in_at
+        FROM worker_overtime_requests request
+        JOIN worker_attendance attendance ON attendance.id = request.attendance_id
+        WHERE request.status = 'pending' AND attendance.clock_out_at IS NULL
+        ORDER BY request.requested_at ASC")->fetchAll();
 
     $compStmt = $pdo->query('SELECT * FROM worker_compensation');
     foreach ($compStmt->fetchAll() as $profile) {
@@ -336,10 +400,13 @@ if ($isAdmin) {
         if (isset($completedOrders[$key])) $completedOrders[$key] = (int)$row['order_count'];
     }
 
-    $shiftStmt = $pdo->prepare("SELECT id, worker_type, worker_id, clock_in_at, clock_out_at, correction_reason, shift_summary
-        FROM worker_attendance
-        WHERE clock_in_at < ? AND (clock_out_at IS NULL OR clock_out_at > ?)
-        ORDER BY clock_in_at DESC");
+    $shiftStmt = $pdo->prepare("SELECT attendance.id, attendance.worker_type, attendance.worker_id,
+            attendance.clock_in_at, attendance.clock_out_at, attendance.correction_reason, attendance.shift_summary,
+            overtime.status AS overtime_status, overtime.requested_minutes AS overtime_minutes
+        FROM worker_attendance attendance
+        LEFT JOIN worker_overtime_requests overtime ON overtime.attendance_id = attendance.id
+        WHERE attendance.clock_in_at < ? AND (attendance.clock_out_at IS NULL OR attendance.clock_out_at > ?)
+        ORDER BY attendance.clock_in_at DESC");
     $shiftStmt->execute([$rangeEndUtc, $rangeStartUtc]);
     $shiftRows = $shiftStmt->fetchAll();
     $rangeStart = new DateTimeImmutable($rangeStartUtc, new DateTimeZone('UTC'));
@@ -371,6 +438,13 @@ if ($isAdmin) {
             : 0;
         $workerStats[$key]['presence_seconds'] += $presenceSeconds;
         $workerStats[$key]['seconds'] += $presenceSeconds - $deductBreak;
+        if ($shift['overtime_status'] === 'approved') {
+            $overtimeStart = $clockIn->modify('+' . $scheduledGrossSeconds . ' seconds');
+            $overtimeLimit = $overtimeStart->modify('+' . ((int)$shift['overtime_minutes'] * 60) . ' seconds');
+            $overtimeStart = $overtimeStart > $clippedStart ? $overtimeStart : $clippedStart;
+            $overtimeEnd = $clippedEnd < $overtimeLimit ? $clippedEnd : $overtimeLimit;
+            $workerStats[$key]['overtime_seconds'] += max(0, $overtimeEnd->getTimestamp() - $overtimeStart->getTimestamp());
+        }
         $workerStats[$key]['shifts']++;
         $workerStats[$key]['open'] = $workerStats[$key]['open'] || $shift['clock_out_at'] === null;
         if ($shift['clock_out_at'] === null) {
@@ -379,6 +453,7 @@ if ($isAdmin) {
     }
     foreach ($workerStats as $stat) {
         $totalWorkedSeconds += $stat['seconds'];
+        $totalOvertimeSeconds += $stat['overtime_seconds'];
     }
 
     $gigOrderStmt = $pdo->prepare("SELECT o.id, o.rider_id, o.customer_name, o.delivered_at, r.name AS rider_name,
@@ -479,18 +554,30 @@ if ($isAdmin && isset($_GET['worker_report'])) {
     fputcsv($output, ['Report period', $start . ' to ' . $end]);
     fputcsv($output, ['Attendance hours', attendance_duration_label($workerStats[$selectedWorkerKey]['presence_seconds'])]);
     fputcsv($output, ['Productive hours', attendance_duration_label($workerStats[$selectedWorkerKey]['seconds'])]);
+    fputcsv($output, ['Approved overtime', attendance_duration_label($workerStats[$selectedWorkerKey]['overtime_seconds'])]);
     fputcsv($output, ['Orders completed', count($selectedWorkerOrders)]);
     fputcsv($output, ['Pay', $selectedWorkerPayLabel]);
     fputcsv($output, []);
-    fputcsv($output, ['Shift clock-in', 'Shift clock-out', 'Presence', 'Shift summary', 'Correction reason']);
+    fputcsv($output, ['Shift clock-in', 'Shift clock-out', 'Presence', 'Approved overtime', 'Shift summary', 'Correction reason']);
     foreach ($selectedWorkerShifts as $shift) {
         $endTime = $shift['clock_out_at'] ?: gmdate('Y-m-d H:i:s');
         $seconds = max(0, (new DateTimeImmutable($endTime, new DateTimeZone('UTC')))->getTimestamp()
             - (new DateTimeImmutable($shift['clock_in_at'], new DateTimeZone('UTC')))->getTimestamp());
+        $overtimeSeconds = 0;
+        if ($shift['overtime_status'] === 'approved') {
+            $regularEnd = (new DateTimeImmutable($shift['clock_in_at'], new DateTimeZone('UTC')))
+                ->modify('+' . (((int)($profile['shift_work_minutes'] ?? 480) + (int)($profile['break_minutes'] ?? 60)) * 60) . ' seconds');
+            $overtimeLimit = $regularEnd->modify('+' . ((int)$shift['overtime_minutes'] * 60) . ' seconds');
+            $overtimeSeconds = max(0, min(
+                (new DateTimeImmutable($endTime, new DateTimeZone('UTC')))->getTimestamp(),
+                $overtimeLimit->getTimestamp()
+            ) - $regularEnd->getTimestamp());
+        }
         fputcsv($output, [
             format_ist($shift['clock_in_at']),
             $shift['clock_out_at'] ? format_ist($shift['clock_out_at']) : 'In progress',
             attendance_duration_label($seconds),
+            attendance_duration_label($overtimeSeconds),
             $shift['shift_summary'] ?? '',
             $shift['correction_reason'] ?? '',
         ]);
@@ -543,7 +630,7 @@ include __DIR__ . '/includes/admin_header.php';
 </style>
 
 <div class="section-head"><h2>Worker Attendance &amp; Performance</h2>
-  <p>Shift presence is measured from clock-in to clock-out. Configured break time is deducted to calculate productive hours; permanent workers add a shift summary at clock-out.</p>
+  <p>Shift presence is measured from clock-in to clock-out. Configured break time is deducted to calculate productive hours; permanent workers add a shift summary at clock-out. For automatic clock-out when dashboards are closed, schedule <code>cron/close_worker_attendance.php</code> to run every minute in your hosting control panel.</p>
 </div>
 
 <?php if (!empty($_SESSION['flash'])): ?>
@@ -557,15 +644,28 @@ include __DIR__ . '/includes/admin_header.php';
     <p class="attendance-muted">
       <?= $selfOpenShift ? 'Clocked in since ' . h(format_ist($selfOpenShift['clock_in_at'])) : 'You are currently clocked out.' ?>
     </p>
+    <p class="attendance-muted" data-auto-clockout-message aria-live="polite"></p>
     <div class="attendance-muted">Elapsed this shift</div>
-    <div class="worker-live-clock" <?= $selfOpenShift ? 'data-live-start="' . (new DateTimeImmutable($selfOpenShift['clock_in_at'], new DateTimeZone('UTC')))->getTimestamp() . '"' : '' ?>>
+    <div class="worker-live-clock" <?= $selfOpenShift ? 'data-live-start="' . (new DateTimeImmutable($selfOpenShift['clock_in_at'], new DateTimeZone('UTC')))->getTimestamp() . '" data-auto-end="' . worker_attendance_end_at($selfOpenShift + $selfCompensation)->getTimestamp() . '"' : '' ?>>
       <?= $selfOpenShift ? '00:00:00' : '00:00:00' ?>
     </div>
+    <?php if ($selfOpenShift): ?><p class="attendance-muted">Scheduled clock-out (IST): <?= h(format_ist(worker_attendance_end_at($selfOpenShift + $selfCompensation)->format('Y-m-d H:i:s'))) ?></p><?php endif; ?>
     <button class="btn btn-primary" type="button" data-attendance-action="<?= $selfOpenShift ? 'clock_out' : 'clock_in' ?>" data-requires-summary="<?= $selfOpenShift && $selfCompensation['employment_type'] !== 'gig' ? '1' : '0' ?>">
       <?= $selfOpenShift ? 'Clock Out' : 'Clock In' ?>
     </button>
     <?php if ($selfOpenShift && $selfCompensation['employment_type'] !== 'gig'): ?>
       <p class="attendance-muted">A work summary is required when ending this shift.</p>
+      <?php if (!empty($selfOpenShift['overtime_status'])): ?>
+        <p class="attendance-muted">Overtime request: <?= h(ucfirst($selfOpenShift['overtime_status'])) ?> · <?= (int)$selfOpenShift['overtime_minutes'] ?> minutes.</p>
+      <?php else: ?>
+        <div class="attendance-form">
+          <select data-overtime-minutes aria-label="Requested overtime duration">
+            <option value="30">30 minutes</option><option value="60">1 hour</option><option value="120">2 hours</option>
+          </select>
+          <button class="btn" type="button" data-attendance-action="request_overtime">Request overtime</button>
+        </div>
+        <p class="attendance-muted">Request overtime before your regular shift ends. It starts only after admin approval.</p>
+      <?php endif; ?>
     <?php endif; ?>
   </section>
   <div class="section-head"><h3>My Recent Shifts</h3></div>
@@ -658,22 +758,33 @@ include __DIR__ . '/includes/admin_header.php';
         </div>
         <div class="attendance-card"><div class="attendance-muted">Presence</div><div class="attendance-summary"><?= h(attendance_duration_label($workerStats[$selectedWorkerKey]['presence_seconds'])) ?></div></div>
         <div class="attendance-card"><div class="attendance-muted">Productive time</div><div class="attendance-summary"><?= h(attendance_duration_label($workerStats[$selectedWorkerKey]['seconds'])) ?></div></div>
+        <div class="attendance-card"><div class="attendance-muted">Approved overtime</div><div class="attendance-summary"><?= h(attendance_duration_label($workerStats[$selectedWorkerKey]['overtime_seconds'])) ?></div></div>
         <div class="attendance-card"><div class="attendance-muted">Completed orders</div><div class="attendance-summary"><?= count($selectedWorkerOrders) ?></div></div>
         <div class="attendance-card"><div class="attendance-muted">Shifts in period</div><div class="attendance-summary"><?= count($selectedWorkerShifts) ?></div></div>
         <div class="attendance-card"><div class="attendance-muted">Pay summary</div><div class="attendance-summary" style="font-size:1.1rem;"><?= h($selectedWorkerPayLabel) ?></div></div>
       </div>
       <h4>Shift details</h4>
       <div class="table-wrap attendance-table-wrap"><table class="attendance-table">
-        <thead><tr><th>Clock in</th><th>Clock out</th><th>Presence</th><th>Shift summary</th><th>Correction reason</th></tr></thead>
+        <thead><tr><th>Clock in</th><th>Clock out</th><th>Presence</th><th>Approved overtime</th><th>Shift summary</th><th>Correction reason</th></tr></thead>
         <tbody>
         <?php foreach ($selectedWorkerShifts as $shift):
           $shiftEnd = $shift['clock_out_at'] ?: gmdate('Y-m-d H:i:s');
           $seconds = max(0, (new DateTimeImmutable($shiftEnd, new DateTimeZone('UTC')))->getTimestamp()
               - (new DateTimeImmutable($shift['clock_in_at'], new DateTimeZone('UTC')))->getTimestamp());
         ?>
-          <tr><td><?= h(format_ist($shift['clock_in_at'])) ?></td><td><?= $shift['clock_out_at'] ? h(format_ist($shift['clock_out_at'])) : 'Open shift' ?></td><td><?= h(attendance_duration_label($seconds)) ?></td><td><?= nl2br(h($shift['shift_summary'] ?: '—')) ?></td><td><?= h($shift['correction_reason'] ?: '—') ?></td></tr>
+          <?php
+            $shiftOvertimeSeconds = 0;
+            if ($shift['overtime_status'] === 'approved') {
+                $shiftClockIn = new DateTimeImmutable($shift['clock_in_at'], new DateTimeZone('UTC'));
+                $regularEnd = $shiftClockIn->modify('+' . (((int)($profile['shift_work_minutes'] ?? 480) + (int)($profile['break_minutes'] ?? 60)) * 60) . ' seconds');
+                $shiftEndAt = new DateTimeImmutable($shiftEnd, new DateTimeZone('UTC'));
+                $otEnd = $regularEnd->modify('+' . ((int)$shift['overtime_minutes'] * 60) . ' seconds');
+                $shiftOvertimeSeconds = max(0, min($shiftEndAt->getTimestamp(), $otEnd->getTimestamp()) - $regularEnd->getTimestamp());
+            }
+          ?>
+          <tr><td><?= h(format_ist($shift['clock_in_at'])) ?></td><td><?= $shift['clock_out_at'] ? h(format_ist($shift['clock_out_at'])) : 'Open shift' ?></td><td><?= h(attendance_duration_label($seconds)) ?></td><td><?= h(attendance_duration_label($shiftOvertimeSeconds)) ?><?= $shift['overtime_status'] ? ' · ' . h(ucfirst($shift['overtime_status'])) : '' ?></td><td><?= nl2br(h($shift['shift_summary'] ?: '—')) ?></td><td><?= h($shift['correction_reason'] ?: '—') ?></td></tr>
         <?php endforeach; ?>
-        <?php if (!$selectedWorkerShifts): ?><tr><td colspan="5">No shifts in this report period.</td></tr><?php endif; ?>
+        <?php if (!$selectedWorkerShifts): ?><tr><td colspan="6">No shifts in this report period.</td></tr><?php endif; ?>
         </tbody>
       </table></div>
       <h4 style="margin-top:22px;">Completed orders</h4>
@@ -692,11 +803,39 @@ include __DIR__ . '/includes/admin_header.php';
   <div class="attendance-grid">
     <div class="attendance-card"><div class="attendance-muted">Workers</div><div class="attendance-summary"><?= count($workers) ?></div></div>
     <div class="attendance-card"><div class="attendance-muted">Productive Worker Hours (break deducted)</div><div class="attendance-summary"><?= h(attendance_duration_label($totalWorkedSeconds)) ?></div></div>
+    <div class="attendance-card"><div class="attendance-muted">Approved Overtime</div><div class="attendance-summary"><?= h(attendance_duration_label($totalOvertimeSeconds)) ?></div></div>
     <div class="attendance-card"><div class="attendance-muted">Open Shifts</div><div class="attendance-summary"><?= count(array_filter($workerStats, static fn($stat) => $stat['open'])) ?></div></div>
   </div>
+  <?php if ($overtimeRequests): ?>
+    <div class="section-head" style="margin-top:24px;"><h3>Overtime approval requests</h3><p>Approve before the regular shift ends. Approved time extends the employee's automatic clock-out.</p></div>
+    <div class="table-wrap attendance-table-wrap"><table class="attendance-table">
+      <thead><tr><th>Worker</th><th>Shift started</th><th>Requested overtime</th><th>Decision</th></tr></thead>
+      <tbody>
+      <?php foreach ($overtimeRequests as $request):
+        $requestWorker = $workers[$request['worker_type'] . ':' . (int)$request['worker_id']] ?? null;
+        if (!$requestWorker) continue;
+      ?>
+        <tr>
+          <td><?= h($requestWorker['worker_name']) ?></td>
+          <td><?= h(format_ist($request['clock_in_at'])) ?></td>
+          <td><?= (int)$request['requested_minutes'] ?> minutes</td>
+          <td>
+            <form method="post" class="attendance-form">
+              <input type="hidden" name="csrf_token" value="<?= h(csrf_token()) ?>">
+              <input type="hidden" name="decide_overtime" value="1">
+              <input type="hidden" name="overtime_request_id" value="<?= (int)$request['id'] ?>">
+              <button class="btn btn-primary" name="overtime_decision" value="approved">Approve</button>
+              <button class="btn" name="overtime_decision" value="rejected">Reject</button>
+            </form>
+          </td>
+        </tr>
+      <?php endforeach; ?>
+      </tbody>
+    </table></div>
+  <?php endif; ?>
   <div class="section-head"><h3>Attendance &amp; Completed Work · <?= h($start) ?> to <?= h($end) ?></h3></div>
   <div class="table-wrap attendance-table-wrap"><table class="attendance-table">
-    <thead><tr><th>Worker</th><th>Role</th><th>Store</th><th>Shifts</th><th>Presence</th><th>Productive hours</th><th>Orders completed</th><th>Pay estimate</th><th>Shift status</th></tr></thead>
+    <thead><tr><th>Worker</th><th>Role</th><th>Store</th><th>Shifts</th><th>Presence</th><th>Productive hours</th><th>Approved overtime</th><th>Orders completed</th><th>Pay estimate</th><th>Shift status</th></tr></thead>
     <tbody>
     <?php foreach ($workers as $key => $worker): ?>
       <tr>
@@ -706,6 +845,7 @@ include __DIR__ . '/includes/admin_header.php';
         <td><?= (int)$workerStats[$key]['shifts'] ?></td>
         <td><?= h(attendance_duration_label($workerStats[$key]['presence_seconds'])) ?></td>
         <td><?= h(attendance_duration_label($workerStats[$key]['seconds'])) ?></td>
+        <td><?= h(attendance_duration_label($workerStats[$key]['overtime_seconds'])) ?></td>
         <td><?= (int)$completedOrders[$key] ?></td>
         <td>
           <?php
@@ -725,7 +865,7 @@ include __DIR__ . '/includes/admin_header.php';
         <td><?= $workerStats[$key]['open'] ? 'Clocked in' : 'Clocked out' ?></td>
       </tr>
     <?php endforeach; ?>
-    <?php if (!$workers): ?><tr><td colspan="9">No staff or rider accounts found.</td></tr><?php endif; ?>
+    <?php if (!$workers): ?><tr><td colspan="10">No staff or rider accounts found.</td></tr><?php endif; ?>
     </tbody>
   </table></div>
 
@@ -879,8 +1019,9 @@ include __DIR__ . '/includes/admin_header.php';
 <script>
 document.querySelectorAll('[data-attendance-action]').forEach((button) => {
   button.addEventListener('click', async () => {
+    const action = button.dataset.attendanceAction;
     let shiftSummary = '';
-    if (button.dataset.attendanceAction === 'clock_out' && button.dataset.requiresSummary === '1') {
+    if (action === 'clock_out' && button.dataset.requiresSummary === '1') {
       shiftSummary = prompt('Enter a short summary of your work and completed tasks:') || '';
       if (!shiftSummary.trim()) {
         alert('A shift summary is required before clocking out.');
@@ -889,29 +1030,42 @@ document.querySelectorAll('[data-attendance-action]').forEach((button) => {
     }
     button.disabled = true;
     try {
-      const response = await fetch('../ajax/worker_attendance_action.php', {
-        method: 'POST',
-        headers: {'Content-Type': 'application/json'},
-        body: JSON.stringify({
-          action: button.dataset.attendanceAction,
-          shift_summary: shiftSummary,
-          csrf_token: '<?= h(csrf_token()) ?>'
-        })
-      });
-      const data = await response.json();
-      if (!response.ok || !data.success) {
-        throw new Error(data.error || 'Attendance could not be saved.');
-      }
-      if (data.assigned_order_id) {
-        alert('Clocked in. Order #' + data.assigned_order_id + ' was automatically assigned to you.');
-      }
-      location.reload();
+      await submitAttendanceAction(action, shiftSummary, button);
     } catch (error) {
       alert(error.message || 'Network error while recording attendance.');
       button.disabled = false;
     }
   });
 });
+
+async function submitAttendanceAction(action, shiftSummary, button) {
+  const overtimeSelect = document.querySelector('[data-overtime-minutes]');
+  const response = await fetch('../ajax/worker_attendance_action.php', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({
+      action,
+      shift_summary: shiftSummary,
+      requested_minutes: overtimeSelect ? overtimeSelect.value : null,
+      csrf_token: '<?= h(csrf_token()) ?>'
+    })
+  });
+  const data = await response.json();
+  if (!response.ok || !data.success) throw new Error(data.error || 'Attendance could not be saved.');
+  if (action === 'auto_clock_out' && !data.closed) {
+    const activeShiftClock = document.querySelector('[data-auto-end]');
+    if (data.next_end && activeShiftClock) {
+      activeShiftClock.dataset.autoEnd = String(data.next_end);
+      autoClockOutSent = false;
+      return;
+    }
+    const message = document.querySelector('[data-auto-clockout-message]');
+    if (message) message.textContent = 'Shift limit reached. Complete your active delivery to clock out automatically.';
+    return;
+  }
+  if (data.assigned_order_id) alert('Clocked in. Order #' + data.assigned_order_id + ' was automatically assigned to you.');
+  location.reload();
+}
 
 function updateAttendanceClocks() {
   const nowSeconds = Math.floor(Date.now() / 1000);
@@ -926,6 +1080,16 @@ function updateAttendanceClocks() {
 }
 updateAttendanceClocks();
 window.setInterval(updateAttendanceClocks, 1000);
+let autoClockOutSent = false;
+window.setInterval(() => {
+  const activeShiftClock = document.querySelector('[data-auto-end]');
+  if (!activeShiftClock || autoClockOutSent || Date.now() < Number(activeShiftClock.dataset.autoEnd) * 1000) return;
+  autoClockOutSent = true;
+  submitAttendanceAction('auto_clock_out', '', null).catch((error) => {
+    autoClockOutSent = false;
+    console.error(error);
+  });
+}, 15000);
 
 function printWorkerReport() {
   document.body.classList.add('print-worker-report');

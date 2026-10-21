@@ -1,5 +1,6 @@
 <?php
 require_once __DIR__ . '/includes/auth.php';
+require_once __DIR__ . '/../lib/worker_attendance.php';
 
 $page_title = 'Delivery Dashboard';
 $rider = current_rider();
@@ -7,13 +8,16 @@ if (!$rider) {
     redirect('login.php');
 }
 $riderId = (int)$rider['id'];
-$compensationStmt = $pdo->prepare("SELECT employment_type, pay_mode, per_km_rate FROM worker_compensation
+close_due_worker_attendance($pdo, 'rider', $riderId);
+$compensationStmt = $pdo->prepare("SELECT employment_type, pay_mode, per_km_rate, shift_work_minutes, break_minutes FROM worker_compensation
     WHERE worker_type = 'rider' AND worker_id = ?");
 $compensationStmt->execute([$riderId]);
 $riderCompensation = $compensationStmt->fetch() ?: [
     'employment_type' => 'full_time',
     'pay_mode' => 'attendance_only',
     'per_km_rate' => null,
+    'shift_work_minutes' => 480,
+    'break_minutes' => 60,
 ];
 
 $orders = [];
@@ -22,9 +26,12 @@ if ($rider) {
     $stmt->execute([$riderId]);
     $orders = $stmt->fetchAll();
 }
-$attendanceStmt = $pdo->prepare("SELECT id, clock_in_at FROM worker_attendance
-    WHERE worker_type = 'rider' AND worker_id = ? AND clock_out_at IS NULL
-    ORDER BY id DESC LIMIT 1");
+$attendanceStmt = $pdo->prepare("SELECT attendance.id, attendance.clock_in_at,
+        overtime.status AS overtime_status, overtime.requested_minutes AS overtime_minutes
+    FROM worker_attendance attendance
+    LEFT JOIN worker_overtime_requests overtime ON overtime.attendance_id = attendance.id
+    WHERE attendance.worker_type = 'rider' AND attendance.worker_id = ? AND attendance.clock_out_at IS NULL
+    ORDER BY attendance.id DESC LIMIT 1");
 $attendanceStmt->execute([$riderId]);
 $openShift = $attendanceStmt->fetch() ?: null;
 $attendanceHistoryStmt = $pdo->prepare("SELECT clock_in_at, clock_out_at, shift_summary
@@ -220,8 +227,21 @@ include __DIR__ . '/../includes/header.php';
           <div class="eyebrow">Attendance</div>
           <div class="metric-value"><?= $openShift ? 'Clocked in since ' . h(format_ist($openShift['clock_in_at'])) : 'Not clocked in' ?></div>
           <div class="metric-label" style="margin-top:8px;">Elapsed this shift (hh:mm:ss)</div>
-          <div class="metric-value" style="font-variant-numeric:tabular-nums;color:#0c6a4a;" <?= $openShift ? 'data-live-start="' . (new DateTimeImmutable($openShift['clock_in_at'], new DateTimeZone('UTC')))->getTimestamp() . '"' : '' ?>>00:00:00</div>
+          <div class="metric-value" style="font-variant-numeric:tabular-nums;color:#0c6a4a;" <?= $openShift ? 'data-live-start="' . (new DateTimeImmutable($openShift['clock_in_at'], new DateTimeZone('UTC')))->getTimestamp() . '" data-auto-end="' . worker_attendance_end_at($openShift + $riderCompensation)->getTimestamp() . '"' : '' ?>>00:00:00</div>
+          <?php if ($openShift): ?><p class="address-copy">Scheduled clock-out (IST): <?= h(format_ist(worker_attendance_end_at($openShift + $riderCompensation)->format('Y-m-d H:i:s'))) ?></p><?php endif; ?>
           <p class="address-copy">Clock in to accept and update delivery orders. Active deliveries must be completed before clocking out.<?= $riderCompensation['employment_type'] !== 'gig' ? ' A work summary is required at shift end.' : '' ?></p>
+          <?php if ($openShift && $riderCompensation['employment_type'] !== 'gig'): ?>
+            <?php if (!empty($openShift['overtime_status'])): ?>
+              <p class="address-copy">Overtime request: <?= h(ucfirst($openShift['overtime_status'])) ?> · <?= (int)$openShift['overtime_minutes'] ?> minutes.</p>
+            <?php else: ?>
+              <div style="display:flex;gap:8px;flex-wrap:wrap;">
+                <select data-overtime-minutes aria-label="Requested overtime duration"><option value="30">30 minutes</option><option value="60">1 hour</option><option value="120">2 hours</option></select>
+                <button type="button" class="btn" data-attendance-action="request_overtime">Request overtime</button>
+              </div>
+              <p class="address-copy">Request overtime before your regular shift ends. It starts only after admin approval.</p>
+            <?php endif; ?>
+          <?php endif; ?>
+          <p class="address-copy" data-auto-clockout-message aria-live="polite"></p>
         </div>
         <button type="button" class="btn btn-primary" data-attendance-action="<?= $openShift ? 'clock_out' : 'clock_in' ?>" data-requires-summary="<?= $openShift && $riderCompensation['employment_type'] !== 'gig' ? '1' : '0' ?>">
           <?= $openShift ? 'Clock Out' : 'Clock In' ?>
@@ -355,24 +375,41 @@ document.querySelectorAll('[data-attendance-action]').forEach((button) => {
     }
     button.disabled = true;
     try {
-      const response = await fetch('../ajax/worker_attendance_action.php', {
-        method: 'POST',
-        headers: {'Content-Type': 'application/json'},
-        body: JSON.stringify({
-          action: button.dataset.attendanceAction,
-          shift_summary: shiftSummary,
-          csrf_token: '<?= h(csrf_token()) ?>'
-        })
-      });
-      const data = await response.json();
-      if (!response.ok || !data.success) throw new Error(data.error || 'Attendance could not be saved.');
-      location.reload();
+      await submitAttendanceAction(button.dataset.attendanceAction, shiftSummary);
     } catch (error) {
       alert(error.message || 'Network error while recording attendance.');
       button.disabled = false;
     }
   });
 });
+
+async function submitAttendanceAction(action, shiftSummary) {
+  const overtimeSelect = document.querySelector('[data-overtime-minutes]');
+  const response = await fetch('../ajax/worker_attendance_action.php', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({
+      action,
+      shift_summary: shiftSummary,
+      requested_minutes: overtimeSelect ? overtimeSelect.value : null,
+      csrf_token: '<?= h(csrf_token()) ?>'
+    })
+  });
+  const data = await response.json();
+  if (!response.ok || !data.success) throw new Error(data.error || 'Attendance could not be saved.');
+  if (action === 'auto_clock_out' && !data.closed) {
+    const activeShiftClock = document.querySelector('[data-auto-end]');
+    if (data.next_end && activeShiftClock) {
+      activeShiftClock.dataset.autoEnd = String(data.next_end);
+      autoClockOutSent = false;
+      return;
+    }
+    const message = document.querySelector('[data-auto-clockout-message]');
+    if (message) message.textContent = 'Shift limit reached. Complete your active delivery to clock out automatically.';
+    return;
+  }
+  location.reload();
+}
 
 function updateAttendanceClocks() {
   const nowSeconds = Math.floor(Date.now() / 1000);
@@ -387,6 +424,16 @@ function updateAttendanceClocks() {
 }
 updateAttendanceClocks();
 window.setInterval(updateAttendanceClocks, 1000);
+let autoClockOutSent = false;
+window.setInterval(() => {
+  const activeShiftClock = document.querySelector('[data-auto-end]');
+  if (!activeShiftClock || autoClockOutSent || Date.now() < Number(activeShiftClock.dataset.autoEnd) * 1000) return;
+  autoClockOutSent = true;
+  submitAttendanceAction('auto_clock_out', '').catch((error) => {
+    autoClockOutSent = false;
+    console.error(error);
+  });
+}, 15000);
 
 function runDeliveryAction(orderId, action, label) {
   fetch('../ajax/rider_delivery_action.php', {
