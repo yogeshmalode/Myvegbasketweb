@@ -436,15 +436,17 @@ if ($isAdmin) {
             && ($shift['clock_out_at'] !== null || $presenceSeconds >= $scheduledGrossSeconds)
             ? min($breakSeconds, $presenceSeconds)
             : 0;
-        $workerStats[$key]['presence_seconds'] += $presenceSeconds;
-        $workerStats[$key]['seconds'] += $presenceSeconds - $deductBreak;
+        $overtimeSeconds = 0;
         if ($shift['overtime_status'] === 'approved') {
             $overtimeStart = $clockIn->modify('+' . $scheduledGrossSeconds . ' seconds');
             $overtimeLimit = $overtimeStart->modify('+' . ((int)$shift['overtime_minutes'] * 60) . ' seconds');
             $overtimeStart = $overtimeStart > $clippedStart ? $overtimeStart : $clippedStart;
             $overtimeEnd = $clippedEnd < $overtimeLimit ? $clippedEnd : $overtimeLimit;
-            $workerStats[$key]['overtime_seconds'] += max(0, $overtimeEnd->getTimestamp() - $overtimeStart->getTimestamp());
+            $overtimeSeconds = max(0, $overtimeEnd->getTimestamp() - $overtimeStart->getTimestamp());
         }
+        $workerStats[$key]['presence_seconds'] += $presenceSeconds;
+        $workerStats[$key]['seconds'] += max(0, $presenceSeconds - $deductBreak - $overtimeSeconds);
+        $workerStats[$key]['overtime_seconds'] += $overtimeSeconds;
         $workerStats[$key]['shifts']++;
         $workerStats[$key]['open'] = $workerStats[$key]['open'] || $shift['clock_out_at'] === null;
         if ($shift['clock_out_at'] === null) {
@@ -501,6 +503,34 @@ function attendance_worker_key($value) {
 
 $selectedWorkerKey = $isAdmin ? attendance_worker_key($_GET['worker'] ?? null) : null;
 $selectedWorker = $selectedWorkerKey !== null ? ($workers[$selectedWorkerKey] ?? null) : null;
+$attendanceChartRows = [];
+$totalCompletedOrders = array_sum($completedOrders);
+if ($isAdmin) {
+    foreach ($workers as $key => $worker) {
+        $profile = $compensationProfiles[$key] ?? [
+            'employment_type' => 'full_time',
+            'shift_work_minutes' => 480,
+            'break_minutes' => 60,
+        ];
+        $attendanceChartRows[] = [
+            'name' => $worker['worker_name'],
+            'key' => $key,
+            'role' => $worker['worker_role'],
+            'minutes' => (int)floor($workerStats[$key]['seconds'] / 60),
+            'overtime_minutes' => (int)floor($workerStats[$key]['overtime_seconds'] / 60),
+            'target_minutes' => $profile['employment_type'] === 'gig'
+                ? 0
+                : (int)$profile['shift_work_minutes'],
+            'open' => $workerStats[$key]['open'],
+        ];
+    }
+    usort($attendanceChartRows, static fn($a, $b) => $b['minutes'] <=> $a['minutes']);
+    $attendanceChartRows = array_slice($attendanceChartRows, 0, 6);
+}
+$chartMaxMinutes = max(60, ...array_map(
+    static fn($row) => max($row['minutes'] + $row['overtime_minutes'], $row['target_minutes']),
+    $attendanceChartRows ?: [['minutes' => 60, 'target_minutes' => 60]]
+));
 $selectedWorkerPayLabel = '';
 if ($selectedWorker) {
     $profile = $compensationProfiles[$selectedWorkerKey] ?? [
@@ -601,6 +631,64 @@ include __DIR__ . '/includes/admin_header.php';
   .attendance-form .form-group { margin:0; }
   .attendance-form input, .attendance-form button { min-height:40px; }
   .attendance-summary { font-size:1.55rem; font-weight:800; color:#0c6a4a; }
+  .attendance-dashboard { --att-green:#15803d; --att-ink:#14291f; --att-muted:#708078; color:var(--att-ink); }
+  .attendance-hero { position:relative; overflow:hidden; display:flex; align-items:center; justify-content:space-between; gap:20px; margin:10px 0 20px; padding:25px 28px; border-radius:22px; color:#fff; background:linear-gradient(118deg,#103f2d 0%,#147947 62%,#36a765 100%); box-shadow:0 16px 36px rgba(12,78,48,.16); }
+  .attendance-hero:after { content:""; position:absolute; width:250px; height:250px; right:-54px; top:-136px; border:1px solid rgba(255,255,255,.2); border-radius:50%; box-shadow:0 0 0 28px rgba(255,255,255,.055),0 0 0 58px rgba(255,255,255,.04); }
+  .attendance-hero h2 { margin:3px 0 6px; color:#fff; font-size:clamp(1.45rem,3vw,2rem); letter-spacing:-.04em; }
+  .attendance-hero p { max-width:680px; margin:0; color:rgba(255,255,255,.8); font-size:.9rem; line-height:1.6; }
+  .attendance-hero .attendance-hero-period { position:relative; z-index:1; flex:none; padding:10px 14px; border:1px solid rgba(255,255,255,.28); border-radius:12px; background:rgba(255,255,255,.12); font-size:.82rem; font-weight:700; }
+  .attendance-kpis { display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); gap:13px; margin:0 0 20px; }
+  .attendance-kpi { position:relative; overflow:hidden; min-height:118px; padding:17px 18px; border:1px solid #e7eee8; border-radius:17px; background:#fff; box-shadow:0 5px 18px rgba(19,55,37,.035); }
+  .attendance-kpi:after { content:""; position:absolute; right:-24px; bottom:-42px; width:100px; height:100px; border-radius:50%; background:var(--kpi-tint,#eff8f1); }
+  .attendance-kpi-top { display:flex; align-items:center; justify-content:space-between; color:#738078; font-size:.75rem; font-weight:700; letter-spacing:.04em; text-transform:uppercase; }
+  .attendance-kpi-icon { display:grid; place-items:center; width:33px; height:33px; border-radius:11px; color:var(--kpi-color,#15803d); background:var(--kpi-tint,#eff8f1); font-size:1rem; }
+  .attendance-kpi-value { position:relative; z-index:1; margin-top:12px; color:#163a2e; font-size:1.65rem; font-weight:800; letter-spacing:-.04em; line-height:1; }
+  .attendance-kpi-note { position:relative; z-index:1; margin-top:7px; color:#7b8981; font-size:.75rem; }
+  .attendance-insights { display:grid; grid-template-columns:minmax(0,1.45fr) minmax(260px,.8fr); gap:14px; margin:0 0 20px; }
+  .attendance-panel { min-width:0; padding:19px 20px; border:1px solid #e7eee8; border-radius:18px; background:#fff; box-shadow:0 5px 18px rgba(19,55,37,.035); }
+  .attendance-panel-head { display:flex; align-items:flex-start; justify-content:space-between; gap:12px; margin-bottom:17px; }
+  .attendance-panel-head h3 { margin:0; color:#183c2e; font-size:1rem; }
+  .attendance-panel-head p { margin:4px 0 0; color:#829087; font-size:.77rem; }
+  .attendance-chart-legend { display:flex; flex-wrap:wrap; gap:12px; color:#68776e; font-size:.72rem; }
+  .attendance-chart-legend span { display:inline-flex; align-items:center; gap:5px; }
+  .attendance-chart-dot { display:inline-block; width:8px; height:8px; border-radius:50%; background:#29a267; }
+  .attendance-chart-dot.is-overtime { background:#f0a13c; }
+  .attendance-bars { display:grid; gap:13px; }
+  .attendance-bar-row { display:grid; grid-template-columns:minmax(90px,145px) minmax(0,1fr) 58px; align-items:center; gap:10px; }
+  .attendance-bar-name { overflow:hidden; color:#47584e; font-size:.78rem; font-weight:700; text-overflow:ellipsis; white-space:nowrap; }
+  .attendance-bar-track { display:flex; overflow:hidden; height:11px; border-radius:99px; background:#f0f4f1; }
+  .attendance-bar-work { display:block; height:100%; border-radius:99px; background:linear-gradient(90deg,#16834b,#38b877); }
+  .attendance-bar-overtime { display:block; height:100%; background:#f0a13c; }
+  .attendance-bar-value { color:#496054; font-size:.73rem; font-weight:800; text-align:right; white-space:nowrap; }
+  .attendance-chart-axis { display:flex; justify-content:space-between; margin:10px 66px 0 155px; color:#99a49d; font-size:.65rem; }
+  .attendance-status-list { display:grid; gap:11px; }
+  .attendance-status-item { display:flex; align-items:center; justify-content:space-between; gap:12px; padding:11px 12px; border:1px solid #edf1ee; border-radius:12px; background:#fcfdfc; }
+  .attendance-status-person { display:flex; align-items:center; min-width:0; gap:10px; }
+  .attendance-status-avatar { display:grid; flex:none; place-items:center; width:34px; height:34px; border-radius:12px; color:#157343; background:#eaf6ee; font-size:.78rem; font-weight:800; }
+  .attendance-status-name { overflow:hidden; color:#344a3d; font-size:.78rem; font-weight:700; text-overflow:ellipsis; white-space:nowrap; }
+  .attendance-status-time { margin-top:2px; color:#87938b; font-size:.69rem; }
+  .attendance-status-time .worker-live-clock { color:#60776a; font-size:inherit; font-weight:700; }
+  .attendance-pill { flex:none; padding:5px 8px; border-radius:99px; color:#176f43; background:#eaf7ef; font-size:.68rem; font-weight:800; }
+  .attendance-pill.is-warning { color:#a15b0b; background:#fff3dd; }
+  .attendance-pill.is-muted { color:#68766d; background:#f0f3f1; }
+  .attendance-toolbar { display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:12px; margin:22px 0 10px; }
+  .attendance-toolbar h3 { margin:0; color:#173c2d; font-size:1.05rem; }
+  .attendance-toolbar p { margin:4px 0 0; color:#7d8982; font-size:.78rem; }
+  .attendance-search { position:relative; min-width:min(100%,260px); }
+  .attendance-search input { width:100%; min-height:40px; padding:8px 12px 8px 36px; border:1px solid #dfe8e1; border-radius:11px; background:#fff; }
+  .attendance-search:before { content:"⌕"; position:absolute; top:5px; left:12px; color:#718078; font-size:1.25rem; }
+  .attendance-filter-row { display:flex; flex-wrap:wrap; gap:7px; margin-bottom:12px; }
+  .attendance-filter { padding:7px 11px; border:1px solid #e1e9e3; border-radius:99px; color:#5e7065; background:#fff; font-size:.74rem; font-weight:700; cursor:pointer; }
+  .attendance-filter.is-active { border-color:#176f43; color:#fff; background:#176f43; }
+  .attendance-table-wrap { border:1px solid #e7eee8; border-radius:15px; background:#fff; box-shadow:0 5px 18px rgba(19,55,37,.035); }
+  .attendance-table { min-width:980px; }
+  .attendance-table th { background:#f7faf7; color:#77837b; font-size:.68rem; letter-spacing:.04em; }
+  .attendance-table tbody tr { transition:background .15s ease; }
+  .attendance-table tbody tr:hover { background:#f8fbf8; }
+  .attendance-table td { color:#48594f; font-size:.81rem; }
+  .attendance-table td strong { color:#203c2e; }
+  .attendance-table .attendance-worker-link { color:#176f43; text-decoration:none; }
+  .attendance-table .attendance-worker-link:hover { text-decoration:underline; }
   .attendance-table-wrap { overflow-x:auto; }
   .attendance-table { width:100%; min-width:850px; border-collapse:collapse; }
   .attendance-table th,.attendance-table td { padding:11px 12px; border-bottom:1px solid #e8eee9; text-align:left; vertical-align:top; }
@@ -626,12 +714,20 @@ include __DIR__ . '/includes/admin_header.php';
     body.print-worker-report #worker-report .no-print { display:none!important; }
     .attendance-card { box-shadow:none; }
   }
-  @media(max-width:640px) { .attendance-form > * { flex:1 1 100%; } }
+  @media(max-width:900px) { .attendance-kpis { grid-template-columns:repeat(2,minmax(0,1fr)); } .attendance-insights { grid-template-columns:1fr; } }
+  @media(max-width:640px) { .attendance-form > * { flex:1 1 100%; } .attendance-hero { align-items:flex-start; flex-direction:column; padding:21px; } .attendance-hero .attendance-hero-period { align-self:flex-start; } .attendance-kpis { gap:9px; } .attendance-kpi { min-height:106px; padding:13px; } .attendance-kpi-value { font-size:1.4rem; } .attendance-panel { padding:16px 13px; } .attendance-bar-row { grid-template-columns:minmax(75px,105px) minmax(0,1fr) 48px; gap:7px; } .attendance-chart-axis { margin-left:112px; margin-right:55px; } .attendance-search { width:100%; } }
 </style>
 
-<div class="section-head"><h2>Worker Attendance &amp; Performance</h2>
-  <p>Shift presence is measured from clock-in to clock-out. Configured break time is deducted to calculate productive hours; permanent workers add a shift summary at clock-out. For automatic clock-out when dashboards are closed, schedule <code>cron/close_worker_attendance.php</code> to run every minute in your hosting control panel.</p>
-</div>
+<?php if ($isAdmin): ?>
+  <section class="attendance-hero">
+    <div><div style="font-size:.72rem;font-weight:800;letter-spacing:.14em;text-transform:uppercase;color:rgba(255,255,255,.72);">People analytics</div><h2>Attendance, at a glance</h2><p>Track your team's time, shifts and approved overtime in one clear view. Use the date range below to explore another period.</p></div>
+    <div class="attendance-hero-period"><?= h(date('d M', strtotime($start))) ?> — <?= h(date('d M Y', strtotime($end))) ?></div>
+  </section>
+<?php else: ?>
+  <div class="section-head"><h2>Worker Attendance &amp; Performance</h2>
+    <p>Shift presence is measured from clock-in to clock-out. Configured break time is deducted to calculate productive hours; permanent workers add a shift summary at clock-out. For automatic clock-out when dashboards are closed, schedule <code>cron/close_worker_attendance.php</code> to run every minute in your hosting control panel.</p>
+  </div>
+<?php endif; ?>
 
 <?php if (!empty($_SESSION['flash'])): ?>
   <div class="alert alert-<?= h($_SESSION['flash']['type']) ?>"><?= h($_SESSION['flash']['message']) ?></div>
@@ -689,7 +785,7 @@ include __DIR__ . '/includes/admin_header.php';
     </tbody>
   </table></div>
 <?php else: ?>
-  <form method="get" class="attendance-card attendance-form" style="margin-bottom:18px;">
+  <form method="get" class="attendance-card attendance-form" id="attendanceFilters" style="margin-bottom:18px;">
     <div class="form-group"><label for="attendanceStart">From</label><input id="attendanceStart" type="date" name="start" value="<?= h($start) ?>" required></div>
     <div class="form-group"><label for="attendanceEnd">To</label><input id="attendanceEnd" type="date" name="end" value="<?= h($end) ?>" required></div>
     <div class="form-group">
@@ -704,31 +800,92 @@ include __DIR__ . '/includes/admin_header.php';
       </select>
     </div>
     <button class="btn btn-primary"><?= $selectedWorker ? 'View employee report' : 'View overview' ?></button>
+    <?php if (!$selectedWorker): ?>
+      <div class="attendance-filter-row" style="flex-basis:100%;margin:2px 0 0;">
+        <button class="attendance-filter" type="button" data-date-preset="today">Today</button>
+        <button class="attendance-filter" type="button" data-date-preset="7days">Last 7 days</button>
+        <button class="attendance-filter" type="button" data-date-preset="month">This month</button>
+      </div>
+    <?php endif; ?>
   </form>
   <?php if (!$selectedWorker): ?>
-  <div class="section-head"><h3>Live Worker Time Cards</h3><p>Each card shows the selected period's presence and productive time plus a live timer for anyone currently clocked in. Select a worker to open their full report.</p></div>
-  <div class="worker-time-grid">
-    <?php foreach ($workers as $key => $worker):
-      $cardUrl = 'attendance.php?' . http_build_query(['start' => $start, 'end' => $end, 'worker' => $key]) . '#worker-report';
-      $openStart = $workerStats[$key]['open_since']
-          ? (new DateTimeImmutable($workerStats[$key]['open_since'], new DateTimeZone('UTC')))->getTimestamp()
-          : null;
-    ?>
-      <a class="attendance-card worker-time-card" href="<?= h($cardUrl) ?>">
-        <h4><?= h($worker['worker_name']) ?></h4>
-        <div class="attendance-muted"><?= h(ucfirst($worker['worker_role'])) ?> · <?= h($worker['worker_type']) ?> · <?= h($worker['store_name'] ?: 'Not assigned') ?></div>
-        <div class="attendance-muted" style="margin-top:12px;">Presence in period</div>
-        <div class="attendance-summary"><?= h(attendance_duration_label($workerStats[$key]['presence_seconds'])) ?></div>
-        <div class="attendance-muted">Productive time (break deducted)</div>
-        <div><strong><?= h(attendance_duration_label($workerStats[$key]['seconds'])) ?></strong></div>
-        <div class="attendance-muted" style="margin-top:10px;"><?= $openStart ? 'Current shift · updating live' : 'Currently clocked out' ?></div>
-        <div class="worker-live-clock" <?= $openStart ? 'data-live-start="' . $openStart . '"' : '' ?>>
-          <?= $openStart ? '00:00:00' : '00:00:00' ?>
+  <section class="attendance-dashboard" aria-label="Attendance analytics">
+    <div class="attendance-kpis">
+      <article class="attendance-kpi" style="--kpi-color:#187746;--kpi-tint:#eaf6ee;">
+        <div class="attendance-kpi-top"><span>Team members</span><span class="attendance-kpi-icon">♙</span></div>
+        <div class="attendance-kpi-value"><?= count($workers) ?></div>
+        <div class="attendance-kpi-note">Staff and delivery partners</div>
+      </article>
+      <article class="attendance-kpi" style="--kpi-color:#1673a5;--kpi-tint:#eaf4fa;">
+        <div class="attendance-kpi-top"><span>Productive hours</span><span class="attendance-kpi-icon">◷</span></div>
+        <div class="attendance-kpi-value"><?= h(number_format($totalWorkedSeconds / 3600, 1)) ?><small style="font-size:.83rem;font-weight:700;"> hrs</small></div>
+        <div class="attendance-kpi-note">Break time excluded</div>
+      </article>
+      <article class="attendance-kpi" style="--kpi-color:#bf7318;--kpi-tint:#fff4df;">
+        <div class="attendance-kpi-top"><span>Approved overtime</span><span class="attendance-kpi-icon">↗</span></div>
+        <div class="attendance-kpi-value"><?= h(number_format($totalOvertimeSeconds / 3600, 1)) ?><small style="font-size:.83rem;font-weight:700;"> hrs</small></div>
+        <div class="attendance-kpi-note"><?= count($overtimeRequests) ?> request<?= count($overtimeRequests) === 1 ? '' : 's' ?> waiting for approval</div>
+      </article>
+      <article class="attendance-kpi" style="--kpi-color:#6e56a3;--kpi-tint:#f1edfa;">
+        <div class="attendance-kpi-top"><span>Orders completed</span><span class="attendance-kpi-icon">✓</span></div>
+        <div class="attendance-kpi-value"><?= (int)$totalCompletedOrders ?></div>
+        <div class="attendance-kpi-note"><?= count(array_filter($workerStats, static fn($stat) => $stat['open'])) ?> team members clocked in now</div>
+      </article>
+    </div>
+    <div class="attendance-insights">
+      <section class="attendance-panel">
+        <div class="attendance-panel-head">
+          <div><h3>Productive hours by employee</h3><p>Top team members for this date range · up to 6 people</p></div>
+          <div class="attendance-chart-legend"><span><i class="attendance-chart-dot"></i> Productive</span><span><i class="attendance-chart-dot is-overtime"></i> Overtime</span></div>
         </div>
-        <div class="attendance-muted"><?= (int)$completedOrders[$key] ?> completed orders · <?= (int)$workerStats[$key]['shifts'] ?> shifts</div>
-      </a>
-    <?php endforeach; ?>
-    <?php if (!$workers): ?><div class="attendance-card">No staff or rider accounts found.</div><?php endif; ?>
+        <?php if ($attendanceChartRows): ?>
+          <div class="attendance-bars">
+            <?php foreach ($attendanceChartRows as $bar):
+              $productiveWidth = min(100, ($bar['minutes'] / $chartMaxMinutes) * 100);
+              $overtimeWidth = min(max(0, 100 - $productiveWidth), ($bar['overtime_minutes'] / $chartMaxMinutes) * 100);
+              $barMinutes = $bar['minutes'] + $bar['overtime_minutes'];
+            ?>
+              <div class="attendance-bar-row" title="<?= h($bar['name']) ?> · <?= h(attendance_duration_label($barMinutes * 60)) ?>">
+                <span class="attendance-bar-name"><?= h($bar['name']) ?></span>
+                <span class="attendance-bar-track" role="img" aria-label="<?= h(attendance_duration_label($barMinutes * 60)) ?> total">
+                  <i class="attendance-bar-work" style="width:<?= h((string)$productiveWidth) ?>%"></i>
+                  <i class="attendance-bar-overtime" style="width:<?= h((string)$overtimeWidth) ?>%"></i>
+                </span>
+                <span class="attendance-bar-value"><?= h(number_format($barMinutes / 60, 1)) ?>h</span>
+              </div>
+            <?php endforeach; ?>
+          </div>
+          <div class="attendance-chart-axis"><span>0h</span><span><?= h(number_format($chartMaxMinutes / 120, 1)) ?>h</span><span><?= h(number_format($chartMaxMinutes / 60, 1)) ?>h</span></div>
+        <?php else: ?>
+          <p class="attendance-muted">No attendance data for this date range yet.</p>
+        <?php endif; ?>
+      </section>
+      <section class="attendance-panel">
+        <div class="attendance-panel-head"><div><h3>Who's on shift</h3><p>Live team status</p></div><span class="attendance-pill"><?= count(array_filter($workerStats, static fn($stat) => $stat['open'])) ?> active</span></div>
+        <div class="attendance-status-list">
+          <?php $activeWorkerCount = 0; foreach ($workers as $key => $worker): if (!$workerStats[$key]['open']) continue; $activeWorkerCount++; ?>
+            <?php $openStart = $workerStats[$key]['open_since'] ? (new DateTimeImmutable($workerStats[$key]['open_since'], new DateTimeZone('UTC')))->getTimestamp() : null; ?>
+            <a class="attendance-status-item" href="<?= h('attendance.php?' . http_build_query(['start' => $start, 'end' => $end, 'worker' => $key])) ?>#worker-report" style="text-decoration:none;">
+              <span class="attendance-status-person">
+                <span class="attendance-status-avatar"><?= h(strtoupper(substr($worker['worker_name'], 0, 1))) ?></span>
+                <span style="min-width:0;"><span class="attendance-status-name" style="display:block;"><?= h($worker['worker_name']) ?></span><span class="attendance-status-time"><?= h(ucfirst($worker['worker_role'])) ?> · since <span class="worker-live-clock" <?= $openStart ? 'data-live-start="' . $openStart . '"' : '' ?>>00:00:00</span></span></span>
+              </span>
+              <span class="attendance-pill"><?= $worker['worker_type'] === 'rider' ? 'Rider' : 'On shift' ?></span>
+            </a>
+          <?php endforeach; ?>
+          <?php if ($activeWorkerCount === 0): ?><div class="attendance-status-item"><span class="attendance-status-name">No active shifts right now</span><span class="attendance-pill is-muted">All clear</span></div><?php endif; ?>
+        </div>
+      </section>
+    </div>
+  </section>
+  <div class="attendance-toolbar">
+    <div><h3>Team attendance</h3><p>Search, filter, or open a person's report for shift and order details.</p></div>
+    <label class="attendance-search"><span class="visually-hidden">Search employees</span><input type="search" id="attendanceSearch" placeholder="Search employee or role…" autocomplete="off"></label>
+  </div>
+  <div class="attendance-filter-row" id="attendanceStateFilters">
+    <button class="attendance-filter is-active" type="button" data-state-filter="all">Everyone <span><?= count($workers) ?></span></button>
+    <button class="attendance-filter" type="button" data-state-filter="active">On shift <span><?= count(array_filter($workerStats, static fn($stat) => $stat['open'])) ?></span></button>
+    <button class="attendance-filter" type="button" data-state-filter="overtime">Overtime <span><?= count(array_filter($workerStats, static fn($stat) => $stat['overtime_seconds'] > 0)) ?></span></button>
   </div>
   <?php endif; ?>
 
@@ -800,12 +957,6 @@ include __DIR__ . '/includes/admin_header.php';
     </section>
   <?php endif; ?>
   <?php if (!$selectedWorker): ?>
-  <div class="attendance-grid">
-    <div class="attendance-card"><div class="attendance-muted">Workers</div><div class="attendance-summary"><?= count($workers) ?></div></div>
-    <div class="attendance-card"><div class="attendance-muted">Productive Worker Hours (break deducted)</div><div class="attendance-summary"><?= h(attendance_duration_label($totalWorkedSeconds)) ?></div></div>
-    <div class="attendance-card"><div class="attendance-muted">Approved Overtime</div><div class="attendance-summary"><?= h(attendance_duration_label($totalOvertimeSeconds)) ?></div></div>
-    <div class="attendance-card"><div class="attendance-muted">Open Shifts</div><div class="attendance-summary"><?= count(array_filter($workerStats, static fn($stat) => $stat['open'])) ?></div></div>
-  </div>
   <?php if ($overtimeRequests): ?>
     <div class="section-head" style="margin-top:24px;"><h3>Overtime approval requests</h3><p>Approve before the regular shift ends. Approved time extends the employee's automatic clock-out.</p></div>
     <div class="table-wrap attendance-table-wrap"><table class="attendance-table">
@@ -837,9 +988,11 @@ include __DIR__ . '/includes/admin_header.php';
   <div class="table-wrap attendance-table-wrap"><table class="attendance-table">
     <thead><tr><th>Worker</th><th>Role</th><th>Store</th><th>Shifts</th><th>Presence</th><th>Productive hours</th><th>Approved overtime</th><th>Orders completed</th><th>Pay estimate</th><th>Shift status</th></tr></thead>
     <tbody>
-    <?php foreach ($workers as $key => $worker): ?>
-      <tr>
-        <td><a href="<?= h('attendance.php?' . http_build_query(['start' => $start, 'end' => $end, 'worker' => $key])) ?>#worker-report"><strong><?= h($worker['worker_name']) ?></strong></a><br><span class="attendance-muted"><?= h($worker['contact'] ?: '—') ?></span></td>
+    <?php foreach ($workers as $key => $worker):
+      $workerSearchText = strtolower($worker['worker_name'] . ' ' . $worker['worker_role'] . ' ' . $worker['worker_type'] . ' ' . $worker['contact']);
+    ?>
+      <tr data-attendance-row data-name="<?= h($workerSearchText) ?>" data-active="<?= $workerStats[$key]['open'] ? '1' : '0' ?>" data-overtime="<?= $workerStats[$key]['overtime_seconds'] > 0 ? '1' : '0' ?>">
+        <td><a class="attendance-worker-link" href="<?= h('attendance.php?' . http_build_query(['start' => $start, 'end' => $end, 'worker' => $key])) ?>#worker-report"><strong><?= h($worker['worker_name']) ?></strong></a><br><span class="attendance-muted"><?= h($worker['contact'] ?: '—') ?></span></td>
         <td><?= h(ucfirst($worker['worker_role'])) ?></td>
         <td><?= h($worker['store_name'] ?: 'Not assigned') ?></td>
         <td><?= (int)$workerStats[$key]['shifts'] ?></td>
@@ -862,9 +1015,10 @@ include __DIR__ . '/includes/admin_header.php';
             Attendance only
           <?php endif; ?>
         </td>
-        <td><?= $workerStats[$key]['open'] ? 'Clocked in' : 'Clocked out' ?></td>
+        <td><span class="attendance-pill <?= $workerStats[$key]['open'] ? '' : 'is-muted' ?>"><?= $workerStats[$key]['open'] ? 'On shift' : 'Clocked out' ?></span></td>
       </tr>
     <?php endforeach; ?>
+    <tr id="attendanceNoResults" hidden><td colspan="10" style="padding:24px;text-align:center;color:#75837a;">No employees match these filters.</td></tr>
     <?php if (!$workers): ?><tr><td colspan="10">No staff or rider accounts found.</td></tr><?php endif; ?>
     </tbody>
   </table></div>
@@ -1080,6 +1234,67 @@ function updateAttendanceClocks() {
 }
 updateAttendanceClocks();
 window.setInterval(updateAttendanceClocks, 1000);
+
+const attendanceSearch = document.getElementById('attendanceSearch');
+const attendanceRows = [...document.querySelectorAll('[data-attendance-row]')];
+const attendanceNoResults = document.getElementById('attendanceNoResults');
+let activeAttendanceFilter = 'all';
+
+function filterAttendanceRows() {
+  const query = attendanceSearch ? attendanceSearch.value.trim().toLowerCase() : '';
+  let visibleRows = 0;
+  attendanceRows.forEach((row) => {
+    const matchesSearch = (row.dataset.name || '').includes(query);
+    const matchesFilter = activeAttendanceFilter === 'all'
+      || (activeAttendanceFilter === 'active' && row.dataset.active === '1')
+      || (activeAttendanceFilter === 'overtime' && row.dataset.overtime === '1');
+    const visible = matchesSearch && matchesFilter;
+    row.hidden = !visible;
+    if (visible) visibleRows++;
+  });
+  if (attendanceNoResults) attendanceNoResults.hidden = visibleRows !== 0;
+}
+
+if (attendanceSearch) attendanceSearch.addEventListener('input', filterAttendanceRows);
+document.querySelectorAll('[data-state-filter]').forEach((button) => {
+  button.addEventListener('click', () => {
+    activeAttendanceFilter = button.dataset.stateFilter;
+    document.querySelectorAll('[data-state-filter]').forEach((filter) => {
+      const selected = filter === button;
+      filter.classList.toggle('is-active', selected);
+      filter.setAttribute('aria-pressed', String(selected));
+    });
+    filterAttendanceRows();
+  });
+});
+
+const attendanceFilterForm = document.getElementById('attendanceFilters');
+document.querySelectorAll('[data-date-preset]').forEach((button) => {
+  button.addEventListener('click', () => {
+    const today = new Date();
+    const toDateInput = (date) => {
+      const year = date.getFullYear();
+      const month = String(date.getMonth() + 1).padStart(2, '0');
+      const day = String(date.getDate()).padStart(2, '0');
+      return `${year}-${month}-${day}`;
+    };
+    const endInput = document.getElementById('attendanceEnd');
+    const startInput = document.getElementById('attendanceStart');
+    if (!attendanceFilterForm || !endInput || !startInput) return;
+    endInput.value = toDateInput(today);
+    if (button.dataset.datePreset === 'today') {
+      startInput.value = endInput.value;
+    } else if (button.dataset.datePreset === '7days') {
+      const start = new Date(today);
+      start.setDate(start.getDate() - 6);
+      startInput.value = toDateInput(start);
+    } else {
+      startInput.value = toDateInput(new Date(today.getFullYear(), today.getMonth(), 1));
+    }
+    attendanceFilterForm.requestSubmit();
+  });
+});
+
 let autoClockOutSent = false;
 window.setInterval(() => {
   const activeShiftClock = document.querySelector('[data-auto-end]');
