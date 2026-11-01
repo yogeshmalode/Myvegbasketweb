@@ -43,6 +43,7 @@ if ($deliveryDate < $today) {
 // Re-validate any applied coupon fresh here too, rather than trusting
 // whatever was computed when it was first applied.
 $subtotal = cart_total();
+$cart = $_SESSION['cart'] ?? [];
 $deliveryCharge = get_delivery_charge($subtotal);
 
 $couponCode = null;

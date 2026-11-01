@@ -46,9 +46,15 @@ if ($customerId) {
     if (!$customer) { $customerId = null; $_SESSION['b2b_customer_id'] = null; }
 }
 
-if (isset($_GET['clear'])) { unset($_SESSION['b2b_cart']); header('Location: b2b_billing.php'); exit; }
-if (isset($_GET['remove'])) {
-    $rk = (int)$_GET['remove'];
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['clear_cart'])) {
+    require_csrf();
+    unset($_SESSION['b2b_cart']);
+    header('Location: b2b_billing.php');
+    exit;
+}
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['remove_item'])) {
+    require_csrf();
+    $rk = (int)($_POST['vegetable_id'] ?? 0);
     unset($_SESSION['b2b_cart'][$rk]);
     header('Location: b2b_billing.php');
     exit;
@@ -57,23 +63,58 @@ if (isset($_GET['remove'])) {
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['add_item']) && $customerId) {
     require_csrf();
     $vegId = (int)($_POST['vegetable_id'] ?? 0);
-    $qty = max(0.01, (float)($_POST['quantity'] ?? 0));
+    $quantityInput = trim((string)($_POST['quantity'] ?? ''));
+    $qty = preg_match('/\A\d+(?:\.\d{1,2})?\z/D', $quantityInput) ? (float)$quantityInput : 0;
     $vs = $pdo->prepare("SELECT * FROM vegetables WHERE id = ? AND is_active = 1");
     $vs->execute([$vegId]);
     $v = $vs->fetch();
-    if ($v) {
+    if (!$v) {
+        $_SESSION['flash'] = ['type' => 'error', 'message' => 'Product not found or no longer available.'];
+    } elseif ($qty <= 0) {
+        $_SESSION['flash'] = ['type' => 'error', 'message' => 'Enter a quantity greater than zero.'];
+    } else {
         $effStock = get_effective_stock($pdo, $vegId, null);
-        if ($qty > $effStock) $qty = $effStock;
-        if ($qty > 0) {
-            if (!isset($_SESSION['b2b_cart'])) $_SESSION['b2b_cart'] = [];
-            $price = get_price_for_customer($pdo, $v, $customer['customer_type']);
-            if (isset($_SESSION['b2b_cart'][$vegId])) {
-                $_SESSION['b2b_cart'][$vegId]['qty'] += $qty;
-            } else {
-                $_SESSION['b2b_cart'][$vegId] = ['id' => $vegId, 'name' => $v['name'], 'unit' => $v['unit'], 'price' => $price, 'qty' => $qty];
-            }
+        if (!isset($_SESSION['b2b_cart'])) $_SESSION['b2b_cart'] = [];
+        $existingQty = (float)($_SESSION['b2b_cart'][$vegId]['qty'] ?? 0);
+        if ($effStock <= 0) {
+            $_SESSION['flash'] = ['type' => 'error', 'message' => 'This product is out of stock.'];
+        } elseif ($existingQty + $qty > $effStock) {
+            $_SESSION['flash'] = ['type' => 'error', 'message' => 'Only ' . number_format(max(0, $effStock - $existingQty), 2) . ' more ' . $v['unit'] . ' available.'];
         } else {
-            $_SESSION['flash'] = ['type' => 'error', 'message' => 'Insufficient stock.'];
+            $price = get_price_for_customer($pdo, $v, $customer['customer_type']);
+            $_SESSION['b2b_cart'][$vegId] = [
+                'id' => $vegId,
+                'name' => $v['name'],
+                'unit' => $v['unit'],
+                'price' => $price,
+                'qty' => $existingQty + $qty,
+            ];
+            $_SESSION['flash'] = ['type' => 'success', 'message' => $v['name'] . ' added to the bill.'];
+        }
+    }
+    header('Location: b2b_billing.php');
+    exit;
+}
+
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['update_item']) && $customerId) {
+    require_csrf();
+    $vegId = (int)($_POST['vegetable_id'] ?? 0);
+    $quantityInput = trim((string)($_POST['quantity'] ?? ''));
+    $qty = preg_match('/\A\d+(?:\.\d{1,2})?\z/D', $quantityInput) ? (float)$quantityInput : 0;
+    $productStmt = $pdo->prepare("SELECT * FROM vegetables WHERE id = ? AND is_active = 1");
+    $productStmt->execute([$vegId]);
+    $product = $productStmt->fetch();
+    if (!isset($_SESSION['b2b_cart'][$vegId]) || !$product) {
+        $_SESSION['flash'] = ['type' => 'error', 'message' => 'This bill item is no longer available.'];
+    } elseif ($qty <= 0) {
+        $_SESSION['flash'] = ['type' => 'error', 'message' => 'Enter a quantity greater than zero.'];
+    } else {
+        $stock = get_effective_stock($pdo, $vegId, null);
+        if ($qty > $stock) {
+            $_SESSION['flash'] = ['type' => 'error', 'message' => 'Only ' . number_format($stock, 2) . ' ' . $product['unit'] . ' available.'];
+        } else {
+            $_SESSION['b2b_cart'][$vegId]['qty'] = $qty;
+            $_SESSION['flash'] = ['type' => 'success', 'message' => 'Bill quantity updated.'];
         }
     }
     header('Location: b2b_billing.php');
@@ -101,7 +142,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['checkout']) && $custo
                 if (get_effective_stock($pdo, $vegId, null) < $qty) {
                     throw new Exception('Insufficient stock for ' . $entry['name'] . '.');
                 }
-                $unitPrice = (float)$entry['price'];
+                $unitPrice = get_price_for_customer($pdo, $product, $customer['customer_type']);
                 $lineTotal = round($unitPrice * $qty, 2);
                 $subtotal += $lineTotal;
                 $linesToSave[] = ['veg_id' => $vegId, 'name' => $entry['name'], 'qty' => $qty, 'unit_price' => $unitPrice, 'line_total' => $lineTotal, 'cost_price' => (float)($product['cost_price'] ?? 0)];
@@ -155,15 +196,28 @@ $customerOptions = $custStmt->fetchAll();
 $products = $pdo->query("SELECT id, name, unit, price, sale_price, stock FROM vegetables WHERE is_active = 1 AND stock > 0 ORDER BY name")->fetchAll();
 
 $cart = $_SESSION['b2b_cart'] ?? [];
+$cartProductStmt = $pdo->prepare("SELECT * FROM vegetables WHERE id = ? AND is_active = 1");
+foreach ($cart as $cartKey => &$cartEntry) {
+    $cartProductStmt->execute([(int)$cartEntry['id']]);
+    $cartProduct = $cartProductStmt->fetch();
+    if ($cartProduct && $customer) {
+        $cartEntry['name'] = $cartProduct['name'];
+        $cartEntry['unit'] = $cartProduct['unit'];
+        $cartEntry['price'] = get_price_for_customer($pdo, $cartProduct, $customer['customer_type']);
+    }
+}
+unset($cartEntry);
+$_SESSION['b2b_cart'] = $cart;
 $subtotal = 0;
-foreach ($cart as $e) { $subtotal += (float)$e['price'] * (float)$e['qty']; }
+foreach ($cart as $e) { $subtotal += round((float)$e['price'] * (float)$e['qty'], 2); }
 $balance = $customerId ? get_customer_balance($pdo, $customerId) : 0;
+$availableCredit = $customer ? max(0, (float)$customer['credit_limit'] - $balance) : 0;
 
 $flash = $_SESSION['flash'] ?? null;
 unset($_SESSION['flash']);
 include __DIR__ . '/includes/admin_header.php';
 ?>
-<div class="admin-page-heading"><div><h1>B2B Billing</h1><p>Manual order entry for Hotel &amp; Shop accounts, using the shared wholesale price list.</p></div><?php if ($customerId): ?><a class="admin-btn" href="b2b_billing.php?clear=1">Clear Cart</a><?php endif; ?></div>
+<div class="admin-page-heading"><div><h1>B2B Billing</h1><p>Manual order entry for Hotel &amp; Shop accounts, using the shared wholesale price list.</p></div><?php if ($customerId && $cart): ?><form method="post"><input type="hidden" name="csrf_token" value="<?= h(csrf_token()) ?>"><button class="admin-btn" name="clear_cart" value="1">Clear Bill</button></form><?php endif; ?></div>
 <?php if ($flash): ?><div class="admin-alert admin-alert-<?= h($flash['type']) ?>"><?= h($flash['message']) ?> <?php if (!empty($flash['order'])): ?><a href="b2b_billing.php?receipt=<?= (int)$flash['order'] ?>">Print receipt</a><?php endif; ?></div><?php endif; ?>
 
 <div class="admin-panel" style="margin-bottom:12px;padding:12px 14px;">
@@ -186,17 +240,18 @@ include __DIR__ . '/includes/admin_header.php';
     <span><strong>Billing for:</strong> <?= h($customer['business_name'] ?: $customer['name']) ?></span>
     <span><strong>Credit limit:</strong> ₹<?= number_format($customer['credit_limit'], 2) ?></span>
     <span><strong>Current balance:</strong> <span style="color:<?= $balance > 0 ? '#df2e24' : '#1c7b3f' ?>">₹<?= number_format($balance, 2) ?></span></span>
+    <span><strong>Available credit:</strong> ₹<?= number_format($availableCredit, 2) ?></span>
   </div>
   <div class="billing-grid">
-    <section class="admin-panel"><div class="admin-panel-head"><h2>Select Products (Wholesale Price)</h2></div><div class="billing-search"><input id="billSearch" type="search" placeholder="⌕ Search products by name..."></div><div class="billing-product-list">
+    <section class="admin-panel"><div class="admin-panel-head"><h2>Select Products <small>Wholesale pricing</small></h2></div><div class="billing-search"><input id="billSearch" type="search" placeholder="Search products by name..." aria-label="Search products"><span id="billSearchCount"><?= count($products) ?> products</span></div><div class="billing-product-list">
       <?php foreach ($products as $v): $price = get_price_for_customer($pdo, $v, $customer['customer_type']); ?>
         <div class="billing-row" data-name="<?= h(strtolower($v['name'])) ?>">
           <div><div class="billing-name"><?= h($v['name']) ?></div><div class="billing-meta">₹<?= number_format($price, 2) ?> / <?= h($v['unit']) ?> · <?= $v['stock'] ?> available</div></div>
           <form method="post" style="display:flex;gap:5px;align-items:center;">
             <input type="hidden" name="csrf_token" value="<?= h(csrf_token()) ?>">
             <input type="hidden" name="vegetable_id" value="<?= $v['id'] ?>">
-            <input type="number" name="quantity" min="0.01" step="0.01" value="1" style="width:72px;height:31px;border:1px solid #d8e1dc;border-radius:7px;padding:0 5px;">
-            <button class="billing-add" name="add_item" value="1">＋</button>
+            <input type="number" name="quantity" min="0.01" max="<?= h($v['stock']) ?>" step="0.01" value="<?= h(min(1, (float)$v['stock'])) ?>" aria-label="Quantity for <?= h($v['name']) ?>" style="width:82px;height:36px;border:1px solid #d8e1dc;border-radius:7px;padding:0 7px;">
+            <button class="billing-add" name="add_item" value="1" aria-label="Add <?= h($v['name']) ?>">＋ Add</button>
           </form>
         </div>
       <?php endforeach; ?>
@@ -204,9 +259,14 @@ include __DIR__ . '/includes/admin_header.php';
     <section class="admin-panel"><div class="admin-panel-head"><h2>Current Bill</h2><span style="font-size:11px;color:#df2e24;font-weight:700;"><?= count($cart) ?> item(s)</span></div><div class="billing-cart">
       <?php if ($cart): ?>
         <div class="billing-cart-items"><table class="billing-cart-table"><thead><tr><th>Product</th><th>Qty</th><th>Price</th><th>Total</th><th></th></tr></thead><tbody>
-        <?php foreach ($cart as $x): ?><tr><td><?= h($x['name']) ?></td><td><?= $x['qty'] ?> <?= h($x['unit']) ?></td><td>₹<?= number_format($x['price'], 2) ?></td><td>₹<?= number_format($x['price'] * $x['qty'], 2) ?></td><td><a class="billing-remove" href="b2b_billing.php?remove=<?= $x['id'] ?>" onclick="return confirm('Remove this item?')">✕</a></td></tr><?php endforeach; ?>
+        <?php foreach ($cart as $x): ?><tr>
+          <td><?= h($x['name']) ?></td>
+          <td><form method="post" class="b2b-quantity-form"><input type="hidden" name="csrf_token" value="<?= h(csrf_token()) ?>"><input type="hidden" name="vegetable_id" value="<?= (int)$x['id'] ?>"><input class="b2b-cart-quantity" type="number" name="quantity" min="0.01" step="0.01" value="<?= h($x['qty']) ?>" data-price="<?= h($x['price']) ?>" aria-label="Quantity for <?= h($x['name']) ?>"><button name="update_item" value="1">Update</button><span><?= h($x['unit']) ?></span></form></td>
+          <td>₹<?= number_format($x['price'], 2) ?></td><td class="b2b-line-total" data-price="<?= h($x['price']) ?>">₹<?= number_format($x['price'] * $x['qty'], 2) ?></td>
+          <td><form method="post" onsubmit="return confirm('Remove this item?')"><input type="hidden" name="csrf_token" value="<?= h(csrf_token()) ?>"><input type="hidden" name="vegetable_id" value="<?= (int)$x['id'] ?>"><button class="billing-remove" name="remove_item" value="1" aria-label="Remove <?= h($x['name']) ?>">✕</button></form></td>
+        </tr><?php endforeach; ?>
         </tbody></table></div>
-        <div class="billing-summary"><div class="billing-summary-line"><span>Subtotal</span><strong>₹<?= number_format($subtotal, 2) ?></strong></div></div>
+        <div class="billing-summary"><div class="billing-summary-line"><span>Subtotal</span><strong id="b2bSubtotal" data-value="<?= h(number_format($subtotal, 2, '.', '')) ?>">₹<?= number_format($subtotal, 2) ?></strong></div></div>
         <form method="post">
           <input type="hidden" name="csrf_token" value="<?= h(csrf_token()) ?>">
           <input type="hidden" name="checkout" value="1">
@@ -214,17 +274,44 @@ include __DIR__ . '/includes/admin_header.php';
             <select name="payment_method">
               <option value="cash">Cash Payment</option>
               <option value="upi_qr">UPI Payment</option>
-              <?php if ((float)$customer['credit_limit'] > 0): ?><option value="credit">Bill Me Later (Credit)</option><?php endif; ?>
+              <?php if ($availableCredit > 0): ?><option value="credit">Bill Me Later · ₹<?= number_format($availableCredit, 2) ?> available</option><?php endif; ?>
             </select>
           </div>
-          <div class="billing-total" style="margin-top:10px;"><span>Total Payable</span><strong>₹<?= number_format($subtotal, 2) ?></strong></div>
-          <div class="payment-grid"><button type="submit" class="active">Checkout &amp; Create Bill</button> <a class="admin-btn" href="b2b_billing.php?clear=1">Clear</a></div>
+          <div class="billing-total" style="margin-top:10px;"><span>Total Payable</span><strong id="b2bTotal">₹<?= number_format($subtotal, 2) ?></strong></div>
+          <div class="payment-grid"><button type="submit" class="active">Checkout &amp; Create Bill</button></div>
         </form>
       <?php else: ?>
         <div class="admin-empty">Your bill is empty.<br>Add products from the left.</div>
       <?php endif; ?>
     </div></section>
   </div>
-  <script>const bs=document.getElementById('billSearch');bs?.addEventListener('input',()=>{const q=bs.value.toLowerCase();document.querySelectorAll('.billing-row').forEach(r=>r.style.display=r.dataset.name.includes(q)?'':'none')});</script>
+  <script>
+  const billSearch=document.getElementById('billSearch');
+  billSearch?.addEventListener('input',()=>{
+    const query=billSearch.value.trim().toLowerCase();
+    let visible=0;
+    document.querySelectorAll('.billing-row').forEach(row=>{
+      const matches=row.dataset.name.includes(query);
+      row.hidden=!matches;
+      if(matches) visible++;
+    });
+    document.getElementById('billSearchCount').textContent=visible+' product'+(visible===1?'':'s');
+  });
+  const formatB2bMoney=value=>new Intl.NumberFormat('en-IN',{minimumFractionDigits:2,maximumFractionDigits:2}).format(value);
+  const updateBillPreview=()=>{
+    let subtotal=0;
+    document.querySelectorAll('.b2b-cart-quantity').forEach(input=>{
+      const lineTotal=Math.round(Number(input.value||0)*Number(input.dataset.price||0)*100)/100;
+      subtotal+=lineTotal;
+      input.closest('tr').querySelector('.b2b-line-total').textContent='₹'+formatB2bMoney(lineTotal);
+    });
+    document.getElementById('b2bSubtotal').textContent='₹'+formatB2bMoney(subtotal);
+    document.getElementById('b2bTotal').textContent='₹'+formatB2bMoney(subtotal);
+  };
+  document.querySelectorAll('.b2b-cart-quantity').forEach(input=>{
+    input.addEventListener('input',updateBillPreview);
+    input.addEventListener('change',()=>input.form.requestSubmit());
+  });
+  </script>
 <?php endif; ?>
 <?php include __DIR__ . '/includes/admin_footer.php'; ?>

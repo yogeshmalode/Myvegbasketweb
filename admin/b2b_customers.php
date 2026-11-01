@@ -43,10 +43,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['update_terms'])) {
     $customerId  = (int)($_POST['customer_id'] ?? 0);
     $creditLimit = max(0, (float)($_POST['credit_limit'] ?? 0));
     $terms       = max(0, (int)($_POST['payment_terms_days'] ?? 0));
-    if ($customerId > 0) {
-        $pdo->prepare("UPDATE customers SET credit_limit = ?, payment_terms_days = ? WHERE id = ?")
+    $customerCheck = $pdo->prepare("SELECT id FROM customers WHERE id = ? AND customer_type IN ('hotel','shop')");
+    $customerCheck->execute([$customerId]);
+    if ($customerId > 0 && $customerCheck->fetch()) {
+        $pdo->prepare("UPDATE customers SET credit_limit = ?, payment_terms_days = ? WHERE id = ? AND customer_type IN ('hotel','shop')")
             ->execute([$creditLimit, $terms, $customerId]);
         $_SESSION['flash'] = ['type' => 'success', 'message' => 'Credit terms updated.'];
+    } else {
+        $_SESSION['flash'] = ['type' => 'error', 'message' => 'Hotel/Shop account not found.'];
     }
     header('Location: b2b_customers.php');
     exit;
@@ -55,11 +59,15 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['update_terms'])) {
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['reset_password'])) {
     require_csrf();
     $customerId = (int)($_POST['customer_id'] ?? 0);
-    if ($customerId > 0) {
+    $customerCheck = $pdo->prepare("SELECT id FROM customers WHERE id = ? AND customer_type IN ('hotel','shop')");
+    $customerCheck->execute([$customerId]);
+    if ($customerId > 0 && $customerCheck->fetch()) {
         $tempPassword = generate_temp_password();
-        $pdo->prepare("UPDATE customers SET password = ?, must_change_password = 1, failed_login_count = 0, locked_until = NULL WHERE id = ?")
+        $pdo->prepare("UPDATE customers SET password = ?, must_change_password = 1, failed_login_count = 0, locked_until = NULL WHERE id = ? AND customer_type IN ('hotel','shop')")
             ->execute([password_hash($tempPassword, PASSWORD_DEFAULT), $customerId]);
         $_SESSION['flash'] = ['type' => 'success', 'message' => 'Temporary password generated: ' . $tempPassword . ' — share it along with this login link: ' . BASE_URL . '/b2b_login.php — they must change it at next login.'];
+    } else {
+        $_SESSION['flash'] = ['type' => 'error', 'message' => 'Hotel/Shop account not found.'];
     }
     header('Location: b2b_customers.php');
     exit;
@@ -67,6 +75,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['reset_password'])) {
 
 $customers = $pdo->query("SELECT c.*, COALESCE((SELECT SUM(amount) FROM customer_ledger cl WHERE cl.customer_id = c.id), 0) AS balance
     FROM customers c WHERE c.customer_type IN ('hotel','shop') ORDER BY c.business_name, c.id")->fetchAll();
+$totalOutstanding = array_sum(array_map(static fn($customer) => (float)$customer['balance'], $customers));
+$creditAccounts = count(array_filter($customers, static fn($customer) => (float)$customer['credit_limit'] > 0));
 $flash = $_SESSION['flash'] ?? null;
 unset($_SESSION['flash']);
 include __DIR__ . '/includes/admin_header.php';
@@ -76,8 +86,14 @@ include __DIR__ . '/includes/admin_header.php';
 </div>
 <?php if ($flash): ?><div class="alert alert-<?= h($flash['type']) ?>"><?= h($flash['message']) ?></div><?php endif; ?>
 
-<div class="form-card" style="max-width:640px">
-  <h3 style="margin-top:0;">Add Hotel/Shop Account</h3>
+<div class="b2b-overview">
+  <div><span>Partner accounts</span><strong><?= count($customers) ?></strong></div>
+  <div><span>Credit-enabled</span><strong><?= $creditAccounts ?></strong></div>
+  <div><span>Total outstanding</span><strong>₹<?= number_format($totalOutstanding, 2) ?></strong></div>
+</div>
+
+<details class="form-card b2b-create-account">
+  <summary><span><strong>Add Hotel/Shop Account</strong><small>Create a wholesale login with payment terms</small></span><span class="b2b-create-icon" aria-hidden="true">＋</span></summary>
   <form method="post">
     <input type="hidden" name="csrf_token" value="<?= h(csrf_token()) ?>">
     <input type="hidden" name="create_customer" value="1">
@@ -97,13 +113,18 @@ include __DIR__ . '/includes/admin_header.php';
     <div class="form-group"><label>Payment Terms (days)</label><input type="number" name="payment_terms_days" min="0" value="7"></div>
     <button class="btn btn-primary">Create Account</button>
   </form>
-</div>
+</details>
 
 <div class="table-wrap" style="margin-top:25px">
+  <div class="b2b-table-tools">
+    <label for="b2bCustomerSearch">Find a partner</label>
+    <input type="search" id="b2bCustomerSearch" placeholder="Search business, contact, email or phone">
+    <span id="b2bCustomerCount"><?= count($customers) ?> accounts</span>
+  </div>
   <table>
     <tr><th>Business</th><th>Contact</th><th>Type</th><th>Email</th><th colspan="2">Credit Limit / Terms (days)</th><th>Balance Due</th><th>Actions</th></tr>
     <?php foreach ($customers as $c): ?>
-      <tr>
+      <tr class="b2b-customer-row" data-search="<?= h(mb_strtolower(($c['business_name'] ?: '') . ' ' . $c['name'] . ' ' . $c['email'] . ' ' . $c['phone'])) ?>">
         <td><?= h($c['business_name'] ?: '—') ?></td>
         <td><?= h($c['name']) ?><br><small><?= h($c['phone']) ?></small></td>
         <td><?= h(ucfirst($c['customer_type'])) ?></td>
@@ -130,7 +151,22 @@ include __DIR__ . '/includes/admin_header.php';
         </td>
       </tr>
     <?php endforeach; ?>
-    <?php if (!$customers): ?><tr><td colspan="8" style="text-align:center; color:#5B6656;">No Hotel/Shop accounts yet — add one above.</td></tr><?php endif; ?>
+    <?php if (!$customers): ?><tr><td colspan="8" style="text-align:center; color:#5B6656;">No Hotel/Shop accounts yet — add one above.</td></tr><?php else: ?><tr id="b2bCustomerNoMatch" hidden><td colspan="8" style="text-align:center;color:#5B6656;">No matching accounts.</td></tr><?php endif; ?>
   </table>
 </div>
+<script>
+const customerSearch=document.getElementById('b2bCustomerSearch');
+customerSearch?.addEventListener('input',()=>{
+  const query=customerSearch.value.trim().toLowerCase();
+  let visible=0;
+  document.querySelectorAll('.b2b-customer-row').forEach(row=>{
+    const matches=row.dataset.search.includes(query);
+    row.hidden=!matches;
+    if(matches) visible++;
+  });
+  document.getElementById('b2bCustomerCount').textContent=visible+' account'+(visible===1?'':'s');
+  const noMatch=document.getElementById('b2bCustomerNoMatch');
+  if(noMatch) noMatch.hidden=visible!==0;
+});
+</script>
 <?php include __DIR__ . '/includes/admin_footer.php'; ?>

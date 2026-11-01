@@ -80,8 +80,12 @@ if ($vegetables): ?>
 <?php
 $renderProductCard = static function (array $veg, bool $compact = false, bool $eagerImage = false, bool $prioritizeImage = false) use ($pdo, $variantsByVeg): string {
     $variants = $variantsByVeg[$veg['id']] ?? [];
+    $variantPrices = array_map(
+        static fn(array $variant): float => get_price_for_variant_for_customer($pdo, $veg, $variant, current_customer_type()),
+        $variants
+    );
     $cartPrice = $variants
-        ? (float)$variants[0]['price']
+        ? $variantPrices[0]
         : get_price_for_customer($pdo, $veg, current_customer_type());
     $onSale = !$variants
         && !in_array(current_customer_type(), ['hotel', 'shop'], true)
@@ -102,9 +106,9 @@ $renderProductCard = static function (array $veg, bool $compact = false, bool $e
         <label class="product-variant-label">
           <span class="visually-hidden">Choose pack size for <?= h($veg['name']) ?></span>
           <select class="variant-select">
-            <?php foreach ($variants as $variant): ?>
-              <option value="<?= (int)$variant['id'] ?>" data-price="<?= h($variant['price']) ?>" data-label="<?= h($variant['label']) ?>">
-                <?= h($variant['label']) ?> — <?= SITE_CURRENCY ?><?= number_format((float)$variant['price'], 2) ?>
+            <?php foreach ($variants as $variantIndex => $variant): ?>
+              <option value="<?= (int)$variant['id'] ?>" data-price="<?= h($variantPrices[$variantIndex]) ?>" data-label="<?= h($variant['label']) ?>">
+                <?= h($variant['label']) ?> — <?= SITE_CURRENCY ?><?= number_format($variantPrices[$variantIndex], 2) ?>
               </option>
             <?php endforeach; ?>
           </select>
@@ -119,7 +123,7 @@ $renderProductCard = static function (array $veg, bool $compact = false, bool $e
         </div>
         <?php if ($onSale): ?>
           <span class="product-sale-badge"><?= (int)round((1 - get_effective_price($veg) / (float)$veg['price']) * 100) ?>% off</span>
-        <?php elseif (in_array(current_customer_type(), ['hotel', 'shop'], true) && !$variants): ?>
+        <?php elseif (in_array(current_customer_type(), ['hotel', 'shop'], true)): ?>
           <span class="wholesale-badge">Wholesale</span>
         <?php endif; ?>
       </div>

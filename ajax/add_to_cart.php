@@ -42,7 +42,7 @@ if ($variantId) {
 }
 
 $price = $variant
-    ? (float)$variant['price']
+    ? get_price_for_variant_for_customer($pdo, $veg, $variant, current_customer_type())
     : get_price_for_customer($pdo, $veg, current_customer_type());
 if ($price <= 0) {
     echo json_encode(['success' => false, 'message' => 'This item is currently unavailable because it has no valid price.']);

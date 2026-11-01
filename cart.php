@@ -2,12 +2,12 @@
 require_once __DIR__ . '/config.php';
 $page_title = 'My Cart';
 reconcile_cart_stock($pdo);
+$subtotal = cart_total();
 $cart = $_SESSION['cart'] ?? [];
 
 $flash = $_SESSION['flash'] ?? null;
 unset($_SESSION['flash']);
 
-$subtotal = cart_total();
 $deliveryCharge = get_delivery_charge($subtotal);
 $grandTotal = $subtotal + $deliveryCharge;
 

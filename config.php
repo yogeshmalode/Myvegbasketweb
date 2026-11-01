@@ -370,6 +370,7 @@ function cart_count() {
 function cart_total() {
     global $pdo;
     reconcile_cart_stock($pdo);
+    refresh_cart_prices($pdo);
     if (empty($_SESSION['cart'])) return 0;
     $total = 0;
     foreach ($_SESSION['cart'] as $item) {
@@ -2689,6 +2690,40 @@ function get_price_for_customer($pdo, $veg, $customerType) {
         }
     }
     return get_effective_price($veg);
+}
+
+function get_price_for_variant_for_customer($pdo, $veg, $variant, $customerType) {
+    if (in_array($customerType, ['hotel', 'shop'], true)) {
+        $wholesale = get_wholesale_price($pdo, $veg['id']);
+        $fraction = size_fraction_of_base_unit($variant['label'] ?? '', $veg['unit'] ?? '');
+        if ($wholesale !== null && $wholesale > 0 && $fraction !== null && $fraction > 0) {
+            return round($wholesale * $fraction, 2);
+        }
+    }
+    return (float)$variant['price'];
+}
+
+function refresh_cart_prices($pdo) {
+    if (empty($_SESSION['cart'])) return;
+
+    $customerType = current_customer_type();
+    $productStmt = $pdo->prepare("SELECT id, price, sale_price, unit FROM vegetables WHERE id = ? AND is_active = 1");
+    $variantStmt = $pdo->prepare("SELECT id, label, price FROM vegetable_variants WHERE id = ? AND vegetable_id = ?");
+    foreach ($_SESSION['cart'] as &$item) {
+        $productStmt->execute([(int)$item['id']]);
+        $product = $productStmt->fetch();
+        if (!$product) continue;
+        if (!empty($item['variant_id'])) {
+            $variantStmt->execute([(int)$item['variant_id'], (int)$item['id']]);
+            $variant = $variantStmt->fetch();
+            if ($variant) {
+                $item['price'] = get_price_for_variant_for_customer($pdo, $product, $variant, $customerType);
+            }
+        } else {
+            $item['price'] = get_price_for_customer($pdo, $product, $customerType);
+        }
+    }
+    unset($item);
 }
 
 // Current outstanding credit balance for a B2B customer: positive means

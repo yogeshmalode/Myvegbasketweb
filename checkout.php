@@ -2,13 +2,12 @@
 require_once __DIR__ . '/config.php';
 $page_title = 'Checkout';
 reconcile_cart_stock($pdo);
-$cart = $_SESSION['cart'] ?? [];
-
-if (empty($cart)) {
+if (empty($_SESSION['cart'])) {
     redirect(BASE_URL . '/cart.php');
 }
 
 $subtotal = cart_total();
+$cart = $_SESSION['cart'] ?? [];
 $deliveryCharge = get_delivery_charge($subtotal);
 
 // If a coupon was applied earlier in this session, re-validate it against
