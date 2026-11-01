@@ -35,8 +35,5 @@
 <script src="<?= BASE_URL ?>/assets/js/order-live-refresh.js?v=<?= (int)filemtime(__DIR__ . '/../assets/js/order-live-refresh.js') ?>"></script>
 <?php endif; ?>
 <script src="<?= BASE_URL ?>/assets/js/script.js?v=<?= (int)filemtime(__DIR__ . '/../assets/js/script.js') ?>"></script>
-<?php if (isset($page_title) && $page_title === 'Fresh Vegetables Online'): ?>
-<script src="<?= BASE_URL ?>/assets/js/custom-ui.js?v=<?= (int)filemtime(__DIR__ . '/../assets/js/custom-ui.js') ?>"></script>
-<?php endif; ?>
 </body>
 </html>
