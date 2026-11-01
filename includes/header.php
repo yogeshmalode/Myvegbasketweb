@@ -57,6 +57,9 @@ $__canonical = SITE_URL . strtok($_SERVER['REQUEST_URI'] ?? '/', '?');
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="<?= BASE_URL ?>/assets/css/style.css">
+<?php if (isset($page_title) && $page_title === 'Fresh Vegetables Online'): ?>
+<link rel="stylesheet" href="<?= BASE_URL ?>/assets/css/custom-theme.css?v=<?= (int)filemtime(__DIR__ . '/../assets/css/custom-theme.css') ?>">
+<?php endif; ?>
 <script>window.__VEGBASKET_BASE__ = "<?= BASE_URL ?>";</script>
 
 <?php if (!isset($page_title) || $page_title === 'Fresh Vegetables Online'): ?>
