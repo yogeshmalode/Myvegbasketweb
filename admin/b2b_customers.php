@@ -18,20 +18,31 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['create_customer'])) {
         $_SESSION['flash'] = ['type' => 'error', 'message' => 'Business name, contact name, email, and phone are required.'];
     } elseif (!filter_var($email, FILTER_VALIDATE_EMAIL)) {
         $_SESSION['flash'] = ['type' => 'error', 'message' => 'Please enter a valid email address.'];
+    } elseif (mb_strlen($businessName) > 150 || mb_strlen($contactName) > 100 || mb_strlen($email) > 100 || mb_strlen($phone) > 20 || mb_strlen($gst) > 20) {
+        $_SESSION['flash'] = ['type' => 'error', 'message' => 'One or more fields exceed the allowed length. Please check the form and try again.'];
     } else {
         $dupe = $pdo->prepare("SELECT id FROM customers WHERE email = ?");
         $dupe->execute([$email]);
         if ($dupe->fetch()) {
             $_SESSION['flash'] = ['type' => 'error', 'message' => 'An account with this email already exists.'];
         } else {
-            // Admin sets up the account with a one-time temporary password —
-            // same pattern as the staff/customer "Reset Password" action —
-            // shown once here, then the account must change it at first login.
             $tempPassword = generate_temp_password();
-            $pdo->prepare("INSERT INTO customers (name, email, phone, password, customer_type, business_name, gst_number, credit_limit, payment_terms_days, must_change_password)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 1)")
-                ->execute([$contactName, $email, $phone, password_hash($tempPassword, PASSWORD_DEFAULT), $type, $businessName, $gst !== '' ? $gst : null, $creditLimit, $terms]);
-            $_SESSION['flash'] = ['type' => 'success', 'message' => "Account created for $businessName. Temporary login password: $tempPassword — share it along with this login link: " . BASE_URL . "/b2b_login.php — they must change it at first login."];
+            try {
+                $pdo->prepare("INSERT INTO customers (name, email, phone, password, customer_type, business_name, gst_number, credit_limit, payment_terms_days, must_change_password)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 1)")
+                    ->execute([$contactName, $email, $phone, password_hash($tempPassword, PASSWORD_DEFAULT), $type, $businessName, $gst !== '' ? $gst : null, $creditLimit, $terms]);
+                $_SESSION['flash'] = ['type' => 'success', 'message' => "Account created for $businessName. Temporary login password: $tempPassword — share it along with this login link: " . BASE_URL . "/b2b_login.php — they must change it at first login."];
+            } catch (PDOException $e) {
+                if ((int)($e->errorInfo[1] ?? 0) === 1062) {
+                    $_SESSION['flash'] = ['type' => 'error', 'message' => 'An account with this email already exists.'];
+                } else {
+                    error_log('B2B customer creation failed: ' . $e->getMessage());
+                    $_SESSION['flash'] = ['type' => 'error', 'message' => 'Could not create the Hotel/Shop account. Please try again or contact an administrator.'];
+                }
+            } catch (Throwable $e) {
+                error_log('B2B customer creation failed: ' . $e->getMessage());
+                $_SESSION['flash'] = ['type' => 'error', 'message' => 'Could not create the Hotel/Shop account. Please try again or contact an administrator.'];
+            }
         }
     }
     header('Location: b2b_customers.php');
@@ -92,15 +103,15 @@ include __DIR__ . '/includes/admin_header.php';
   <div><span>Total outstanding</span><strong>₹<?= number_format($totalOutstanding, 2) ?></strong></div>
 </div>
 
-<details class="form-card b2b-create-account">
+<details class="form-card b2b-create-account" open>
   <summary><span><strong>Add Hotel/Shop Account</strong><small>Create a wholesale login with payment terms</small></span><span class="b2b-create-icon" aria-hidden="true">＋</span></summary>
   <form method="post">
     <input type="hidden" name="csrf_token" value="<?= h(csrf_token()) ?>">
     <input type="hidden" name="create_customer" value="1">
     <div class="form-group"><label>Business Name</label><input name="business_name" required maxlength="150" placeholder="e.g. Green Leaf Hotel"></div>
     <div class="form-group"><label>Contact Person</label><input name="name" required maxlength="100"></div>
-    <div class="form-group"><label>Email (login)</label><input type="email" name="email" required></div>
-    <div class="form-group"><label>Phone</label><input name="phone" required></div>
+    <div class="form-group"><label>Email (login)</label><input type="email" name="email" maxlength="100" required></div>
+    <div class="form-group"><label>Phone</label><input name="phone" maxlength="20" required></div>
     <div class="form-group">
       <label>Type</label>
       <select name="customer_type">
