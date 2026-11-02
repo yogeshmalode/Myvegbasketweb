@@ -12,7 +12,7 @@ if ($search_q !== '') {
     $params[':q'] = "%$search_q%";
 }
 if ($category !== '' && $category !== 'All') {
-    $sql .= " AND category = :cat";
+    $sql .= " AND TRIM(category) = :cat";
     $params[':cat'] = $category;
 }
 $sql .= " ORDER BY name ASC";
@@ -30,17 +30,45 @@ foreach ($vegetables as &$vegRow) {
 }
 unset($vegRow);
 
-$aisleCategories = [
-    ['name' => 'Dairy', 'icon' => '🥛'],
-    ['name' => 'Exotic Vegetable', 'icon' => '🧺'],
-    ['name' => 'Flower', 'icon' => '🧺'],
-    ['name' => 'Fruit', 'icon' => '🍎'],
-    ['name' => 'Fruit Salad', 'icon' => '🧺'],
-    ['name' => 'Juice', 'icon' => '🧺'],
-    ['name' => 'Leafy', 'icon' => '🥬'],
-    ['name' => 'Root', 'icon' => '🥔'],
-    ['name' => 'Vegetable', 'icon' => '🥦'],
+$aisleNames = $pdo->query("SELECT name FROM categories WHERE is_active = 1 ORDER BY sort_order ASC, name ASC")->fetchAll(PDO::FETCH_COLUMN);
+$productCategoryNames = $pdo->query("
+    SELECT DISTINCT TRIM(category)
+    FROM vegetables
+    WHERE is_active = 1 AND category IS NOT NULL AND TRIM(category) <> ''
+    ORDER BY TRIM(category) ASC
+")->fetchAll(PDO::FETCH_COLUMN);
+$aisleNames = array_values(array_unique(array_merge($aisleNames, $productCategoryNames), SORT_STRING));
+$aisleIcons = [
+    'dairy' => '🥛',
+    'exotic vegetable' => '🧺',
+    'exotic vegetables' => '🧺',
+    'flower' => '🧺',
+    'fruit' => '🍎',
+    'fruit salad' => '🧺',
+    'juice' => '🧺',
+    'leafy' => '🥬',
+    'leafy greens' => '🥬',
+    'root' => '🥔',
+    'vegetable' => '🥦',
+    'vegetables' => '🥦',
 ];
+$aisleCategories = [];
+$seenAisles = [];
+foreach ($aisleNames as $aisleName) {
+    $aisleName = trim((string)$aisleName);
+    if ($aisleName === '') {
+        continue;
+    }
+    $aisleKey = strtolower($aisleName);
+    if (isset($seenAisles[$aisleKey])) {
+        continue;
+    }
+    $seenAisles[$aisleKey] = true;
+    $aisleCategories[] = [
+        'name' => $aisleName,
+        'icon' => $aisleIcons[$aisleKey] ?? '🧺',
+    ];
+}
 
 $variantsByVeg = get_variants_by_vegetable($pdo, array_column($vegetables, 'id'));
 $activeOffers = get_active_offers($pdo);
