@@ -2549,7 +2549,7 @@ function reverse_geocode_coordinates($lat, $lng) {
         throw new RuntimeException('cURL is required for reverse geocoding.');
     }
 
-    $url = 'https://nominatim.openstreetmap.org/reverse?format=jsonv2&addressdetails=1&lat='
+    $url = 'https://nominatim.openstreetmap.org/reverse?format=jsonv2&addressdetails=1&zoom=18&lat='
         . urlencode((string)$lat) . '&lon=' . urlencode((string)$lng);
     $ch = curl_init($url);
     curl_setopt_array($ch, [
@@ -2572,26 +2572,44 @@ function reverse_geocode_coordinates($lat, $lng) {
         throw new RuntimeException('OpenStreetMap returned an invalid reverse geocoding response.');
     }
 
-    $parts = [];
+    $addressParts = [];
+    $hasLocality = false;
+    $localityKeys = [
+        'house_number', 'road', 'pedestrian', 'residential', 'neighbourhood',
+        'suburb', 'quarter', 'hamlet', 'village', 'town', 'city_district',
+        'city', 'county',
+    ];
+    $addressFields = is_array($data['address'] ?? null) ? $data['address'] : [];
     foreach ([
-        'house_number', 'road', 'neighbourhood', 'suburb', 'village',
-        'town', 'city_district', 'city', 'postcode', 'state',
+        'house_number', 'road', 'pedestrian', 'residential', 'neighbourhood',
+        'suburb', 'quarter', 'hamlet', 'village', 'town', 'city_district',
+        'city', 'county', 'state_district', 'state', 'postcode', 'country',
     ] as $key) {
-        $part = trim((string)($data['address'][$key] ?? ''));
-        if ($part !== '') {
-            $parts[strtolower($part)] = $part;
+        $part = trim((string)($addressFields[$key] ?? ''));
+        if ($part === '') {
+            continue;
+        }
+
+        $normalizedPart = strtolower($part);
+        $addressParts[$normalizedPart] = $part;
+        if (in_array($key, $localityKeys, true)) {
+            $hasLocality = true;
         }
     }
 
-    $address = implode(', ', array_values($parts));
-    if ($address === '') {
-        $address = trim((string)($data['display_name'] ?? ''));
+    if (!$hasLocality) {
+        throw new RuntimeException('OpenStreetMap returned a postcode without a street or locality.');
     }
+
+    $address = implode(', ', array_values($addressParts));
     if ($address === '') {
         throw new RuntimeException('OpenStreetMap did not return a readable address.');
     }
 
-    return $address;
+    return [
+        'address' => $address,
+        'postcode' => trim((string)($addressFields['postcode'] ?? '')),
+    ];
 }
 
 // Fetches an order's row and makes sure its delivery address has a cached

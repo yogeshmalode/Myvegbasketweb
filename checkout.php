@@ -258,6 +258,7 @@ const deliveryAreaSelect = document.getElementById('delivery_area');
 const pincodeInput = document.getElementById('pincode');
 const pincodeDisplayWrap = document.getElementById('pincodeDisplayWrap');
 const deliveryAddressInput = document.getElementById('address');
+let detectedGpsPostcode = '';
 const deliveryAreaAliases = <?= json_encode(get_serviceable_delivery_area_aliases(), JSON_HEX_TAG | JSON_HEX_APOS | JSON_HEX_AMP | JSON_HEX_QUOT) ?>;
 const selectDeliveryArea = function (areaName, message) {
   deliveryAreaSelect.value = areaName;
@@ -265,6 +266,15 @@ const selectDeliveryArea = function (areaName, message) {
   pincodeInput.value = option && option.value ? option.dataset.pincode || '' : '';
   pincodeInput.disabled = !pincodeInput.value;
   pincodeDisplayWrap.style.display = pincodeInput.value ? 'block' : 'none';
+  if (detectedGpsPostcode && pincodeInput.value && detectedGpsPostcode !== pincodeInput.value) {
+    document.getElementById('deliveryLatitude').value = '';
+    document.getElementById('deliveryLongitude').value = '';
+    document.getElementById('currentLocationStatus').textContent = 'Map detected PIN '
+      + detectedGpsPostcode + ', but the selected area uses PIN ' + pincodeInput.value
+      + '. Please correct the address; GPS coordinates were removed to avoid sending the rider to the wrong location.';
+    document.getElementById('currentLocationStatus').style.color = '#9A2E24';
+    return;
+  }
   document.getElementById('currentLocationStatus').textContent = message || '';
 };
 deliveryAreaSelect.addEventListener('change', function () {
@@ -272,6 +282,15 @@ deliveryAreaSelect.addEventListener('change', function () {
   pincodeInput.value = option.dataset.pincode || '';
   pincodeInput.disabled = !pincodeInput.value;
   pincodeDisplayWrap.style.display = pincodeInput.value ? 'block' : 'none';
+  if (detectedGpsPostcode && pincodeInput.value && detectedGpsPostcode !== pincodeInput.value) {
+    document.getElementById('deliveryLatitude').value = '';
+    document.getElementById('deliveryLongitude').value = '';
+    document.getElementById('currentLocationStatus').textContent = 'Map detected PIN '
+      + detectedGpsPostcode + ', but the selected area uses PIN ' + pincodeInput.value
+      + '. Please correct the address; GPS coordinates were removed to avoid sending the rider to the wrong location.';
+    document.getElementById('currentLocationStatus').style.color = '#9A2E24';
+    return;
+  }
   document.getElementById('currentLocationStatus').textContent = option.value
     ? 'Delivery available for ' + option.value + ' (' + pincodeInput.value + ').'
     : '';
@@ -327,6 +346,16 @@ document.getElementById('useCurrentLocationBtn').addEventListener('click', funct
   document.getElementById('deliveryLatitude').value = '';
   document.getElementById('deliveryLongitude').value = '';
   navigator.geolocation.getCurrentPosition(function (position) {
+    const accuracyMeters = position.coords.accuracy;
+    if (!Number.isFinite(accuracyMeters) || accuracyMeters > 300) {
+      locationStatus.textContent = 'Your device location is only accurate to about '
+        + (Number.isFinite(accuracyMeters) ? Math.round(accuracyMeters) + ' metres' : 'an unknown distance')
+        + '. We did not fill an address to avoid showing the wrong PIN. Enable precise location or enter your address manually.';
+      locationStatus.style.color = '#9A2E24';
+      locationButton.disabled = false;
+      return;
+    }
+
     const latitude = position.coords.latitude;
     const longitude = position.coords.longitude;
     const body = new URLSearchParams({ latitude: String(latitude), longitude: String(longitude) });
@@ -340,22 +369,32 @@ document.getElementById('useCurrentLocationBtn').addEventListener('click', funct
         return result;
       });
     }).then(function (result) {
+      if (result.address) {
+        deliveryAddressInput.value = result.address;
+      }
+      detectedGpsPostcode = result.postcode || '';
+
       if (result.serviceable) {
-        document.getElementById('deliveryLatitude').value = String(latitude);
-        document.getElementById('deliveryLongitude').value = String(longitude);
-        if (result.address) {
-          const currentAddress = deliveryAddressInput.value.trim();
-          if (!currentAddress) {
-            deliveryAddressInput.value = result.address;
-          } else if (!currentAddress.toLocaleLowerCase().includes(result.address.toLocaleLowerCase())) {
-            deliveryAddressInput.value = currentAddress + ', ' + result.address;
-          }
-          deliveryAddressInput.dispatchEvent(new Event('input', { bubbles: true }));
+        const selectedPin = pincodeInput.value;
+        if (detectedGpsPostcode && selectedPin && detectedGpsPostcode !== selectedPin) {
+          document.getElementById('deliveryLatitude').value = '';
+          document.getElementById('deliveryLongitude').value = '';
+          locationStatus.textContent = 'Map detected PIN ' + detectedGpsPostcode
+            + ', but your selected area uses PIN ' + selectedPin
+            + '. Please correct the address; GPS coordinates were not attached to the order.';
+          locationStatus.style.color = '#9A2E24';
+        } else {
+          document.getElementById('deliveryLatitude').value = String(latitude);
+          document.getElementById('deliveryLongitude').value = String(longitude);
+          locationStatus.textContent = result.message
+            + (result.postcode ? ' Map PIN: ' + result.postcode + '.' : '')
+            + ' Device accuracy: about ' + Math.round(accuracyMeters) + ' metres.';
+          locationStatus.style.color = '#17643f';
         }
-        locationStatus.textContent = result.message;
-        locationStatus.style.color = '#17643f';
       } else {
-        locationStatus.textContent = result.message || 'Sorry, we do not deliver to your current location yet.';
+        locationStatus.textContent = (result.message || 'Sorry, we do not deliver to your current location yet.')
+          + (result.postcode ? ' Map PIN: ' + result.postcode + '.' : '')
+          + ' Device accuracy: about ' + Math.round(accuracyMeters) + ' metres.';
         locationStatus.style.color = '#9A2E24';
       }
     }).catch(function (error) {
@@ -373,7 +412,7 @@ document.getElementById('useCurrentLocationBtn').addEventListener('click', funct
     locationStatus.textContent = messages[error.code] || 'Location check failed. Please choose your area from the list.';
     locationStatus.style.color = '#9A2E24';
     locationButton.disabled = false;
-  }, { enableHighAccuracy: false, timeout: 10000, maximumAge: 60000 });
+  }, { enableHighAccuracy: true, timeout: 20000, maximumAge: 0 });
 });
 
 checkoutForm.addEventListener('submit', function (e) {

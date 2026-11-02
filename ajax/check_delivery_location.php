@@ -22,21 +22,22 @@ try {
     exit;
 }
 
-if ($serviceableStore) {
-    try {
-        $address = reverse_geocode_coordinates($latitude, $longitude);
-        $message = 'Delivery is available. Your current address was filled in; please add your house or flat details if needed.';
-    } catch (Throwable $e) {
-        error_log('Checkout reverse geocoding failed: ' . $e->getMessage());
-        $address = null;
-        $message = 'Delivery is available, but we could not fetch the address. Please enter it manually.';
-    }
+try {
+    $locationAddress = reverse_geocode_coordinates($latitude, $longitude);
+} catch (Throwable $e) {
+    error_log('Checkout reverse geocoding failed: ' . $e->getMessage());
+    $locationAddress = null;
+}
 
+if ($serviceableStore) {
     echo json_encode([
         'success' => true,
         'serviceable' => true,
-        'address' => $address,
-        'message' => $message,
+        'address' => $locationAddress['address'] ?? null,
+        'postcode' => $locationAddress['postcode'] ?? '',
+        'message' => $locationAddress
+            ? 'Delivery is available. Check that the detected PIN matches your address and select the correct delivery area.'
+            : 'Delivery is available, but the map returned only a PIN code or incomplete address. Please enter your street and locality manually.',
     ]);
     exit;
 }
@@ -44,5 +45,8 @@ if ($serviceableStore) {
 echo json_encode([
     'success' => true,
     'serviceable' => false,
-    'message' => 'Sorry, we do not deliver to your current location yet.',
+    'address' => $locationAddress['address'] ?? null,
+    'postcode' => $locationAddress['postcode'] ?? '',
+    'message' => 'Sorry, we do not deliver to your current location yet.'
+        . ($locationAddress ? ' Check the detected PIN and correct the address manually if needed.' : ' The map returned only a PIN code or incomplete address; please enter your street and locality manually.'),
 ]);
