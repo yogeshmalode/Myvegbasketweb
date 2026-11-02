@@ -64,6 +64,10 @@ include __DIR__ . '/includes/header.php';
   .checkout-disclosure{margin:12px 0;border-top:1px solid #EEF1EA;padding-top:12px}
   .checkout-disclosure summary{cursor:pointer;color:#285F3D;font-weight:700;font-size:.9rem}
   .checkout-disclosure[open] summary{margin-bottom:12px}
+  .checkout-coupon{margin:14px 0;padding:13px;border:1px solid #DCE8D5;border-radius:12px;background:#F7FAF4}
+  .checkout-coupon-heading{display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:9px;font-weight:700;font-size:.9rem}
+  .checkout-coupon-applied{display:flex;justify-content:space-between;align-items:center;gap:8px;margin-top:8px;color:#1F4D36;font-size:.84rem;font-weight:700}
+  .checkout-coupon-applied span:first-child{overflow-wrap:anywhere}
   .checkout-payment-options{display:grid;gap:9px}
   .checkout-payment-option{display:flex!important;align-items:center;gap:9px;padding:11px;border:1px solid #E4E9DD;border-radius:10px;background:#FAFCF8}
   .checkout-payment-option input{width:auto!important;min-height:auto!important;margin:0}
@@ -180,24 +184,28 @@ include __DIR__ . '/includes/header.php';
           <?php endforeach; ?>
         </ul>
 
-        <details class="checkout-disclosure">
-          <summary><?= $appliedCoupon ? 'Coupon applied: ' . h($appliedCoupon['coupon_code']) : 'Have a coupon?' ?></summary>
-          <div class="form-group" style="margin:0;">
-            <label for="couponCode">Coupon code</label>
-            <div style="display:flex;gap:8px;">
-              <input type="text" id="couponCode" placeholder="Enter code" value="<?= h($appliedCoupon['coupon_code'] ?? '') ?>" style="flex:1;text-transform:uppercase;" <?= $appliedCoupon ? 'readonly' : '' ?>>
-              <?php if ($appliedCoupon): ?>
-                <button type="button" id="removeCouponBtn" class="btn" style="background:#FCE8E6;color:#9A2E24;border:1px solid #F1B6AF;white-space:nowrap;">Remove</button>
-              <?php else: ?>
-                <button type="button" id="applyCouponBtn" class="btn" style="background:#fff;border:1px solid #E4E9DD;white-space:nowrap;">Apply</button>
-              <?php endif; ?>
-            </div>
-            <div id="couponFeedback" style="margin-top:6px;font-size:.85rem;">
-              <?php if ($appliedCoupon): ?><span style="color:#1F4D36;font-weight:600;">✓ Coupon applied</span><?php endif; ?>
-            </div>
-            <a href="<?= BASE_URL ?>/offers.php" style="display:inline-block;margin-top:8px;font-size:.82rem;color:#3F8B52;">See offers</a>
+        <div class="checkout-coupon" aria-label="Coupon and offers">
+          <div class="checkout-coupon-heading">
+            <span>🏷️ Have a coupon or offer?</span>
+            <a href="<?= BASE_URL ?>/offers.php" style="font-size:.8rem;color:#3F8B52;font-weight:600;">View offers</a>
           </div>
-        </details>
+          <?php if (!$appliedCoupon): ?>
+          <div style="display:flex;gap:8px;">
+            <input type="text" id="couponCode" aria-label="Coupon or offer code" placeholder="Enter code" style="flex:1;text-transform:uppercase;">
+            <button type="button" id="applyCouponBtn" class="btn" style="background:#fff;border:1px solid #E4E9DD;white-space:nowrap;">Apply</button>
+          </div>
+          <?php else: ?>
+          <input type="hidden" id="couponCode" value="<?= h($appliedCoupon['coupon_code']) ?>">
+          <div class="checkout-coupon-applied">
+            <span>✓ <?= h($appliedCoupon['coupon_code']) ?> applied</span>
+            <?php if ($discountAmount > 0): ?><span>Saved <?= SITE_CURRENCY ?><?= number_format($discountAmount, 2) ?></span><?php endif; ?>
+            <button type="button" id="removeCouponBtn" class="btn" style="padding:6px 10px;background:#fff;color:#9A2E24;border:1px solid #F1B6AF;">Remove</button>
+          </div>
+          <?php endif; ?>
+          <div id="couponFeedback" role="status" aria-live="polite" style="margin-top:6px;font-size:.85rem;">
+            <?php if ($appliedCoupon): ?><span style="color:#1F4D36;font-weight:600;">Discount is included in your total.</span><?php endif; ?>
+          </div>
+        </div>
         <div class="checkout-prices">
           <div class="cart-total-row"><span>Subtotal</span><span id="rowSubtotal"><?= SITE_CURRENCY ?><?= number_format($subtotal,2) ?></span></div>
           <div class="cart-total-row" id="discountRow" style="<?= $discountAmount > 0 ? '' : 'display:none;' ?>color:#1F4D36;"><span>Discount</span><span id="rowDiscount"><?= $discountAmount > 0 ? '−' . SITE_CURRENCY . number_format($discountAmount,2) : '' ?></span></div>
@@ -216,6 +224,12 @@ include __DIR__ . '/includes/header.php';
   <div class="form-card" id="qrStep" style="display:none; text-align:center;">
     <h3 style="margin-top:0;">Scan &amp; pay with any UPI app</h3>
     <p style="color:#5B6656;">GPay, PhonePe, Paytm — scan the code below and pay the exact amount.</p>
+    <?php if ($appliedCoupon): ?>
+    <div class="alert alert-success" style="display:inline-block;margin:0 auto 16px;">
+      ✓ Coupon <?= h($appliedCoupon['coupon_code']) ?> applied
+      <?php if ($discountAmount > 0): ?> — you saved <?= SITE_CURRENCY ?><?= number_format($discountAmount, 2) ?><?php endif; ?>
+    </div>
+    <?php endif; ?>
 
     <div style="max-width:280px; margin:0 auto 18px;">
       <div class="cart-total-row" style="font-weight:400; font-size:0.85rem; color:#5B6656;">
