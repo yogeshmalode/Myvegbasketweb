@@ -12,8 +12,18 @@ if ($search_q !== '') {
     $params[':q'] = "%$search_q%";
 }
 if ($category !== '' && $category !== 'All') {
-    $sql .= " AND TRIM(category) = :cat";
-    $params[':cat'] = $category;
+    $categoryVariants = [$category];
+    $categoryVariants[] = preg_match('/s$/i', $category)
+        ? substr($category, 0, -1)
+        : $category . 's';
+    $categoryVariants = array_values(array_unique(array_map('strtolower', array_map('trim', $categoryVariants))));
+    $categoryPlaceholders = [];
+    foreach ($categoryVariants as $index => $categoryVariant) {
+        $placeholder = ':category' . $index;
+        $categoryPlaceholders[] = $placeholder;
+        $params[$placeholder] = $categoryVariant;
+    }
+    $sql .= ' AND LOWER(TRIM(category)) IN (' . implode(', ', $categoryPlaceholders) . ')';
 }
 $sql .= " ORDER BY name ASC";
 $stmt = $pdo->prepare($sql);
@@ -60,6 +70,7 @@ foreach ($aisleNames as $aisleName) {
         continue;
     }
     $aisleKey = strtolower($aisleName);
+    $aisleKey = preg_replace('/s$/', '', $aisleKey);
     if (isset($seenAisles[$aisleKey])) {
         continue;
     }
