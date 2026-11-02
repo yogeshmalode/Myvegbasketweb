@@ -322,7 +322,7 @@ include __DIR__ . '/includes/header.php';
   <?php endif; ?>
 
   <section class="budget-panel" aria-labelledby="budgetSetupHeading">
-    <form method="post" action="<?= BASE_URL ?>/budget_basket.php">
+    <form method="post" action="<?= BASE_URL ?>/budget_basket.php" id="budgetBuildForm">
       <input type="hidden" name="csrf_token" value="<?= h(csrf_token()) ?>">
       <div class="budget-panel-heading">
         <span class="budget-panel-icon" aria-hidden="true">💰</span>
@@ -416,6 +416,34 @@ include __DIR__ . '/includes/header.php';
 </main>
 
 <script>
+const budgetBuildForm = document.getElementById('budgetBuildForm');
+const budgetInput = document.getElementById('budget');
+const budgetPresets = Array.from(document.querySelectorAll('[data-budget-preset]'));
+const buildButton = budgetBuildForm.querySelector('button[name="action"][value="build"]');
+
+function syncBudgetPresetSelection() {
+  const selectedBudget = Number(budgetInput.value);
+  budgetPresets.forEach(function (preset) {
+    const active = Number(preset.dataset.budgetPreset) === selectedBudget;
+    preset.classList.toggle('is-active', active);
+    preset.setAttribute('aria-pressed', active ? 'true' : 'false');
+  });
+}
+
+budgetPresets.forEach(function (button) {
+  button.addEventListener('click', function () {
+    if (budgetBuildForm.dataset.rebuilding === 'true') return;
+    budgetInput.value = button.dataset.budgetPreset;
+    syncBudgetPresetSelection();
+    budgetBuildForm.dataset.rebuilding = 'true';
+    buildButton.textContent = 'Refreshing your basket...';
+    budgetBuildForm.requestSubmit(buildButton);
+  });
+});
+
+budgetInput.addEventListener('input', syncBudgetPresetSelection);
+syncBudgetPresetSelection();
+
 const budgetForm = document.getElementById('budgetBasketForm');
 if (budgetForm) {
   const totalElement = document.querySelector('#budgetPreviewTotal span');
@@ -426,19 +454,8 @@ if (budgetForm) {
   const remainingLabel = document.getElementById('budgetRemaining');
   const countLabel = document.getElementById('budgetSelectionCount');
   const addButton = document.getElementById('budgetAddButton');
-  const budgetInput = document.getElementById('budget');
-  const budgetPresets = Array.from(document.querySelectorAll('[data-budget-preset]'));
   const currencySymbol = <?= json_encode(SITE_CURRENCY) ?>;
   const money = new Intl.NumberFormat('en-IN', {minimumFractionDigits: 2, maximumFractionDigits: 2});
-
-  function syncBudgetPresetSelection() {
-    const selectedBudget = Number(budgetInput.value);
-    budgetPresets.forEach(function (preset) {
-      const active = Number(preset.dataset.budgetPreset) === selectedBudget;
-      preset.classList.toggle('is-active', active);
-      preset.setAttribute('aria-pressed', active ? 'true' : 'false');
-    });
-  }
 
   function updateBudgetPreview() {
     let total = 0;
@@ -474,16 +491,6 @@ if (budgetForm) {
     countLabel.textContent = selectedCount + ' item' + (selectedCount === 1 ? '' : 's') + ' selected';
     addButton.disabled = selectedCount === 0 || overBudget;
   }
-
-  budgetPresets.forEach(function (button) {
-    button.addEventListener('click', function () {
-      budgetInput.value = button.dataset.budgetPreset;
-      syncBudgetPresetSelection();
-    });
-  });
-
-  budgetInput.addEventListener('input', syncBudgetPresetSelection);
-  syncBudgetPresetSelection();
 
   budgetForm.addEventListener('input', updateBudgetPreview);
   budgetForm.addEventListener('change', updateBudgetPreview);
