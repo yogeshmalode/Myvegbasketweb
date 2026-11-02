@@ -9,6 +9,9 @@ $basketMode = 'recommended';
 $error = '';
 $recommendations = [];
 $historyBasedBasket = false;
+$restoreBasketAfterError = false;
+$restoreSelected = [];
+$restoreQuantities = [];
 
 $categoryStmt = $pdo->query(
     "SELECT DISTINCT v.category
@@ -52,6 +55,21 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     if ($error === '' && $action === 'add') {
         $selected = $_POST['selected'] ?? [];
         $quantities = $_POST['quantities'] ?? [];
+        if (is_array($selected)) {
+            foreach ($selected as $productId => $selectedValue) {
+                if (ctype_digit((string)$productId) && is_scalar($selectedValue) && (string)$selectedValue === '1') {
+                    $restoreSelected[(int)$productId] = true;
+                }
+            }
+        }
+        if (is_array($quantities)) {
+            foreach ($quantities as $productId => $quantityValue) {
+                $quantityValue = filter_var($quantityValue, FILTER_VALIDATE_INT);
+                if (ctype_digit((string)$productId) && $quantityValue !== false && $quantityValue > 0) {
+                    $restoreQuantities[(int)$productId] = $quantityValue;
+                }
+            }
+        }
         if (!is_array($selected) || !is_array($quantities) || count($selected) < 1 || count($selected) > 50) {
             $error = 'Select between 1 and 50 products for your basket.';
         } else {
@@ -136,7 +154,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         }
     }
 
-    if ($error === '' && $action === 'build') {
+    if (($error === '' && $action === 'build') || ($action === 'add' && $error !== '')) {
+        $restoreBasketAfterError = $action === 'add';
         $productsStmt = $pdo->query(
             "SELECT v.* FROM vegetables v
              JOIN categories c ON LOWER(TRIM(c.name)) = LOWER(TRIM(v.category)) AND c.is_active = 1
@@ -297,7 +316,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 $recommendations[] = $chosen;
             }
         }
-        if (!$recommendations) {
+        if (!$recommendations && $error === '') {
             $error = 'We could not find in-stock products that fit this budget and preference. Try a higher budget or choose all categories.';
         }
     }
@@ -333,6 +352,12 @@ include __DIR__ . '/includes/header.php';
   .budget-controls{display:grid;grid-template-columns:minmax(180px,.8fr) minmax(210px,1fr);gap:14px;align-items:end}
   .budget-controls .form-group{margin:0}
   .budget-controls input,.budget-controls select{min-height:48px}
+  .budget-scale{margin-top:16px;padding:14px 15px;border:1px solid #E5ECE1;border-radius:13px;background:#F9FCF7}
+  .budget-scale-heading{display:flex;justify-content:space-between;align-items:center;gap:12px;color:#425846;font-size:.84rem;font-weight:750}
+  .budget-scale-value{color:#1F4D36;font-size:1.05rem;font-weight:850;font-variant-numeric:tabular-nums}
+  .budget-scale input[type=range]{width:100%;min-height:0;height:7px;margin:15px 0 7px;padding:0;border:0;border-radius:999px;background:transparent;accent-color:#33834B;cursor:pointer}
+  .budget-scale-ends{display:flex;justify-content:space-between;color:#718073;font-size:.72rem}
+  .budget-scale-help{margin:7px 0 0;color:#697466;font-size:.78rem}
   .budget-presets{display:flex;flex-wrap:wrap;gap:8px;margin-top:10px}
   .budget-preset{padding:7px 12px;border:1px solid #DCE8D5;border-radius:999px;background:#fff;color:#285F3D;font:inherit;font-size:.82rem;font-weight:700;cursor:pointer;transition:background .18s ease,border-color .18s ease,transform .18s ease}
   .budget-preset:hover{background:#EAF3E6;border-color:#76A96D}
@@ -364,9 +389,9 @@ include __DIR__ . '/includes/header.php';
   .budget-product.is-unselected{background:#fff}
   .budget-product.is-unselected .budget-product-line-total{visibility:hidden}
   .budget-product>input[type=checkbox]{grid-column:1;grid-row:1;width:19px;height:19px;accent-color:#33834B;cursor:pointer}
-  .budget-product img{grid-column:2;grid-row:1;width:58px;height:58px;object-fit:contain;border-radius:12px;background:#F4F7F1}
-  .budget-product-copy{min-width:0}
-  .budget-product-copy{grid-column:3;grid-row:1}
+  .budget-product-image{grid-column:2;grid-row:1;width:58px;height:58px;overflow:hidden;border-radius:12px;background:#F4F7F1}
+  .budget-product-image img{width:100%;height:100%;object-fit:contain}
+  .budget-product-copy{grid-column:3;grid-row:1;min-width:0}
   .budget-product-name{display:block;color:#273528;font-size:.96rem;font-weight:750}
   .budget-product-meta{display:block;margin-top:4px;color:#697466;font-size:.8rem}
   .budget-product-line-total{display:block;margin-top:5px;color:#285F3D;font-size:.81rem;font-weight:800}
@@ -389,7 +414,7 @@ include __DIR__ . '/includes/header.php';
   @keyframes budgetReveal{from{opacity:0;transform:translateY(12px)}to{opacity:1;transform:translateY(0)}}
   @keyframes budgetNudge{25%{transform:translateX(-4px)}75%{transform:translateX(4px)}}
   @media(max-width:800px){.budget-workspace{grid-template-columns:1fr}.budget-summary{position:sticky;top:auto;bottom:8px;z-index:4;padding:14px;background:rgba(255,255,255,.97);backdrop-filter:blur(10px)}.budget-summary-line{grid-template-columns:1fr auto;align-items:center}.budget-summary-actions{grid-template-columns:1fr auto}.budget-add-button{min-width:180px}}
-  @media(max-width:520px){.budget-builder{padding-top:18px;padding-bottom:38px}.budget-hero{border-radius:18px;margin-bottom:14px}.budget-hero:after{right:-2%;bottom:-16px}.budget-controls{grid-template-columns:1fr}.budget-build-actions{grid-template-columns:1fr}.budget-product-list{grid-template-columns:1fr 1fr;gap:8px}.budget-product{grid-template-columns:18px 42px minmax(0,1fr);gap:8px;padding:9px}.budget-product img{width:42px;height:42px}.budget-product-name{font-size:.85rem}.budget-product-meta{font-size:.72rem}.budget-qty-wrap{grid-column:1/-1;justify-self:stretch;justify-content:space-between}.budget-summary{bottom:5px;padding:11px}.budget-summary-total{font-size:1.04rem}.budget-summary-meta{font-size:.72rem}.budget-summary-actions{grid-template-columns:1fr}.budget-add-button{width:100%;min-width:0;padding:10px 12px;font-size:.85rem}}
+  @media(max-width:520px){.budget-builder{padding-top:18px;padding-bottom:38px}.budget-hero{border-radius:18px;margin-bottom:14px}.budget-hero:after{right:-2%;bottom:-16px}.budget-controls{grid-template-columns:1fr}.budget-build-actions{grid-template-columns:1fr}.budget-product-list{grid-template-columns:1fr 1fr;gap:8px}.budget-product{grid-template-columns:18px 42px minmax(0,1fr);gap:8px;padding:9px}.budget-product-image{width:42px;height:42px}.budget-product-name{font-size:.85rem}.budget-product-meta{font-size:.72rem}.budget-qty-wrap{grid-column:1/-1;justify-self:stretch;justify-content:space-between}.budget-summary{bottom:5px;padding:11px}.budget-summary-total{font-size:1.04rem}.budget-summary-meta{font-size:.72rem}.budget-summary-actions{grid-template-columns:1fr}.budget-add-button{width:100%;min-width:0;padding:10px 12px;font-size:.85rem}}
   @media(prefers-reduced-motion:reduce){.budget-results{animation:none}.budget-product,.budget-preset,.budget-progress-fill{transition:none}.budget-error{animation:none}}
 </style>
 
@@ -428,6 +453,15 @@ include __DIR__ . '/includes/header.php';
             <?php foreach ([300, 500, 1000, 1500] as $preset): ?>
               <button type="button" class="budget-preset<?= (float)$budget === (float)$preset ? ' is-active' : '' ?>" data-budget-preset="<?= $preset ?>" aria-pressed="<?= (float)$budget === (float)$preset ? 'true' : 'false' ?>"><?= SITE_CURRENCY ?><?= number_format($preset) ?></button>
             <?php endforeach; ?>
+          </div>
+          <div class="budget-scale">
+            <div class="budget-scale-heading">
+              <label for="budgetScale" style="margin:0;">Adjust your basket budget</label>
+              <output class="budget-scale-value" id="budgetScaleValue" for="budgetScale"><?= SITE_CURRENCY ?><?= number_format($budget) ?></output>
+            </div>
+            <input type="range" id="budgetScale" min="<?= (int)$minimumBudget ?>" max="<?= (int)$maximumBudget ?>" step="50" value="<?= h((string)$budget) ?>" aria-label="Scale basket budget">
+            <div class="budget-scale-ends"><span><?= SITE_CURRENCY ?><?= number_format($minimumBudget) ?></span><span><?= SITE_CURRENCY ?><?= number_format($maximumBudget) ?></span></div>
+            <p class="budget-scale-help">Move the slider or choose an amount above, then build your basket.</p>
           </div>
         </div>
         <div class="form-group" style="margin:0;">
@@ -476,7 +510,7 @@ include __DIR__ . '/includes/header.php';
                   <button type="button" class="budget-filter-chip" data-category-filter="<?= h(mb_strtolower($categoryName)) ?>" aria-pressed="false"><?= h($categoryName) ?></button>
                 <?php endforeach; ?>
               </div>
-              <p id="budgetSelectionLimit" class="budget-how" role="status" hidden>You can add up to 50 different products to one custom basket.</p>
+              <p id="budgetSelectionLimit" class="budget-how" role="status" hidden>Your basket has reached the 50-product limit. Remove a product to select another.</p>
             <?php endif; ?>
             <div class="budget-product-list" id="budgetProductList">
             <?php foreach ($recommendations as $recommendation):
@@ -484,23 +518,28 @@ include __DIR__ . '/includes/header.php';
               $id = (int)$product['id'];
               $price = (float)$product['_builder_price'];
               $quantity = (int)$recommendation['quantity'];
-              $isSelected = $basketMode !== 'custom';
+              if ($restoreBasketAfterError && isset($restoreQuantities[$id])) {
+                $quantity = min($restoreQuantities[$id], min(100, (int)$product['_builder_stock']));
+              }
+              $isSelected = $restoreBasketAfterError
+                ? isset($restoreSelected[$id])
+                : $basketMode !== 'custom';
               $image = veg_thumb_html($product, false, 'lazy');
             ?>
-              <label class="budget-product<?= $isSelected ? ' is-selected' : ' is-unselected' ?>" for="budget-product-<?= $id ?>" data-product-name="<?= h(mb_strtolower($product['name'])) ?>" data-product-category="<?= h(mb_strtolower($product['category'])) ?>">
+              <article class="budget-product<?= $isSelected ? ' is-selected' : ' is-unselected' ?>" data-product-name="<?= h(mb_strtolower($product['name'])) ?>" data-product-category="<?= h(mb_strtolower($product['category'])) ?>">
                 <input type="checkbox" class="budget-check" id="budget-product-<?= $id ?>" name="selected[<?= $id ?>]" value="1" <?= $isSelected ? 'checked' : '' ?> aria-label="Include <?= h($product['name']) ?>">
-                <?= $image ?>
-                <span class="budget-product-copy">
+                <span class="budget-product-image"><?= $image ?></span>
+                <label class="budget-product-copy" for="budget-product-<?= $id ?>">
                   <strong class="budget-product-name"><?= h($product['name']) ?></strong>
                   <small class="budget-product-meta"><?= h($product['category']) ?> · <?= SITE_CURRENCY ?><?= number_format($price, 2) ?> / <?= h($product['unit']) ?></small>
                   <small class="budget-product-line-total"><?= SITE_CURRENCY ?><span class="budget-line-amount"><?= number_format($price * $quantity, 2) ?></span></small>
-                </span>
+                </label>
                 <span class="budget-qty-wrap" aria-label="Quantity controls for <?= h($product['name']) ?>">
                   <button type="button" class="budget-qty-adjust" data-qty-step="-1" aria-label="Decrease <?= h($product['name']) ?> quantity">−</button>
                   <input class="budget-qty" type="number" name="quantities[<?= $id ?>]" min="1" max="<?= min(100, (int)$product['_builder_stock']) ?>" value="<?= $quantity ?>" aria-label="Quantity of <?= h($product['name']) ?>" <?= $isSelected ? '' : 'disabled' ?>>
                   <button type="button" class="budget-qty-adjust" data-qty-step="1" aria-label="Increase <?= h($product['name']) ?> quantity" <?= $isSelected ? '' : 'disabled' ?>>+</button>
                 </span>
-              </label>
+              </article>
               <input type="hidden" class="budget-item-price" data-product-id="<?= $id ?>" value="<?= h(number_format($price, 2, '.', '')) ?>">
             <?php endforeach; ?>
             </div>
@@ -532,12 +571,19 @@ include __DIR__ . '/includes/header.php';
 <script>
 const budgetBuildForm = document.getElementById('budgetBuildForm');
 const budgetInput = document.getElementById('budget');
+const budgetScale = document.getElementById('budgetScale');
+const budgetScaleValue = document.getElementById('budgetScaleValue');
 const budgetPresets = Array.from(document.querySelectorAll('[data-budget-preset]'));
 const budgetMode = document.getElementById('budgetMode');
 const buildButton = budgetBuildForm.querySelector('button[name="action"][value="build"]');
 
 function syncBudgetPresetSelection() {
   const selectedBudget = Number(budgetInput.value);
+  if (Number.isFinite(selectedBudget)) {
+    budgetScale.value = String(Math.max(Number(budgetScale.min), Math.min(Number(budgetScale.max), selectedBudget)));
+    budgetScaleValue.value = '<?= h(SITE_CURRENCY) ?>' + new Intl.NumberFormat('en-IN', {maximumFractionDigits: 0}).format(selectedBudget);
+    budgetScaleValue.textContent = budgetScaleValue.value;
+  }
   budgetPresets.forEach(function (preset) {
     const active = Number(preset.dataset.budgetPreset) === selectedBudget;
     preset.classList.toggle('is-active', active);
@@ -557,6 +603,10 @@ budgetPresets.forEach(function (button) {
 });
 
 budgetInput.addEventListener('input', syncBudgetPresetSelection);
+budgetScale.addEventListener('input', function () {
+  budgetInput.value = budgetScale.value;
+  syncBudgetPresetSelection();
+});
 budgetBuildForm.querySelectorAll('[data-build-mode]').forEach(function (button) {
   button.addEventListener('click', function () {
     budgetMode.value = button.dataset.buildMode;
@@ -624,7 +674,8 @@ if (budgetForm) {
     if (selectAllButton) {
       selectAllButton.textContent = selectedVisibleCount ? 'Clear visible selection' : (isCustomMode ? 'Select visible products' : 'Select all');
     }
-    if (limitMessage) limitMessage.hidden = selectedCount < selectionLimit;
+    if (limitMessage && selectedCount < selectionLimit) limitMessage.hidden = true;
+    if (limitMessage && selectedCount >= selectionLimit) limitMessage.hidden = false;
     totalElement.textContent = money.format(total);
     const overBudget = total > budgetAmount;
     totalWrap.style.color = overBudget ? '#9A2E24' : '#1F4D36';
