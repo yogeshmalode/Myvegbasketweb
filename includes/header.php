@@ -121,6 +121,7 @@ $__canonical = SITE_URL . strtok($_SERVER['REQUEST_URI'] ?? '/', '?');
         ⬇ Install App
       </button>
       <a href="<?= BASE_URL ?>/index.php" class="nav-link">Shop</a>
+      <a href="<?= BASE_URL ?>/budget_basket.php" class="nav-link">💰 Budget Basket</a>
       <a href="<?= BASE_URL ?>/offers.php" class="nav-link">🎉 Offers</a>
       <a href="<?= BASE_URL ?>/track_order.php" class="nav-link">📍 Track Order</a>
       <a href="<?= BASE_URL ?>/enquiry.php" class="nav-link">💬 Enquire Now</a>
