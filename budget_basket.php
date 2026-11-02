@@ -260,7 +260,8 @@ include __DIR__ . '/includes/header.php';
   .budget-controls input,.budget-controls select{min-height:48px}
   .budget-presets{display:flex;flex-wrap:wrap;gap:8px;margin-top:10px}
   .budget-preset{padding:7px 12px;border:1px solid #DCE8D5;border-radius:999px;background:#fff;color:#285F3D;font:inherit;font-size:.82rem;font-weight:700;cursor:pointer;transition:background .18s ease,border-color .18s ease,transform .18s ease}
-  .budget-preset:hover,.budget-preset.is-active{background:#EAF3E6;border-color:#76A96D}
+  .budget-preset:hover{background:#EAF3E6;border-color:#76A96D}
+  .budget-preset.is-active,.budget-preset[aria-pressed="true"],.budget-preset.is-active:hover{background:#276943;border-color:#276943;color:#fff;box-shadow:0 3px 9px rgba(39,105,67,.2)}
   .budget-preset:hover{transform:translateY(-1px)}
   .budget-build-button{min-height:48px;white-space:nowrap;box-shadow:0 6px 14px rgba(187,56,46,.18)}
   .budget-how{display:flex;align-items:center;gap:8px;margin:15px 0 0;color:#64705F;font-size:.82rem}
@@ -425,8 +426,19 @@ if (budgetForm) {
   const remainingLabel = document.getElementById('budgetRemaining');
   const countLabel = document.getElementById('budgetSelectionCount');
   const addButton = document.getElementById('budgetAddButton');
+  const budgetInput = document.getElementById('budget');
+  const budgetPresets = Array.from(document.querySelectorAll('[data-budget-preset]'));
   const currencySymbol = <?= json_encode(SITE_CURRENCY) ?>;
   const money = new Intl.NumberFormat('en-IN', {minimumFractionDigits: 2, maximumFractionDigits: 2});
+
+  function syncBudgetPresetSelection() {
+    const selectedBudget = Number(budgetInput.value);
+    budgetPresets.forEach(function (preset) {
+      const active = Number(preset.dataset.budgetPreset) === selectedBudget;
+      preset.classList.toggle('is-active', active);
+      preset.setAttribute('aria-pressed', active ? 'true' : 'false');
+    });
+  }
 
   function updateBudgetPreview() {
     let total = 0;
@@ -463,23 +475,15 @@ if (budgetForm) {
     addButton.disabled = selectedCount === 0 || overBudget;
   }
 
-  document.querySelectorAll('[data-budget-preset]').forEach(function (button) {
+  budgetPresets.forEach(function (button) {
     button.addEventListener('click', function () {
-      document.getElementById('budget').value = this.dataset.budgetPreset;
-      document.querySelectorAll('[data-budget-preset]').forEach(function (preset) {
-        preset.classList.toggle('is-active', preset === button);
-        preset.setAttribute('aria-pressed', preset === button ? 'true' : 'false');
-      });
+      budgetInput.value = button.dataset.budgetPreset;
+      syncBudgetPresetSelection();
     });
   });
 
-  document.getElementById('budget').addEventListener('input', function () {
-    document.querySelectorAll('[data-budget-preset]').forEach(function (preset) {
-      const active = Number(preset.dataset.budgetPreset) === Number(this.value);
-      preset.classList.toggle('is-active', active);
-      preset.setAttribute('aria-pressed', active ? 'true' : 'false');
-    }, this);
-  });
+  budgetInput.addEventListener('input', syncBudgetPresetSelection);
+  syncBudgetPresetSelection();
 
   budgetForm.addEventListener('input', updateBudgetPreview);
   budgetForm.addEventListener('change', updateBudgetPreview);

@@ -803,3 +803,13 @@ a:has(.offers-ticker-track):hover .offers-ticker-track{
 @media(prefers-reduced-motion:reduce){
   .promo-slider *, .catalog-category-item,.quick-product-card,.quick-product-card button,.site-header button,.quick-storefront .promo-cta,.quick-storefront .partner-spotlight-cta{scroll-behavior:auto;transition:none!important;animation:none!important}
 }
+.site-header .nav-actions{gap:clamp(6px,.75vw,12px)}
+.site-header .nav-link{font-size:clamp(.78rem,1.05vw,.92rem);line-height:1.2;white-space:nowrap}
+@media(min-width:761px) and (max-width:900px){
+  .site-header .header-inner{grid-template-columns:minmax(0,1fr) auto;gap:10px;padding:7px 14px 11px}
+  .site-header .header-inner .logo{grid-column:1;grid-row:1}
+  .site-header .header-inner .search-form{grid-column:1/-1;grid-row:2;height:44px}
+  .site-header .header-inner .nav-actions{grid-column:2;grid-row:1;gap:8px}
+  .site-header .nav-actions #installAppBtn,.site-header .nav-actions .nav-link,.site-header #accountMenu{display:none!important}
+  .site-header #mobileMenuToggle{display:flex!important;width:38px!important;height:38px!important;align-items:center;justify-content:center;border-radius:9px!important;font-size:1.05rem!important}
+}
