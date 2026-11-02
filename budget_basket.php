@@ -136,8 +136,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
              WHERE v.is_active = 1
              ORDER BY v.category, v.name"
         );
-        $productsByCategory = [];
-        $productsById = [];
+        $uniqueProductsByName = [];
         foreach ($productsStmt->fetchAll() as $product) {
             if ($category !== 'all' && strcasecmp(trim($product['category']), $category) !== 0) {
                 continue;
@@ -150,6 +149,18 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             }
             $product['_builder_price'] = $price;
             $product['_builder_stock'] = $maxQuantity;
+            $productNameKey = mb_strtolower(trim(preg_replace('/\s+/', ' ', (string)$product['name'])));
+            if (
+                !isset($uniqueProductsByName[$productNameKey])
+                || $price < $uniqueProductsByName[$productNameKey]['_builder_price']
+            ) {
+                $uniqueProductsByName[$productNameKey] = $product;
+            }
+        }
+
+        $productsByCategory = [];
+        $productsById = [];
+        foreach ($uniqueProductsByName as $product) {
             $productsByCategory[trim($product['category'])][] = $product;
             $productsById[(int)$product['id']] = $product;
         }
