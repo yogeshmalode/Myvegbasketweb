@@ -36,10 +36,46 @@ if ($customer && in_array($customerType, ['hotel', 'shop'], true) && (float)$cus
 include __DIR__ . '/includes/header.php';
 ?>
 
-<div class="container" style="padding:50px 24px; max-width:760px;">
-  <div class="section-head" style="margin-top:0;">
+<style>
+  #detailsStep{padding:0;border:0;background:transparent;box-shadow:none}
+  #checkoutAlert:empty{display:none}
+  .checkout-page{max-width:1120px;padding-top:36px;padding-bottom:56px}
+  .checkout-heading{margin:0 0 20px}
+  .checkout-heading h2{margin-bottom:4px}
+  .checkout-heading p{margin:0;color:#5B6656}
+  .checkout-layout{display:grid;grid-template-columns:minmax(0,1.3fr) minmax(300px,.8fr);gap:22px;align-items:start}
+  .checkout-details,.checkout-summary{background:#fff;border:1px solid #E4E9DD;border-radius:16px;padding:24px;box-shadow:0 8px 26px rgba(31,77,54,.06)}
+  .checkout-summary{position:sticky;top:18px}
+  .checkout-title{display:flex;align-items:center;gap:10px;margin:0 0 18px;font-size:1.08rem}
+  .checkout-step{display:inline-flex;align-items:center;justify-content:center;width:28px;height:28px;border-radius:50%;background:#EAF3E6;color:#1F4D36;font-size:.85rem;font-weight:800}
+  .checkout-contact,.checkout-schedule{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:0 14px}
+  .checkout-page .form-group{margin-bottom:14px}
+  .checkout-page .form-group label{margin-bottom:5px}
+  .checkout-page .form-group input,.checkout-page .form-group textarea,.checkout-page .form-group select{min-height:44px}
+  .checkout-page textarea{resize:vertical}
+  .checkout-summary h3{margin:0 0 12px;font-size:1.12rem}
+  .checkout-items{list-style:none;padding:0;margin:0 0 14px}
+  .checkout-item{display:flex;justify-content:space-between;gap:12px;padding:10px 0;border-bottom:1px solid #EEF1EA;font-size:.9rem}
+  .checkout-item-name{font-weight:600}
+  .checkout-item-meta{display:block;color:#697466;font-size:.78rem;margin-top:3px}
+  .checkout-prices{padding-top:4px}
+  .checkout-prices .cart-total-row{font-family:inherit;font-size:.9rem;font-weight:500;margin-bottom:10px}
+  .checkout-total{padding-top:12px;border-top:1px solid #E4E9DD;font-size:1.05rem!important;font-weight:800!important}
+  .checkout-disclosure{margin:12px 0;border-top:1px solid #EEF1EA;padding-top:12px}
+  .checkout-disclosure summary{cursor:pointer;color:#285F3D;font-weight:700;font-size:.9rem}
+  .checkout-disclosure[open] summary{margin-bottom:12px}
+  .checkout-payment-options{display:grid;gap:9px}
+  .checkout-payment-option{display:flex!important;align-items:center;gap:9px;padding:11px;border:1px solid #E4E9DD;border-radius:10px;background:#FAFCF8}
+  .checkout-payment-option input{width:auto!important;min-height:auto!important;margin:0}
+  .checkout-submit{min-height:50px;margin-top:10px;font-size:1rem}
+  @media(max-width:800px){.checkout-layout{grid-template-columns:1fr}.checkout-summary{position:static;order:2}.checkout-details{order:1}}
+  @media(max-width:520px){.checkout-page{padding:24px 14px 40px}.checkout-details,.checkout-summary{padding:18px;border-radius:13px}.checkout-contact,.checkout-schedule{grid-template-columns:1fr;gap:0}.checkout-heading{margin-bottom:16px}}
+</style>
+
+<div class="container checkout-page">
+  <div class="section-head checkout-heading">
     <h2>Checkout</h2>
-    <p>Enter your delivery details, then pay via UPI.</p>
+    <p>Just the details we need to deliver your order.</p>
   </div>
 
   <?php if (!$customer): ?>
@@ -53,51 +89,54 @@ include __DIR__ . '/includes/header.php';
 
   <!-- STEP 1: delivery details -->
   <div class="form-card" id="detailsStep">
-    <form id="checkoutForm">
+    <form id="checkoutForm" class="checkout-layout">
+      <section class="checkout-details" aria-labelledby="deliveryDetailsTitle">
+      <h3 class="checkout-title" id="deliveryDetailsTitle"><span class="checkout-step">1</span> Delivery details</h3>
+      <div class="checkout-contact">
       <div class="form-group">
         <label for="name">Full name</label>
-        <input type="text" id="name" name="name" value="<?= h($customer['name'] ?? '') ?>" required>
-      </div>
-      <div class="form-group">
-        <label for="email">Email</label>
-        <input type="email" id="email" name="email" value="<?= h($customer['email'] ?? '') ?>" required>
+        <input type="text" id="name" name="name" autocomplete="name" placeholder="Your name" value="<?= h($customer['name'] ?? '') ?>" required>
       </div>
       <div class="form-group">
         <label for="phone">Phone number</label>
-        <input type="tel" id="phone" name="phone" pattern="[0-9]{10}" placeholder="10-digit mobile number" value="<?= h($customer['phone'] ?? '') ?>" required>
+        <input type="tel" id="phone" name="phone" pattern="[0-9]{10}" inputmode="numeric" autocomplete="tel" placeholder="10-digit mobile number" value="<?= h($customer['phone'] ?? '') ?>" required>
       </div>
+      </div>
+      <?php if (!$customer): ?>
+      <div class="form-group">
+        <label for="email">Email</label>
+        <input type="email" id="email" name="email" autocomplete="email" placeholder="name@example.com" required>
+      </div>
+      <?php else: ?>
+        <input type="hidden" id="email" name="email" value="<?= h($customer['email'] ?? '') ?>">
+      <?php endif; ?>
       <div class="form-group">
         <label for="address">Delivery address</label>
-        <textarea id="address" name="address" rows="3" placeholder="House / building, street, locality, city" aria-describedby="addressAreaHelp" required></textarea>
-        <small id="addressAreaHelp" style="color:#5B6656;">Enter your locality or PIN code to find a matching delivery area and PIN. You can also select your area below.</small>
+        <textarea id="address" name="address" rows="2" autocomplete="street-address" placeholder="House no., building, street" aria-describedby="addressAreaHelp" required></textarea>
+        <small id="addressAreaHelp" style="color:#5B6656;">Type a supported area or PIN to select it automatically, or choose your area below.</small>
       </div>
       <div class="form-group">
-        <label for="delivery_area">Choose your delivery area</label>
+        <label for="delivery_area">Delivery area</label>
         <select id="delivery_area" name="delivery_area" aria-describedby="deliveryAreaHelp" required>
-          <option value="">Select your locality</option>
+          <option value="">Choose your locality</option>
           <?php foreach (get_serviceable_delivery_areas() as $areaName => $areaPin): ?>
             <option value="<?= h($areaName) ?>" data-pincode="<?= h($areaPin) ?>"><?= h($areaName) ?> — <?= h($areaPin) ?></option>
           <?php endforeach; ?>
         </select>
-        <small id="deliveryAreaHelp" role="status" aria-live="polite" style="color:#5B6656;">Select your delivery area; its PIN code will be shown below. An area or PIN typed in the address may be detected automatically.</small>
+        <small id="deliveryAreaHelp" role="status" aria-live="polite" style="color:#5B6656;">Choose your area. The matching PIN code will appear below.</small>
         <div class="form-group" id="pincodeDisplayWrap" style="display:none;margin-top:10px;">
           <label for="pincode">Delivery PIN code</label>
           <input type="text" id="pincode" name="pincode" inputmode="numeric" pattern="[0-9]{6}" maxlength="6" autocomplete="postal-code" readonly required>
           <small style="color:#5B6656;">PIN code is filled from the selected locality.</small>
         </div>
       </div>
+      <div class="checkout-schedule">
       <div class="form-group">
-        <label for="customer_note">Order note or instructions (optional)</label>
-        <textarea id="customer_note" name="customer_note" rows="3" maxlength="500" placeholder="For example: delivery instructions, preferred vegetables, or business order details"></textarea>
-        <small style="color:#5B6656;">Your note will be shared with our order team and delivery partner (up to 500 characters).</small>
-      </div>
-
-      <div class="form-group">
-        <label for="delivery_date">Preferred delivery date</label>
-        <input type="date" id="delivery_date" name="delivery_date" min="<?= date('Y-m-d') ?>" required>
+        <label for="delivery_date">Delivery date</label>
+        <input type="date" id="delivery_date" name="delivery_date" min="<?= date('Y-m-d') ?>" value="<?= date('Y-m-d') ?>" required>
       </div>
       <div class="form-group">
-        <label for="delivery_slot">Preferred time slot</label>
+        <label for="delivery_slot">Time slot</label>
         <select id="delivery_slot" name="delivery_slot" required>
           <option value="">Select a time slot</option>
           <option value="8 AM - 10 AM">8 AM - 10 AM</option>
@@ -108,94 +147,69 @@ include __DIR__ . '/includes/header.php';
           <option value="7 PM - 9 PM">7 PM - 9 PM</option>
         </select>
       </div>
-
-      <div class="form-group">
-        <label for="couponCode">Coupon code (optional)</label>
-        <div style="display:flex; gap:8px;">
-          <input type="text" id="couponCode" placeholder="e.g. WELCOME10" value="<?= h($appliedCoupon['coupon_code'] ?? '') ?>" style="flex:1; text-transform:uppercase;" <?= $appliedCoupon ? 'readonly' : '' ?>>
-          <?php if ($appliedCoupon): ?>
-            <button type="button" id="removeCouponBtn" class="btn" style="background:#FCE8E6; color:#9A2E24; border:1px solid #F1B6AF; white-space:nowrap;">Remove</button>
-          <?php else: ?>
-            <button type="button" id="applyCouponBtn" class="btn" style="background:#fff; border:1px solid #E4E9DD; white-space:nowrap;">Apply</button>
-          <?php endif; ?>
-        </div>
-        <div id="couponFeedback" style="margin-top:6px; font-size:0.85rem;">
-          <?php if ($appliedCoupon): ?>
-            <span style="color:#1F4D36; font-weight:600;">✓ "<?= h($appliedCoupon['coupon_code']) ?>" applied</span>
-          <?php endif; ?>
-        </div>
-        <p style="margin-top:4px;"><a href="<?= BASE_URL ?>/offers.php" style="font-size:0.8rem; color:#3F8B52;">See available offers →</a></p>
       </div>
 
       <?php if ($creditAvailable > 0): ?>
       <div class="form-group">
-        <label>Payment method</label>
-        <div style="display:flex; gap:16px; flex-wrap:wrap;">
-          <label style="display:flex; align-items:center; gap:6px; font-weight:400;"><input type="radio" name="payment_method" value="upi_qr" checked> Pay via UPI now</label>
-          <label style="display:flex; align-items:center; gap:6px; font-weight:400;"><input type="radio" name="payment_method" value="credit"> Bill Me Later (Credit)</label>
+        <label>Payment</label>
+        <div class="checkout-payment-options">
+          <label class="checkout-payment-option"><input type="radio" name="payment_method" value="upi_qr" checked> Pay by UPI</label>
+          <label class="checkout-payment-option"><input type="radio" name="payment_method" value="credit"> Bill me later</label>
         </div>
-        <p style="margin-top:6px; font-size:0.8rem; color:#5B6656;">Available credit: <?= SITE_CURRENCY ?><?= number_format($creditAvailable, 2) ?></p>
+        <small style="color:#5B6656;">Available credit: <?= SITE_CURRENCY ?><?= number_format($creditAvailable, 2) ?></small>
       </div>
       <?php endif; ?>
 
-      <div class="table-wrap" style="margin-bottom:20px;">
-        <table>
-          <thead><tr><th>Item</th><th>Qty</th><th>Subtotal</th></tr></thead>
-          <tbody>
-            <?php foreach ($cart as $item): ?>
-              <tr>
-                <td><?= veg_emoji($item['name']) ?> <?= h($item['name']) ?></td>
-                <td><?= (int)$item['qty'] ?> <?= h($item['unit']) ?></td>
-                <td><?= SITE_CURRENCY ?><?= number_format($item['price']*$item['qty'],2) ?></td>
-              </tr>
-            <?php endforeach; ?>
-          </tbody>
-        </table>
-      </div>
+      <details class="checkout-disclosure">
+        <summary>Add delivery instructions (optional)</summary>
+        <div class="form-group" style="margin:0;">
+          <label for="customer_note">Delivery note</label>
+          <textarea id="customer_note" name="customer_note" rows="2" maxlength="500" placeholder="Anything the delivery person should know?"></textarea>
+        </div>
+      </details>
+      </section>
 
-      <div class="cart-total-row" style="font-weight:400; font-size:0.9rem; color:#5B6656;">
-        <span>Subtotal</span>
-        <span id="rowSubtotal"><?= SITE_CURRENCY ?><?= number_format($subtotal,2) ?></span>
-      </div>
-      <?php if ($discountAmount > 0): ?>
-      <div class="cart-total-row" style="font-weight:400; font-size:0.9rem; color:#1F4D36;" id="discountRow">
-        <span>Discount</span>
-        <span id="rowDiscount">−<?= SITE_CURRENCY ?><?= number_format($discountAmount,2) ?></span>
-      </div>
-      <?php else: ?>
-      <div class="cart-total-row" style="font-weight:400; font-size:0.9rem; color:#1F4D36; display:none;" id="discountRow">
-        <span>Discount</span>
-        <span id="rowDiscount"></span>
-      </div>
-      <?php endif; ?>
-      <div class="cart-total-row" style="font-weight:400; font-size:0.9rem; color:#5B6656; margin-top:4px;">
-        <span>
-          Delivery charge
-          <a href="#" id="deliveryInfoLink" style="font-size:0.8rem; color:#3F8B52; text-decoration:underline;">ⓘ</a>
-        </span>
-        <span id="rowDelivery"><?= $deliveryCharge > 0 ? SITE_CURRENCY . number_format($deliveryCharge,2) : 'FREE' ?></span>
-      </div>
-      <div class="cart-total-row" style="margin-top:10px; padding-top:10px; border-top:1px solid #E4E9DD;">
-        <span>Total payable</span>
-        <span id="rowTotal"><?= SITE_CURRENCY ?><?= number_format($total,2) ?></span>
-      </div>
+      <aside class="checkout-summary" aria-labelledby="checkoutSummaryTitle">
+        <h3 id="checkoutSummaryTitle">Your order <span style="color:#697466;font-size:.84rem;font-weight:500;">(<?= count($cart) ?> items)</span></h3>
+        <ul class="checkout-items">
+          <?php foreach ($cart as $item): ?>
+            <li class="checkout-item">
+              <span><span class="checkout-item-name"><?= veg_emoji($item['name']) ?> <?= h($item['name']) ?></span><span class="checkout-item-meta"><?= (int)$item['qty'] ?> <?= h($item['unit']) ?> × <?= SITE_CURRENCY ?><?= number_format($item['price'], 2) ?></span></span>
+              <strong><?= SITE_CURRENCY ?><?= number_format($item['price'] * $item['qty'], 2) ?></strong>
+            </li>
+          <?php endforeach; ?>
+        </ul>
 
-      <button type="submit" class="btn btn-primary btn-block" id="payBtn">
-        Proceed to pay <span id="payBtnAmount"><?= SITE_CURRENCY ?><?= number_format($total,2) ?></span>
-      </button>
+        <details class="checkout-disclosure">
+          <summary><?= $appliedCoupon ? 'Coupon applied: ' . h($appliedCoupon['coupon_code']) : 'Have a coupon?' ?></summary>
+          <div class="form-group" style="margin:0;">
+            <label for="couponCode">Coupon code</label>
+            <div style="display:flex;gap:8px;">
+              <input type="text" id="couponCode" placeholder="Enter code" value="<?= h($appliedCoupon['coupon_code'] ?? '') ?>" style="flex:1;text-transform:uppercase;" <?= $appliedCoupon ? 'readonly' : '' ?>>
+              <?php if ($appliedCoupon): ?>
+                <button type="button" id="removeCouponBtn" class="btn" style="background:#FCE8E6;color:#9A2E24;border:1px solid #F1B6AF;white-space:nowrap;">Remove</button>
+              <?php else: ?>
+                <button type="button" id="applyCouponBtn" class="btn" style="background:#fff;border:1px solid #E4E9DD;white-space:nowrap;">Apply</button>
+              <?php endif; ?>
+            </div>
+            <div id="couponFeedback" style="margin-top:6px;font-size:.85rem;">
+              <?php if ($appliedCoupon): ?><span style="color:#1F4D36;font-weight:600;">✓ Coupon applied</span><?php endif; ?>
+            </div>
+            <a href="<?= BASE_URL ?>/offers.php" style="display:inline-block;margin-top:8px;font-size:.82rem;color:#3F8B52;">See offers</a>
+          </div>
+        </details>
+        <div class="checkout-prices">
+          <div class="cart-total-row"><span>Subtotal</span><span id="rowSubtotal"><?= SITE_CURRENCY ?><?= number_format($subtotal,2) ?></span></div>
+          <div class="cart-total-row" id="discountRow" style="<?= $discountAmount > 0 ? '' : 'display:none;' ?>color:#1F4D36;"><span>Discount</span><span id="rowDiscount"><?= $discountAmount > 0 ? '−' . SITE_CURRENCY . number_format($discountAmount,2) : '' ?></span></div>
+          <div class="cart-total-row"><span>Delivery</span><span id="rowDelivery"><?= $deliveryCharge > 0 ? SITE_CURRENCY . number_format($deliveryCharge,2) : 'FREE' ?></span></div>
+          <div class="cart-total-row checkout-total"><span>Total</span><span id="rowTotal"><?= SITE_CURRENCY ?><?= number_format($total,2) ?></span></div>
+        </div>
+        <button type="submit" class="btn btn-primary btn-block checkout-submit" id="payBtn">
+          Place order · <span id="payBtnAmount"><?= SITE_CURRENCY ?><?= number_format($total,2) ?></span>
+        </button>
+        <small style="display:block;text-align:center;margin-top:10px;color:#697466;">Payment instructions appear after order placement.</small>
+      </aside>
     </form>
-  </div>
-
-  <!-- Delivery charge info popup -->
-  <div id="deliveryModalOverlay" style="display:none; position:fixed; inset:0; background:rgba(20,30,20,0.55); z-index:999; align-items:center; justify-content:center;">
-    <div style="background:#fff; border-radius:18px; padding:26px 28px; max-width:340px; width:90%; box-shadow:0 20px 50px rgba(0,0,0,0.3);">
-      <h3 style="margin:0 0 14px;">Delivery charge</h3>
-      <p style="margin:0 0 10px; color:#26301F;"><?= SITE_CURRENCY ?><?= number_format(DELIVERY_CHARGE,2) ?> for orders below <?= SITE_CURRENCY ?><?= number_format(DELIVERY_FREE_THRESHOLD,2) ?></p>
-      <p style="margin:0 0 16px; color:#26301F;"><?= SITE_CURRENCY ?>0 for orders <?= SITE_CURRENCY ?><?= number_format(DELIVERY_FREE_THRESHOLD,2) ?> and above</p>
-      <div style="border-top:1px solid #E4E9DD; padding-top:14px; text-align:center;">
-        <a href="#" id="deliveryModalClose" style="color:#3F8B52; font-weight:700; text-decoration:none;">Sounds good</a>
-      </div>
-    </div>
   </div>
 
   <!-- STEP 2: UPI QR code (shown after step 1 is submitted) -->
@@ -406,22 +420,6 @@ confirmBtn.addEventListener('click', function () {
       alertBox.innerHTML = '<div class="alert alert-error">Something went wrong. Please try again.</div>';
     });
 });
-
-// Delivery charge info popup
-const deliveryOverlay = document.getElementById('deliveryModalOverlay');
-if (deliveryOverlay) {
-  const openModal = () => deliveryOverlay.style.display = 'flex';
-  const closeModal = () => deliveryOverlay.style.display = 'none';
-
-  document.getElementById('deliveryInfoLink')?.addEventListener('click', (e) => { e.preventDefault(); openModal(); });
-  document.getElementById('deliveryModalClose')?.addEventListener('click', (e) => { e.preventDefault(); closeModal(); });
-  deliveryOverlay.addEventListener('click', (e) => { if (e.target === deliveryOverlay) closeModal(); });
-
-  if (!sessionStorage.getItem('deliveryChargeSeen')) {
-    openModal();
-    sessionStorage.setItem('deliveryChargeSeen', '1');
-  }
-}
 
 // Coupon apply / remove
 document.getElementById('applyCouponBtn')?.addEventListener('click', function () {
