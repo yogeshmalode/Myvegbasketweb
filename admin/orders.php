@@ -349,38 +349,47 @@ try {
 
 function postAction(url, payload, onSuccess, tabAfterSuccess = null) {
   payload.csrf_token = CSRF_TOKEN;
-  fetch(url, { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify(payload) })
+  fetch(url, { method: 'POST', headers: {'Content-Type':'application/json', 'Accept':'application/json'}, body: JSON.stringify(payload) })
     .then(async (r) => {
       const text = await r.text();
+      if (!(r.headers.get('content-type') || '').includes('application/json')) {
+        const message = r.redirected
+          ? 'Your session expired or your account cannot manage orders. Sign in again and retry.'
+          : 'The server returned an HTML error instead of order data. Refresh the page and retry.';
+        throw new Error(message + ' (HTTP ' + r.status + ')');
+      }
+      let data;
       try {
-        const data = JSON.parse(text);
-        if (data.success) {
-          if (data.notice) alert(data.notice);
-          if (data.notification_warning) alert(data.notification_warning);
-          if (onSuccess) {
-            onSuccess();
-          } else {
-            const activeTab = tabAfterSuccess || document.querySelector('.order-tab-btn.active')?.dataset.tab;
-            if (activeTab) {
-              try {
-                sessionStorage.setItem('myvegbasket_admin_order_tab', activeTab);
-              } catch (error) {
-                console.warn('Could not preserve the selected orders tab.', error);
-              }
-            }
-            location.reload();
-          }
+        data = JSON.parse(text);
+      } catch (error) {
+        throw new Error('The server response was not valid JSON. Refresh the page and retry.');
+      }
+      if (data.success) {
+        if (data.notice) alert(data.notice);
+        if (data.notification_warning) alert(data.notification_warning);
+        if (onSuccess) {
+          onSuccess();
         } else {
-          let message = data.error || 'Unknown error';
-          if (data.current_status && Array.isArray(data.allowed_next_statuses)) {
-            const currentStatus = data.current_status.replaceAll('_', ' ');
-            const nextStatuses = data.allowed_next_statuses.map(status => status.replaceAll('_', ' ')).join(', ');
-            message += `\nCurrent status: ${currentStatus}. Allowed next steps: ${nextStatuses || 'none'}.`;
+          const activeTab = tabAfterSuccess || document.querySelector('.order-tab-btn.active')?.dataset.tab;
+          if (activeTab) {
+            try {
+              sessionStorage.setItem('myvegbasket_admin_order_tab', activeTab);
+            } catch (error) {
+              console.warn('Could not preserve the selected orders tab.', error);
+            }
           }
-          alert('Action failed: ' + message);
+          location.reload();
         }
-      } catch (e) { alert('Action failed: ' + text.slice(0, 200)); }
-    }).catch(() => alert('Network error'));
+      } else {
+        let message = data.error || 'Unknown error';
+        if (data.current_status && Array.isArray(data.allowed_next_statuses)) {
+          const currentStatus = data.current_status.replaceAll('_', ' ');
+          const nextStatuses = data.allowed_next_statuses.map(status => status.replaceAll('_', ' ')).join(', ');
+          message += `\nCurrent status: ${currentStatus}. Allowed next steps: ${nextStatuses || 'none'}.`;
+        }
+        alert('Action failed: ' + message);
+      }
+    }).catch((error) => alert('Action failed: ' + (error.message || 'Network error')));
 }
 
 function setOrderStatus(orderId, status) {

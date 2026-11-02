@@ -316,6 +316,12 @@ function require_page_access($pdo, $currentPage) {
     // of a role-wide allow-list entry that every staff member would share.
     if ($currentPage === 'store_procurement.php') {
         if (can_access_store_procurement($pdo)) return;
+        if (defined('JSON_API_REQUEST') && JSON_API_REQUEST) {
+            http_response_code(403);
+            header('Content-Type: application/json; charset=utf-8');
+            echo json_encode(['success' => false, 'error' => 'You do not have permission to access that page.']);
+            exit;
+        }
         $_SESSION['flash'] = ['type' => 'error', 'message' => 'You do not have permission to access that page.'];
         header('Location: dashboard.php');
         exit;
@@ -324,6 +330,12 @@ function require_page_access($pdo, $currentPage) {
     $allowed = get_role_allowed_pages($pdo, $role);
     if (in_array($currentPage, $allowed, true)) return;
 
+    if (defined('JSON_API_REQUEST') && JSON_API_REQUEST) {
+        http_response_code(403);
+        header('Content-Type: application/json; charset=utf-8');
+        echo json_encode(['success' => false, 'error' => 'You do not have permission to manage orders.']);
+        exit;
+    }
     $_SESSION['flash'] = ['type' => 'error', 'message' => 'You do not have permission to access that page.'];
     header('Location: dashboard.php');
     exit;

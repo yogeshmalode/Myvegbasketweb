@@ -1,10 +1,19 @@
 <?php
-require_once __DIR__ . '/../admin/includes/auth.php';
+define('JSON_API_REQUEST', true);
 header('Content-Type: application/json; charset=utf-8');
+require_once __DIR__ . '/../admin/includes/auth.php';
 $input = json_decode(file_get_contents('php://input'), true);
-if (!$input) { echo json_encode(['success'=>false,'error'=>'Invalid request']); exit; }
+if (!is_array($input)) {
+    http_response_code(400);
+    echo json_encode(['success' => false, 'error' => 'Invalid request']);
+    exit;
+}
 $csrf = trim($input['csrf_token'] ?? '');
-try { require_csrf($csrf); } catch (Exception $e) { echo json_encode(['success'=>false,'error'=>'CSRF token mismatch']); exit; }
+if (!verify_csrf($csrf)) {
+    http_response_code(419);
+    echo json_encode(['success' => false, 'error' => 'Your session expired. Refresh the page and try again.']);
+    exit;
+}
 
 $orderId = (int)($input['order_id'] ?? 0);
 $riderId = isset($input['rider_id']) && $input['rider_id'] !== '' ? (int)$input['rider_id'] : null;
@@ -114,7 +123,9 @@ try {
             : 'Rider assigned, but customer status email could not be sent. Check Hostinger mail/SMTP configuration.';
     }
     echo json_encode($response);
-} catch (Exception $e) {
+} catch (Throwable $e) {
     if ($pdo->inTransaction()) $pdo->rollBack();
-    echo json_encode(['success'=>false,'error'=>'Database update failed: ' . $e->getMessage()]);
+    error_log('Rider assignment failed for order #' . $orderId . ': ' . $e->getMessage());
+    http_response_code(500);
+    echo json_encode(['success'=>false,'error'=>'The rider could not be assigned. Please retry or contact an administrator.']);
 }

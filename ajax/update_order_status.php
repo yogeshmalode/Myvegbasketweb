@@ -1,10 +1,19 @@
 <?php
-require_once __DIR__ . '/../admin/includes/auth.php';
+define('JSON_API_REQUEST', true);
 header('Content-Type: application/json; charset=utf-8');
+require_once __DIR__ . '/../admin/includes/auth.php';
 $input = json_decode(file_get_contents('php://input'), true);
-if (!$input) { echo json_encode(['success'=>false,'error'=>'Invalid']); exit; }
+if (!is_array($input)) {
+    http_response_code(400);
+    echo json_encode(['success' => false, 'error' => 'Invalid request.']);
+    exit;
+}
 $csrf = trim($input['csrf_token'] ?? '');
-try { require_csrf($csrf); } catch(Exception $e) { echo json_encode(['success'=>false,'error'=>'CSRF']); exit; }
+if (!verify_csrf($csrf)) {
+    http_response_code(419);
+    echo json_encode(['success' => false, 'error' => 'Your session expired. Refresh the page and try again.']);
+    exit;
+}
 $id = (int)($input['id'] ?? 0);
 $status = normalize_order_status($input['status'] ?? '');
 $allowed = array_keys(get_order_status_options());
@@ -87,14 +96,23 @@ try {
     }
 
     if (in_array($status, ['processing', 'ready_for_pickup', 'assigning_rider', 'delivery_partner_assigned', 'out_for_delivery', 'arriving_soon', 'delivered'], true)) {
-        send_order_alert("Order #$id status: $status", ["Order #$id changed from $currentStatus to $status."]);
+        try {
+            send_order_alert("Order #$id status: $status", ["Order #$id changed from $currentStatus to $status."]);
+        } catch (Throwable $notificationError) {
+            error_log('Order status alert failed for order #' . $id . ': ' . $notificationError->getMessage());
+        }
     }
     $customerNotification = null;
     if ($currentStatus !== $status) {
         $customerStatus = ($status === 'ready_for_pickup' && is_array($riderAssignment) && !empty($riderAssignment['assigned']))
             ? 'delivery_partner_assigned'
             : $status;
-        $customerNotification = send_customer_order_status_notification($pdo, $id, $customerStatus);
+        try {
+            $customerNotification = send_customer_order_status_notification($pdo, $id, $customerStatus);
+        } catch (Throwable $notificationError) {
+            error_log('Customer status notification failed for order #' . $id . ': ' . $notificationError->getMessage());
+            $customerNotification = 'failed';
+        }
     }
 
     $response = [
@@ -119,4 +137,11 @@ try {
         }
     }
     echo json_encode($response);
-} catch(Exception $e) { echo json_encode(['success'=>false,'error'=>'DB']); }
+} catch (Throwable $e) {
+    if ($pdo->inTransaction()) {
+        $pdo->rollBack();
+    }
+    error_log('Order status update failed for order #' . $id . ': ' . $e->getMessage());
+    http_response_code(500);
+    echo json_encode(['success' => false, 'error' => 'The order could not be updated. Please retry; if it continues, contact an administrator.']);
+}
