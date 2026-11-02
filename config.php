@@ -393,6 +393,21 @@ function get_serviceable_delivery_areas() {
     ];
 }
 
+function get_serviceable_delivery_area_aliases() {
+    return [
+        'Fursungi / Bhekrai Nagar' => ['Fursungi', 'Bhekrai Nagar', 'Bhekrai', 'फुरसुंगी', 'भेकराई नगर'],
+        'Magarpatta City (Hadapsar)' => ['Magarpatta', 'Magarpatta City', 'Hadapsar', 'मगरपट्टा', 'हडपसर'],
+        'Magarpatta City (Kharadi side)' => ['Kharadi', 'खराडी'],
+        'Wanowrie' => ['Wanowrie', 'Wanwadi', 'वानवडी', 'वानोरी'],
+        'Kondhwa Budruk / Khurd' => ['Kondhwa', 'Kondhwa Budruk', 'Kondhwa Khurd', 'कोंढवा'],
+        'Undri / Pisoli' => ['Undri', 'Pisoli', 'उंड्री', 'पिसोळी'],
+        'Manjari Budruk' => ['Manjari', 'Manjari Budruk', 'मांजरी', 'मांजरी बुद्रुक'],
+        'Uruli Devachi' => ['Uruli Devachi', 'Uruli', 'उरुळी देवाची', 'उरुळी'],
+        'Mundhwa' => ['Mundhwa', 'मुंढवा'],
+        'Panchavati' => ['Panchavati', 'Panchawati', 'पंचवटी'],
+    ];
+}
+
 function is_serviceable_delivery_area($area, $pincode) {
     $areas = get_serviceable_delivery_areas();
     $area = trim((string)$area);

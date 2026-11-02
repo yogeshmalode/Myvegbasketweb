@@ -68,7 +68,8 @@ include __DIR__ . '/includes/header.php';
       </div>
       <div class="form-group">
         <label for="address">Delivery address</label>
-        <textarea id="address" name="address" rows="3" required></textarea>
+        <textarea id="address" name="address" rows="3" placeholder="House / building, street, locality, city" aria-describedby="addressAreaHelp" required></textarea>
+        <small id="addressAreaHelp" style="color:#5B6656;">Include your locality name (for example, Undri or Wanowrie). We’ll fill the matching delivery area and PIN automatically.</small>
       </div>
       <div class="form-group">
         <label for="delivery_area">Choose your delivery area</label>
@@ -78,7 +79,7 @@ include __DIR__ . '/includes/header.php';
             <option value="<?= h($areaName) ?>" data-pincode="<?= h($areaPin) ?>"><?= h($areaName) ?> — <?= h($areaPin) ?></option>
           <?php endforeach; ?>
         </select>
-        <small id="deliveryAreaHelp" style="color:#5B6656;">Choose the locality that matches your delivery address.</small>
+        <small id="deliveryAreaHelp" style="color:#5B6656;">We’ll detect a supported locality from your address when possible. You can also choose it here.</small>
         <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-top:8px;">
           <button type="button" class="btn" id="useCurrentLocationBtn">📍 Use my current location</button>
           <span id="currentLocationStatus" role="status" aria-live="polite" style="font-size:.82rem;color:#5B6656;"></span>
@@ -254,13 +255,63 @@ let currentOrderId = null;
 const deliveryAreaSelect = document.getElementById('delivery_area');
 const pincodeInput = document.getElementById('pincode');
 const pincodeDisplayWrap = document.getElementById('pincodeDisplayWrap');
+const deliveryAddressInput = document.getElementById('address');
+const deliveryAreaAliases = <?= json_encode(get_serviceable_delivery_area_aliases(), JSON_HEX_TAG | JSON_HEX_APOS | JSON_HEX_AMP | JSON_HEX_QUOT) ?>;
+const selectDeliveryArea = function (areaName, message) {
+  deliveryAreaSelect.value = areaName;
+  const option = deliveryAreaSelect.options[deliveryAreaSelect.selectedIndex];
+  pincodeInput.value = option && option.value ? option.dataset.pincode || '' : '';
+  pincodeInput.disabled = !pincodeInput.value;
+  pincodeDisplayWrap.style.display = pincodeInput.value ? 'block' : 'none';
+  document.getElementById('currentLocationStatus').textContent = message || '';
+};
 deliveryAreaSelect.addEventListener('change', function () {
   const option = deliveryAreaSelect.options[deliveryAreaSelect.selectedIndex];
   pincodeInput.value = option.dataset.pincode || '';
   pincodeInput.disabled = !pincodeInput.value;
   pincodeDisplayWrap.style.display = pincodeInput.value ? 'block' : 'none';
+  document.getElementById('currentLocationStatus').textContent = option.value
+    ? 'Delivery available for ' + option.value + ' (' + pincodeInput.value + ').'
+    : '';
 });
 pincodeInput.disabled = !deliveryAreaSelect.value;
+
+deliveryAddressInput.addEventListener('input', function () {
+  const address = deliveryAddressInput.value.toLocaleLowerCase();
+  const matchedAreas = Object.entries(deliveryAreaAliases)
+    .filter(function (entry) {
+      return entry[1].some(function (alias) { return address.includes(alias.toLocaleLowerCase()); });
+    })
+    .map(function (entry) { return entry[0]; });
+  const pinMatches = address.match(/(?:^|\D)(\d{6})(?!\d)/g) || [];
+  const enteredPin = pinMatches.length ? pinMatches[pinMatches.length - 1].replace(/\D/g, '') : '';
+  let candidateAreas = matchedAreas;
+  if (enteredPin) {
+    const areasForPin = Array.from(deliveryAreaSelect.options).filter(function (option) {
+      return option.dataset.pincode === enteredPin;
+    }).map(function (option) { return option.value; });
+    if (!areasForPin.length) {
+      selectDeliveryArea('', 'Sorry, we do not deliver to this PIN code yet.');
+      return;
+    }
+    candidateAreas = matchedAreas.length
+      ? matchedAreas.filter(function (areaName) { return areasForPin.includes(areaName); })
+      : areasForPin;
+    if (!candidateAreas.length) {
+      selectDeliveryArea('', 'The locality and PIN code do not match. Please check the address or choose the correct area.');
+      return;
+    }
+  }
+
+  candidateAreas = Array.from(new Set(candidateAreas));
+  if (candidateAreas.length === 1) {
+    selectDeliveryArea(candidateAreas[0], 'Detected ' + candidateAreas[0] + '. PIN code filled automatically.');
+  } else if (candidateAreas.length > 1) {
+    selectDeliveryArea('', 'Multiple delivery areas match. Please choose your exact area above.');
+  } else {
+    selectDeliveryArea('', address.trim() ? 'Add your locality name to the address, or select your area from the list.' : '');
+  }
+});
 
 document.getElementById('useCurrentLocationBtn').addEventListener('click', function () {
   const locationStatus = document.getElementById('currentLocationStatus');
