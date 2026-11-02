@@ -1848,7 +1848,7 @@ function ensure_management_schema($pdo) {
             id INT AUTO_INCREMENT PRIMARY KEY,
             vegetable_id INT NOT NULL,
             dark_store_id INT NOT NULL,
-            quantity DECIMAL(10,2) NOT NULL,
+            quantity DECIMAL(10,3) NOT NULL,
             notes VARCHAR(255) DEFAULT NULL,
             created_by INT DEFAULT NULL,
             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
@@ -1857,6 +1857,13 @@ function ensure_management_schema($pdo) {
             CONSTRAINT fk_stock_transfers_veg FOREIGN KEY (vegetable_id) REFERENCES vegetables(id) ON DELETE CASCADE,
             CONSTRAINT fk_stock_transfers_store FOREIGN KEY (dark_store_id) REFERENCES dark_stores(id) ON DELETE CASCADE
         ) ENGINE=InnoDB");
+        $transferQuantityScale = $pdo->prepare("SELECT NUMERIC_SCALE FROM information_schema.COLUMNS
+            WHERE TABLE_SCHEMA = ? AND TABLE_NAME = 'stock_transfers' AND COLUMN_NAME = 'quantity'");
+        $transferQuantityScale->execute([$db]);
+        $transferScale = $transferQuantityScale->fetchColumn();
+        if ($transferScale !== false && (int)$transferScale < 3) {
+            $pdo->exec("ALTER TABLE stock_transfers MODIFY COLUMN quantity DECIMAL(10,3) NOT NULL");
+        }
 
         $pdo->exec("CREATE TABLE IF NOT EXISTS dynamic_prices (
             id INT AUTO_INCREMENT PRIMARY KEY,
