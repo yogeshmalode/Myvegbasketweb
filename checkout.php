@@ -27,6 +27,17 @@ if (!empty($_SESSION['applied_coupon_code'])) {
 }
 
 $total = $subtotal - $discountAmount + $deliveryCharge;
+$checkoutOffers = array_values(array_filter(get_active_offers($pdo), function ($offer) {
+    return !empty($offer['coupon_code']);
+}));
+$checkoutOfferChecks = [];
+foreach ($checkoutOffers as $offer) {
+    $checkoutOfferChecks[strtoupper(trim($offer['coupon_code']))] = validate_coupon(
+        $pdo,
+        $offer['coupon_code'],
+        $subtotal
+    );
+}
 $customer = current_customer();
 $customerType = $customer['customer_type'] ?? 'retail';
 $creditAvailable = 0;
@@ -64,10 +75,22 @@ include __DIR__ . '/includes/header.php';
   .checkout-disclosure{margin:12px 0;border-top:1px solid #EEF1EA;padding-top:12px}
   .checkout-disclosure summary{cursor:pointer;color:#285F3D;font-weight:700;font-size:.9rem}
   .checkout-disclosure[open] summary{margin-bottom:12px}
-  .checkout-coupon{margin:14px 0;padding:13px;border:1px solid #DCE8D5;border-radius:12px;background:#F7FAF4}
-  .checkout-coupon-heading{display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:9px;font-weight:700;font-size:.9rem}
-  .checkout-coupon-applied{display:flex;justify-content:space-between;align-items:center;gap:8px;margin-top:8px;color:#1F4D36;font-size:.84rem;font-weight:700}
-  .checkout-coupon-applied span:first-child{overflow-wrap:anywhere}
+  .checkout-offers{margin:14px 0;padding:13px;border:1px solid #DCE8D5;border-radius:12px;background:#F7FAF4}
+  .checkout-offers-heading{display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:10px;font-weight:700;font-size:.9rem}
+  .checkout-offer-list{display:grid;gap:8px;max-height:250px;overflow:auto}
+  .checkout-offer{display:flex;align-items:center;justify-content:space-between;gap:8px;padding:10px;background:#fff;border:1px solid #E4E9DD;border-radius:10px;transition:border-color .18s ease,background .18s ease,transform .18s ease}
+  .checkout-offer.is-applied{border-color:#3F8B52;background:#EFF8EC;animation:couponAccepted .42s ease}
+  .checkout-offer-copy{min-width:0}
+  .checkout-offer-title{display:block;font-size:.84rem;font-weight:700;color:#26301F}
+  .checkout-offer-detail{display:block;margin-top:2px;color:#697466;font-size:.75rem}
+  .checkout-offer-action{flex:0 0 auto;padding:7px 10px;border:0;border-radius:8px;background:#3F8B52;color:#fff;font-size:.78rem;font-weight:700}
+  .checkout-offer-action:disabled{background:#E8F0E2;color:#1F4D36;cursor:default}
+  .checkout-offer-feedback{min-height:0;margin-top:7px;font-size:.8rem}
+  .checkout-offer-feedback:empty{display:none}
+  .checkout-coupon-applied{display:flex;align-items:center;justify-content:space-between;gap:8px;margin-top:9px;padding:9px 10px;border-radius:9px;background:#EAF3E6;color:#1F4D36;font-size:.82rem;font-weight:700}
+  .checkout-coupon-applied[hidden]{display:none}
+  @keyframes couponAccepted{0%{transform:scale(.97)}55%{transform:scale(1.025)}100%{transform:scale(1)}}
+  @media(prefers-reduced-motion:reduce){.checkout-offer{transition:none}.checkout-offer.is-applied{animation:none}}
   .checkout-payment-options{display:grid;gap:9px}
   .checkout-payment-option{display:flex!important;align-items:center;gap:9px;padding:11px;border:1px solid #E4E9DD;border-radius:10px;background:#FAFCF8}
   .checkout-payment-option input{width:auto!important;min-height:auto!important;margin:0}
@@ -184,26 +207,57 @@ include __DIR__ . '/includes/header.php';
           <?php endforeach; ?>
         </ul>
 
-        <div class="checkout-coupon" aria-label="Coupon and offers">
-          <div class="checkout-coupon-heading">
-            <span>🏷️ Have a coupon or offer?</span>
-            <a href="<?= BASE_URL ?>/offers.php" style="font-size:.8rem;color:#3F8B52;font-weight:600;">View offers</a>
+        <div class="checkout-offers" aria-label="Available offers">
+          <div class="checkout-offers-heading">
+            <span>🏷️ Offers for your order</span>
+            <a href="<?= BASE_URL ?>/offers.php" style="font-size:.8rem;color:#3F8B52;font-weight:600;">All offers</a>
           </div>
-          <?php if (!$appliedCoupon): ?>
-          <div style="display:flex;gap:8px;">
-            <input type="text" id="couponCode" aria-label="Coupon or offer code" placeholder="Enter code" style="flex:1;text-transform:uppercase;">
-            <button type="button" id="applyCouponBtn" class="btn" style="background:#fff;border:1px solid #E4E9DD;white-space:nowrap;">Apply</button>
+          <?php if ($checkoutOffers): ?>
+          <div class="checkout-offer-list" id="checkoutOfferList">
+            <?php foreach ($checkoutOffers as $offer): ?>
+              <?php
+                $offerCode = strtoupper(trim($offer['coupon_code']));
+                $offerCheck = $checkoutOfferChecks[$offerCode];
+                $offerIsApplied = $appliedCoupon && strtoupper($appliedCoupon['coupon_code']) === $offerCode;
+                $offerBadge = $offer['discount_type'] === 'percent'
+                    ? number_format($offer['discount_value'], 0) . '% off'
+                    : ($offer['discount_type'] === 'flat'
+                        ? SITE_CURRENCY . number_format($offer['discount_value'], 0) . ' off'
+                        : 'Free delivery');
+              ?>
+              <div class="checkout-offer<?= $offerIsApplied ? ' is-applied' : '' ?>" data-offer-card="<?= h($offerCode) ?>">
+                <span class="checkout-offer-copy">
+                  <span class="checkout-offer-title"><?= h($offer['title']) ?> · <?= h($offerBadge) ?></span>
+                  <span class="checkout-offer-detail" data-offer-detail="<?= h($offerCode) ?>">
+                    <?php if ($offerIsApplied): ?>
+                      Applied<?= $discountAmount > 0 ? ' · Saved ' . SITE_CURRENCY . number_format($discountAmount, 2) : '' ?>
+                    <?php elseif ($offerCheck['valid']): ?>
+                      Ready to use
+                    <?php else: ?>
+                      <?= h($offerCheck['message']) ?>
+                    <?php endif; ?>
+                  </span>
+                </span>
+                <button type="button" class="checkout-offer-action" data-apply-coupon="<?= h($offerCode) ?>"
+                  data-eligible="<?= $offerCheck['valid'] ? '1' : '0' ?>"
+                  data-ineligible-message="<?= h($offerCheck['message'] ?? '') ?>"
+                  <?= (!$offerCheck['valid'] || $offerIsApplied) ? 'disabled' : '' ?>>
+                  <?= $offerIsApplied ? '✓ Applied' : ($offerCheck['valid'] ? 'Apply' : 'Not eligible') ?>
+                </button>
+              </div>
+            <?php endforeach; ?>
           </div>
           <?php else: ?>
-          <input type="hidden" id="couponCode" value="<?= h($appliedCoupon['coupon_code']) ?>">
-          <div class="checkout-coupon-applied">
-            <span>✓ <?= h($appliedCoupon['coupon_code']) ?> applied</span>
-            <?php if ($discountAmount > 0): ?><span>Saved <?= SITE_CURRENCY ?><?= number_format($discountAmount, 2) ?></span><?php endif; ?>
-            <button type="button" id="removeCouponBtn" class="btn" style="padding:6px 10px;background:#fff;color:#9A2E24;border:1px solid #F1B6AF;">Remove</button>
-          </div>
+            <p style="margin:0;color:#697466;font-size:.82rem;">No coupon offers are available right now.</p>
           <?php endif; ?>
-          <div id="couponFeedback" role="status" aria-live="polite" style="margin-top:6px;font-size:.85rem;">
-            <?php if ($appliedCoupon): ?><span style="color:#1F4D36;font-weight:600;">Discount is included in your total.</span><?php endif; ?>
+          <div id="couponFeedback" class="checkout-offer-feedback" role="status" aria-live="polite"></div>
+          <div id="checkoutCouponApplied" class="checkout-coupon-applied" <?= $appliedCoupon ? '' : 'hidden' ?>>
+            <span id="checkoutCouponAppliedText"><?= $appliedCoupon ? '✓ ' . h($appliedCoupon['coupon_code']) . ' applied' . ($discountAmount > 0 ? ' · Saved ' . SITE_CURRENCY . number_format($discountAmount, 2) : '') : '' ?></span>
+            <?php if ($appliedCoupon): ?>
+              <button type="button" id="removeCouponBtn" class="btn" style="padding:5px 9px;background:#fff;color:#9A2E24;border:1px solid #F1B6AF;">Remove</button>
+            <?php else: ?>
+              <button type="button" id="removeCouponBtn" class="btn" style="display:none;padding:5px 9px;background:#fff;color:#9A2E24;border:1px solid #F1B6AF;">Remove</button>
+            <?php endif; ?>
           </div>
         </div>
         <div class="checkout-prices">
@@ -224,31 +278,26 @@ include __DIR__ . '/includes/header.php';
   <div class="form-card" id="qrStep" style="display:none; text-align:center;">
     <h3 style="margin-top:0;">Scan &amp; pay with any UPI app</h3>
     <p style="color:#5B6656;">GPay, PhonePe, Paytm — scan the code below and pay the exact amount.</p>
-    <?php if ($appliedCoupon): ?>
-    <div class="alert alert-success" style="display:inline-block;margin:0 auto 16px;">
-      ✓ Coupon <?= h($appliedCoupon['coupon_code']) ?> applied
-      <?php if ($discountAmount > 0): ?> — you saved <?= SITE_CURRENCY ?><?= number_format($discountAmount, 2) ?><?php endif; ?>
+    <div id="paymentCouponApplied" class="alert alert-success" style="display:<?= $appliedCoupon ? 'inline-block' : 'none' ?>;margin:0 auto 16px;">
+      <span id="paymentCouponAppliedText"><?= $appliedCoupon ? '✓ Coupon ' . h($appliedCoupon['coupon_code']) . ' applied' . ($discountAmount > 0 ? ' — you saved ' . SITE_CURRENCY . number_format($discountAmount, 2) : '') : '' ?></span>
     </div>
-    <?php endif; ?>
 
     <div style="max-width:280px; margin:0 auto 18px;">
       <div class="cart-total-row" style="font-weight:400; font-size:0.85rem; color:#5B6656;">
         <span>Subtotal</span>
-        <span><?= SITE_CURRENCY ?><?= number_format($subtotal,2) ?></span>
+        <span id="paymentSubtotal"><?= SITE_CURRENCY ?><?= number_format($subtotal,2) ?></span>
       </div>
-      <?php if ($discountAmount > 0): ?>
-      <div class="cart-total-row" style="font-weight:400; font-size:0.85rem; color:#1F4D36;">
-        <span>Discount (<?= h($appliedCoupon['coupon_code']) ?>)</span>
-        <span>−<?= SITE_CURRENCY ?><?= number_format($discountAmount,2) ?></span>
+      <div class="cart-total-row" id="paymentDiscountRow" style="font-weight:400; font-size:0.85rem; color:#1F4D36;<?= $discountAmount > 0 ? '' : 'display:none;' ?>">
+        <span id="paymentDiscountLabel">Discount<?= $appliedCoupon ? ' (' . h($appliedCoupon['coupon_code']) . ')' : '' ?></span>
+        <span id="paymentDiscount"><?= $discountAmount > 0 ? '−' . SITE_CURRENCY . number_format($discountAmount,2) : '' ?></span>
       </div>
-      <?php endif; ?>
       <div class="cart-total-row" style="font-weight:400; font-size:0.85rem; color:#5B6656;">
         <span>Delivery charge</span>
-        <span><?= $deliveryCharge > 0 ? SITE_CURRENCY . number_format($deliveryCharge,2) : 'FREE' ?></span>
+        <span id="paymentDelivery"><?= $deliveryCharge > 0 ? SITE_CURRENCY . number_format($deliveryCharge,2) : 'FREE' ?></span>
       </div>
       <div class="cart-total-row" style="margin-top:6px; padding-top:6px; border-top:1px solid #E4E9DD;">
         <span>Amount to pay</span>
-        <span><?= SITE_CURRENCY ?><?= number_format($total,2) ?></span>
+        <span id="paymentTotal"><?= SITE_CURRENCY ?><?= number_format($total,2) ?></span>
       </div>
     </div>
 
@@ -280,7 +329,96 @@ const deliveryAreaSelect = document.getElementById('delivery_area');
 const pincodeInput = document.getElementById('pincode');
 const pincodeDisplayWrap = document.getElementById('pincodeDisplayWrap');
 const deliveryAddressInput = document.getElementById('address');
+const couponFeedback = document.getElementById('couponFeedback');
+const checkoutCouponApplied = document.getElementById('checkoutCouponApplied');
+const checkoutCouponAppliedText = document.getElementById('checkoutCouponAppliedText');
+const removeCouponBtn = document.getElementById('removeCouponBtn');
+const checkoutCurrency = <?= json_encode(SITE_CURRENCY) ?>;
+let currentCheckoutTotal = <?= json_encode((float)$total) ?>;
+let couponRequestPending = false;
+let currentAppliedCoupon = <?= json_encode($appliedCoupon['coupon_code'] ?? '') ?>;
+let currentAppliedDiscount = <?= json_encode((float)$discountAmount) ?>;
 const deliveryAreaAliases = <?= json_encode(get_serviceable_delivery_area_aliases(), JSON_HEX_TAG | JSON_HEX_APOS | JSON_HEX_AMP | JSON_HEX_QUOT) ?>;
+function formatCheckoutMoney(amount) {
+  return checkoutCurrency + Number(amount || 0).toLocaleString('en-IN', {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2
+  });
+}
+
+function updateCheckoutTotals(result) {
+  currentCheckoutTotal = Number(result.total);
+  document.getElementById('rowSubtotal').textContent = formatCheckoutMoney(result.subtotal);
+  document.getElementById('rowDiscount').textContent = Number(result.discount) > 0
+    ? '−' + formatCheckoutMoney(result.discount)
+    : '';
+  document.getElementById('discountRow').style.display = Number(result.discount) > 0 ? 'flex' : 'none';
+  document.getElementById('rowDelivery').textContent = Number(result.delivery_charge) > 0
+    ? formatCheckoutMoney(result.delivery_charge)
+    : 'FREE';
+  document.getElementById('rowTotal').textContent = formatCheckoutMoney(result.total);
+  document.getElementById('payBtnAmount').textContent = formatCheckoutMoney(result.total);
+
+  document.getElementById('paymentSubtotal').textContent = formatCheckoutMoney(result.subtotal);
+  document.getElementById('paymentDiscount').textContent = Number(result.discount) > 0
+    ? '−' + formatCheckoutMoney(result.discount)
+    : '';
+  document.getElementById('paymentDiscountRow').style.display = Number(result.discount) > 0 ? 'flex' : 'none';
+  document.getElementById('paymentDelivery').textContent = Number(result.delivery_charge) > 0
+    ? formatCheckoutMoney(result.delivery_charge)
+    : 'FREE';
+  document.getElementById('paymentTotal').textContent = formatCheckoutMoney(result.total);
+}
+
+function setCouponAppliedState(applied, code, discount) {
+  checkoutCouponApplied.hidden = !applied;
+  removeCouponBtn.style.display = applied ? '' : 'none';
+  checkoutCouponAppliedText.textContent = applied
+    ? '✓ ' + code + ' applied' + (Number(discount) > 0 ? ' · Saved ' + formatCheckoutMoney(discount) : '')
+    : '';
+  const paymentCouponApplied = document.getElementById('paymentCouponApplied');
+  paymentCouponApplied.style.display = applied ? 'inline-block' : 'none';
+  document.getElementById('paymentCouponAppliedText').textContent = applied
+    ? '✓ Coupon ' + code + ' applied' + (Number(discount) > 0 ? ' — you saved ' + formatCheckoutMoney(discount) : '')
+    : '';
+  document.getElementById('paymentDiscountLabel').textContent = applied && Number(discount) > 0
+    ? 'Discount (' + code + ')'
+    : 'Discount';
+}
+
+function updateOfferCards(code, discount) {
+  removeCouponBtn.disabled = couponRequestPending || !code;
+  document.querySelectorAll('[data-apply-coupon]').forEach(function (button) {
+    const offerCode = button.dataset.applyCoupon;
+    const isApplied = Boolean(code) && offerCode === code;
+    const isEligible = button.dataset.eligible === '1';
+    const card = button.closest('[data-offer-card]');
+    const detail = card ? card.querySelector('[data-offer-detail]') : null;
+    if (card) {
+      card.classList.remove('is-applied');
+      if (isApplied) {
+        requestAnimationFrame(function () { card.classList.add('is-applied'); });
+      }
+    }
+    button.disabled = couponRequestPending || isApplied || !isEligible;
+    button.textContent = isApplied ? '✓ Applied' : (isEligible ? 'Apply' : 'Not eligible');
+    if (detail) {
+      detail.textContent = isApplied
+        ? 'Applied' + (Number(discount) > 0 ? ' · Saved ' + formatCheckoutMoney(discount) : '')
+        : (isEligible ? 'Ready to use' : button.dataset.ineligibleMessage);
+    }
+  });
+}
+
+function setCouponFeedback(message, success) {
+  couponFeedback.textContent = message;
+  couponFeedback.style.color = success ? '#1F4D36' : '#9A2E24';
+}
+
+function restorePlaceOrderButton() {
+  payBtn.innerHTML = 'Place order · <span id="payBtnAmount">' + formatCheckoutMoney(currentCheckoutTotal) + '</span>';
+}
+
 const selectDeliveryArea = function (areaName, message) {
   deliveryAreaSelect.value = areaName;
   const option = deliveryAreaSelect.options[deliveryAreaSelect.selectedIndex];
@@ -373,7 +511,7 @@ checkoutForm.addEventListener('submit', function (e) {
     .then(r => r.json())
     .then(res => {
       payBtn.disabled = false;
-      payBtn.textContent = "Proceed to pay <?= SITE_CURRENCY ?><?= number_format($total,2) ?>";
+      restorePlaceOrderButton();
 
       if (!res.success) {
         alertBox.innerHTML = '<div class="alert alert-error">' + (res.message || 'Could not save order.') + '</div>';
@@ -396,7 +534,7 @@ checkoutForm.addEventListener('submit', function (e) {
     })
     .catch(() => {
       payBtn.disabled = false;
-      payBtn.textContent = "Proceed to pay <?= SITE_CURRENCY ?><?= number_format($total,2) ?>";
+      restorePlaceOrderButton();
       alertBox.innerHTML = '<div class="alert alert-error">Something went wrong. Please try again.</div>';
     });
 });
@@ -435,50 +573,81 @@ confirmBtn.addEventListener('click', function () {
     });
 });
 
-// Coupon apply / remove
-document.getElementById('applyCouponBtn')?.addEventListener('click', function () {
-  const code = document.getElementById('couponCode').value.trim();
-  const feedback = document.getElementById('couponFeedback');
-  if (!code) {
-    feedback.innerHTML = '<span style="color:#9A2E24;">Enter a code first.</span>';
-    return;
-  }
-  this.disabled = true;
-  this.textContent = 'Applying...';
+// Coupon offers are checked against the current cart on the server.
+document.querySelectorAll('[data-apply-coupon]').forEach(function (button) {
+  button.addEventListener('click', function () {
+    if (couponRequestPending || this.disabled) return;
+    const clickedButton = this;
+    const code = clickedButton.dataset.applyCoupon;
+    couponRequestPending = true;
+    updateOfferCards(currentAppliedCoupon, currentAppliedDiscount);
+    clickedButton.textContent = 'Checking…';
+    setCouponFeedback('Checking whether this offer applies to your order…', true);
 
-  fetch(window.__VEGBASKET_BASE__ + '/ajax/apply_coupon.php', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-    body: 'code=' + encodeURIComponent(code)
-  })
-    .then(r => r.json())
-    .then(res => {
-      if (res.success) {
-        // Simplest reliable way to reflect the new totals everywhere
-        // (details form, QR step, pay button) is to reload with the
-        // coupon now stored server-side in the session.
-        location.reload();
-      } else {
-        this.disabled = false;
-        this.textContent = 'Apply';
-        feedback.innerHTML = '<span style="color:#9A2E24;">' + (res.message || 'Invalid coupon.') + '</span>';
+    fetch(window.__VEGBASKET_BASE__ + '/ajax/apply_coupon.php', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      body: 'code=' + encodeURIComponent(code)
+    }).then(function (response) {
+      return response.json().then(function (result) {
+        if (!response.ok) throw new Error(result.message || 'Could not check this offer.');
+        return result;
+      });
+    }).then(function (result) {
+      if (!result.success) {
+        setCouponFeedback(result.message || 'This offer is not applicable to your order.', false);
+        return;
       }
-    })
-    .catch(() => {
-      this.disabled = false;
-      this.textContent = 'Apply';
-      feedback.innerHTML = '<span style="color:#9A2E24;">Something went wrong, please try again.</span>';
+
+      currentAppliedCoupon = result.coupon_code;
+      currentAppliedDiscount = Number(result.discount);
+      updateCheckoutTotals(result);
+      setCouponAppliedState(true, result.coupon_code, result.discount);
+      setCouponFeedback(
+        result.free_delivery
+          ? 'Offer applied! Free delivery has been added to your order.'
+          : 'Offer applied! You saved ' + formatCheckoutMoney(result.discount) + '.',
+        true
+      );
+    }).catch(function (error) {
+      setCouponFeedback(error.message || 'We could not check this offer. Please try again.', false);
+    }).finally(function () {
+      couponRequestPending = false;
+      updateOfferCards(currentAppliedCoupon, currentAppliedDiscount);
     });
+  });
 });
 
-document.getElementById('removeCouponBtn')?.addEventListener('click', function () {
+removeCouponBtn.addEventListener('click', function () {
+  if (couponRequestPending || !currentAppliedCoupon) return;
+  couponRequestPending = true;
   this.disabled = true;
+  setCouponFeedback('Removing the offer…', true);
+
   fetch(window.__VEGBASKET_BASE__ + '/ajax/apply_coupon.php', {
     method: 'POST',
     headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
     body: 'remove=1'
-  }).then(() => location.reload());
+  }).then(function (response) {
+    return response.json().then(function (result) {
+      if (!response.ok || !result.success) throw new Error(result.message || 'Could not remove this offer.');
+      return result;
+    });
+  }).then(function (result) {
+    currentAppliedCoupon = '';
+    currentAppliedDiscount = 0;
+    updateCheckoutTotals(result);
+    setCouponAppliedState(false, '', 0);
+    setCouponFeedback('Offer removed. Choose an eligible offer to apply it again.', true);
+  }).catch(function (error) {
+    setCouponFeedback(error.message || 'We could not remove this offer. Please try again.', false);
+  }).finally(function () {
+    couponRequestPending = false;
+    updateOfferCards(currentAppliedCoupon, currentAppliedDiscount);
+  });
 });
+
+updateOfferCards(currentAppliedCoupon, currentAppliedDiscount);
 </script>
 
 <?php include __DIR__ . '/includes/footer.php'; ?>
