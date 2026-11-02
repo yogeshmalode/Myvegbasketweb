@@ -189,6 +189,17 @@ include __DIR__ . '/includes/admin_header.php';
   .transfer-shared-confirm label{display:flex;align-items:flex-start;gap:8px}
   .transfer-shared-confirm input{margin-top:2px}
   .transfer-remove{height:42px;min-width:42px;border:1px solid #f0d7d2;border-radius:8px;background:#fff;color:#a33d32;font-size:18px;cursor:pointer}
+  .transfer-picker{margin-top:16px;padding:14px;border:1px solid var(--admin-line);border-radius:11px;background:#fbfdfb}
+  .transfer-picker-controls{display:flex;align-items:center;gap:9px;flex-wrap:wrap;margin-bottom:12px}
+  .transfer-picker-controls input[type=search]{flex:1;min-width:200px;height:42px;padding:0 12px;border:1px solid var(--admin-line);border-radius:8px}
+  .transfer-picker-controls button{min-height:38px;padding:0 11px}
+  .transfer-picker-list{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:7px;max-height:250px;overflow:auto;padding:2px}
+  .transfer-picker-option{display:flex;align-items:flex-start;gap:8px;min-width:0;padding:9px;border:1px solid #e6ece7;border-radius:8px;background:#fff;cursor:pointer}
+  .transfer-picker-option[hidden]{display:none}
+  .transfer-picker-option input{margin-top:3px}
+  .transfer-picker-option span{min-width:0;font-size:12px;line-height:1.4}
+  .transfer-picker-option small{display:block;color:var(--admin-muted)}
+  .transfer-picker-option.is-added{opacity:.55;background:#f2f5f2;cursor:not-allowed}
   .transfer-actions{display:flex;justify-content:space-between;align-items:center;gap:12px;margin-top:14px}
   .transfer-summary{margin-top:14px;padding:12px 14px;border-left:3px solid #e8934a;border-radius:5px;background:#fff8ee;color:#5e4a32;font-size:13px;line-height:1.5}
   .transfer-confirm{margin-top:14px;padding:12px 14px;border-left:3px solid #e8934a;border-radius:5px;background:#fff8ee;color:#5e4a32;font-size:13px;line-height:1.5}
@@ -201,7 +212,8 @@ include __DIR__ . '/includes/admin_header.php';
   .transfer-today-stat{padding:13px;border:1px solid var(--admin-line);border-radius:10px;background:#f8fbf8}
   .transfer-today-stat strong{display:block;color:#145b3e;font-size:21px}
   .transfer-today-stat span{display:block;margin-top:3px;color:var(--admin-muted);font-size:12px}
-  @media(max-width:760px){.transfer-flow{grid-template-columns:1fr}.transfer-form-grid{grid-template-columns:1fr}.transfer-form{padding:15px}.transfer-item-row{grid-template-columns:1fr 1fr}.transfer-item-stock{grid-column:1/-1}.transfer-shared-confirm{grid-column:1/-1}.transfer-remove{grid-column:2;justify-self:end}.transfer-actions{align-items:stretch;flex-direction:column}.transfer-submit-row .admin-btn{width:100%}.transfer-today-stats{grid-template-columns:1fr}}
+  @media(max-width:900px){.transfer-picker-list{grid-template-columns:repeat(2,minmax(0,1fr))}}
+  @media(max-width:600px){.transfer-flow{grid-template-columns:1fr}.transfer-form-grid{grid-template-columns:1fr}.transfer-form{padding:15px}.transfer-item-row{grid-template-columns:1fr 1fr}.transfer-item-stock{grid-column:1/-1}.transfer-shared-confirm{grid-column:1/-1}.transfer-remove{grid-column:2;justify-self:end}.transfer-picker-list{grid-template-columns:1fr}.transfer-actions{align-items:stretch;flex-direction:column}.transfer-submit-row .admin-btn{width:100%}.transfer-today-stats{grid-template-columns:1fr}}
 </style>
 
 <div class="transfer-flow" aria-label="Transfer steps">
@@ -237,6 +249,28 @@ include __DIR__ . '/includes/admin_header.php';
         <input type="text" id="transferNotes" name="notes" maxlength="255" placeholder="e.g. Morning stock transfer" <?= !$products ? 'disabled' : '' ?>>
       </div>
     </div>
+    <div class="transfer-picker">
+      <div class="admin-field">
+        <label for="transferProductSearch">Select multiple products at once</label>
+        <div class="transfer-picker-controls">
+          <input type="search" id="transferProductSearch" placeholder="Search products..." autocomplete="off" <?= !$products ? 'disabled' : '' ?>>
+          <button type="button" class="admin-btn" id="selectVisibleProducts" <?= !$products ? 'disabled' : '' ?>>Select visible</button>
+          <button type="button" class="admin-btn" id="clearProductSelection" <?= !$products ? 'disabled' : '' ?>>Clear</button>
+        </div>
+      </div>
+      <div id="transferProductChoices" class="transfer-picker-list">
+        <?php foreach ($products as $p): ?>
+          <label class="transfer-picker-option" data-product-option>
+            <input type="checkbox" value="<?= (int)$p['id'] ?>" data-product-choice>
+            <span><?= h($p['name']) ?><small><?= number_format((float)$p['stock'], 3) ?> <?= h($p['unit']) ?> central<?= $p['stock_mode'] === 'shared' ? ' · Shared' : '' ?></small></span>
+          </label>
+        <?php endforeach; ?>
+      </div>
+      <div class="transfer-actions">
+        <span id="productSelectionCount" style="color:var(--admin-muted);font-size:12px">0 products selected</span>
+        <button type="button" class="admin-btn admin-btn-primary" id="addSelectedProducts" disabled>＋ Add selected products</button>
+      </div>
+    </div>
     <div id="transferItems" class="transfer-items"></div>
     <template id="transferItemTemplate">
       <div class="transfer-item-row">
@@ -262,7 +296,7 @@ include __DIR__ . '/includes/admin_header.php';
     </template>
     <div id="transferBatchSummary" class="transfer-summary" aria-live="polite" tabindex="-1">Add products and quantities. The batch will run only when every row is valid.</div>
     <div class="transfer-actions">
-      <button type="button" class="admin-btn" id="addTransferItem" <?= !$products ? 'disabled' : '' ?>>＋ Add another product</button>
+      <button type="button" class="admin-btn" id="addTransferItem" <?= !$products ? 'disabled' : '' ?>>＋ Add one product row</button>
       <span id="transferItemCount" style="color:var(--admin-muted);font-size:12px">0 products selected</span>
     </div>
     <div class="transfer-submit-row">
@@ -349,6 +383,12 @@ include __DIR__ . '/includes/admin_header.php';
   const rows = document.getElementById('transferItems');
   const template = document.getElementById('transferItemTemplate');
   const addButton = document.getElementById('addTransferItem');
+  const productChoices = document.getElementById('transferProductChoices');
+  const productSearch = document.getElementById('transferProductSearch');
+  const selectVisibleButton = document.getElementById('selectVisibleProducts');
+  const clearSelectionButton = document.getElementById('clearProductSelection');
+  const addSelectedButton = document.getElementById('addSelectedProducts');
+  const selectionCount = document.getElementById('productSelectionCount');
   const batchSummary = document.getElementById('transferBatchSummary');
   const itemCount = document.getElementById('transferItemCount');
   const submit = document.getElementById('transferSubmit');
@@ -364,8 +404,25 @@ include __DIR__ . '/includes/admin_header.php';
       field.name = 'items[' + index + '][' + field.dataset.field + ']';
     });
     rows.appendChild(row);
-    updatePreview();
-    row.querySelector('select').focus();
+    return row;
+  }
+
+  function updateProductPicker() {
+    const addedIds = new Set(Array.from(rows.querySelectorAll('[data-field="vegetable_id"]'))
+      .map(select => select.value).filter(Boolean));
+    const searchTerm = productSearch.value.trim().toLocaleLowerCase();
+    let selectedCount = 0;
+    productChoices.querySelectorAll('[data-product-option]').forEach(label => {
+      const checkbox = label.querySelector('[data-product-choice]');
+      const alreadyAdded = addedIds.has(checkbox.value);
+      label.hidden = !label.textContent.toLocaleLowerCase().includes(searchTerm);
+      label.classList.toggle('is-added', alreadyAdded);
+      checkbox.disabled = alreadyAdded;
+      if (alreadyAdded) checkbox.checked = false;
+      if (checkbox.checked && !checkbox.disabled) selectedCount++;
+    });
+    selectionCount.textContent = selectedCount + (selectedCount === 1 ? ' product selected' : ' products selected');
+    addSelectedButton.disabled = selectedCount === 0;
   }
 
   function updatePreview() {
@@ -444,9 +501,51 @@ include __DIR__ . '/includes/admin_header.php';
     } else {
       batchSummary.textContent = 'Ready to transfer ' + selectedCount + ' product(s) to ' + storeNames[store.value] + ': ' + batchItems.join('; ') + '.';
     }
+    updateProductPicker();
   }
 
-  addButton.addEventListener('click', addRow);
+  addButton.addEventListener('click', () => {
+    const row = addRow();
+    updatePreview();
+    row.querySelector('select').focus();
+  });
+  productSearch.addEventListener('input', updateProductPicker);
+  productChoices.addEventListener('change', updateProductPicker);
+  selectVisibleButton.addEventListener('click', () => {
+    productChoices.querySelectorAll('[data-product-option]').forEach(label => {
+      const checkbox = label.querySelector('[data-product-choice]');
+      if (!label.hidden && !checkbox.disabled) checkbox.checked = true;
+    });
+    updateProductPicker();
+  });
+  clearSelectionButton.addEventListener('click', () => {
+    productChoices.querySelectorAll('[data-product-choice]').forEach(checkbox => {
+      if (!checkbox.disabled) checkbox.checked = false;
+    });
+    updateProductPicker();
+  });
+  addSelectedButton.addEventListener('click', () => {
+    const selectedIds = Array.from(productChoices.querySelectorAll('[data-product-choice]:checked:not(:disabled)'))
+      .map(checkbox => checkbox.value);
+    if (!selectedIds.length) return;
+
+    const emptyRows = Array.from(rows.querySelectorAll('.transfer-item-row')).filter(row =>
+      !row.querySelector('[data-field="vegetable_id"]').value &&
+      !row.querySelector('[data-field="quantity"]').value.trim()
+    );
+    selectedIds.forEach((productId, index) => {
+      const row = emptyRows[index] || addRow();
+      row.querySelector('[data-field="vegetable_id"]').value = productId;
+    });
+    productChoices.querySelectorAll('[data-product-choice]:checked').forEach(checkbox => {
+      checkbox.checked = false;
+    });
+    updatePreview();
+    const firstNewRow = Array.from(rows.querySelectorAll('.transfer-item-row')).find(row =>
+      selectedIds.includes(row.querySelector('[data-field="vegetable_id"]').value)
+    );
+    if (firstNewRow) firstNewRow.querySelector('[data-field="quantity"]').focus();
+  });
   store.addEventListener('change', updatePreview);
   rows.addEventListener('input', updatePreview);
   rows.addEventListener('change', event => {
@@ -476,6 +575,7 @@ include __DIR__ . '/includes/admin_header.php';
     }
   });
   addRow();
+  updatePreview();
 })();
 </script>
 <?php endif; ?>
