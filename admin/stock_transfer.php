@@ -290,7 +290,7 @@ include __DIR__ . '/includes/admin_header.php';
         <div class="transfer-item-stock" data-field="stock-preview">Choose a product to view stock.</div>
         <button type="button" class="transfer-remove" data-action="remove" aria-label="Remove product row" title="Remove product">×</button>
         <div class="transfer-shared-confirm" data-field="shared-confirm" hidden>
-          <label><input type="checkbox" data-field="confirm_stock_mode_change"><span>Change this product from Shared to Per-Store stock. Only the quantity transferred will be allocated to this store; remaining central stock stays central.</span></label>
+          <label><input type="checkbox" value="1" data-field="confirm_stock_mode_change"><span>Change this product from Shared to Per-Store stock. Only the quantity transferred will be allocated to this store; remaining central stock stays central.</span></label>
         </div>
       </div>
     </template>
