@@ -7,6 +7,7 @@ $budget = 500.0;
 $category = 'all';
 $error = '';
 $recommendations = [];
+$historyBasedBasket = false;
 
 $categoryStmt = $pdo->query(
     "SELECT DISTINCT v.category
@@ -136,6 +137,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
              ORDER BY v.category, v.name"
         );
         $productsByCategory = [];
+        $productsById = [];
         foreach ($productsStmt->fetchAll() as $product) {
             if ($category !== 'all' && strcasecmp(trim($product['category']), $category) !== 0) {
                 continue;
@@ -149,6 +151,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $product['_builder_price'] = $price;
             $product['_builder_stock'] = $maxQuantity;
             $productsByCategory[trim($product['category'])][] = $product;
+            $productsById[(int)$product['id']] = $product;
         }
 
         foreach ($productsByCategory as &$categoryProducts) {
@@ -162,6 +165,52 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $categoryOffsets = array_fill_keys($categoryNames, 0);
         $chosenIds = [];
         $remaining = $budget;
+
+        if (is_customer_logged_in()) {
+            $historyStmt = $pdo->prepare(
+                "SELECT oi.vegetable_id, COUNT(DISTINCT recent.id) AS order_count,
+                        SUM(oi.quantity) AS total_quantity, MAX(recent.created_at) AS last_ordered
+                 FROM (
+                     SELECT id, created_at
+                     FROM orders
+                     WHERE customer_id = ?
+                       AND order_status NOT IN ('cancelled', 'failed')
+                       AND (order_status IN ('delivered', 'paid') OR payment_status = 'paid')
+                     ORDER BY created_at DESC
+                     LIMIT 10
+                 ) recent
+                 JOIN order_items oi ON oi.order_id = recent.id
+                 WHERE oi.vegetable_id IS NOT NULL
+                 GROUP BY oi.vegetable_id
+                 ORDER BY order_count DESC, last_ordered DESC"
+            );
+            $historyStmt->execute([(int)current_customer()['id']]);
+            foreach ($historyStmt->fetchAll() as $historyItem) {
+                $id = (int)$historyItem['vegetable_id'];
+                if (!isset($productsById[$id]) || count($chosenIds) >= 8) {
+                    continue;
+                }
+
+                $product = $productsById[$id];
+                $quantity = min(
+                    max(1, (int)round((float)$historyItem['total_quantity'] / max(1, (int)$historyItem['order_count']))),
+                    min(5, (int)$product['_builder_stock'])
+                );
+                while ($quantity > 0 && ($product['_builder_price'] * $quantity) > $remaining) {
+                    $quantity--;
+                }
+                if ($quantity < 1) {
+                    continue;
+                }
+
+                $chosenIds[$id] = [
+                    'product' => $product,
+                    'quantity' => $quantity,
+                ];
+                $remaining -= $product['_builder_price'] * $quantity;
+                $historyBasedBasket = true;
+            }
+        }
 
         // First pass: try to include one affordable item from each category.
         foreach ($categoryNames as $categoryName) {
@@ -367,7 +416,7 @@ include __DIR__ . '/includes/header.php';
           <div>
             <span class="budget-result-badge"><span aria-hidden="true">✓</span> Fits your <?= SITE_CURRENCY ?><?= number_format($budget) ?> budget</span>
             <h2 id="budgetItemsHeading" style="margin-top:12px;">Your fresh basket mix</h2>
-            <p>Choose what you need and adjust quantities. Current prices are shown below.</p>
+            <p><?= $historyBasedBasket ? 'Prioritized from your recent orders, with today’s prices and stock. Adjust anything you like.' : 'Choose what you need and adjust quantities. Current prices are shown below.' ?></p>
           </div>
           <button type="button" class="btn" id="budgetSelectAll" style="background:#fff;border:1px solid #DCE8D5;color:#1F4D36;">Select none</button>
         </div>
