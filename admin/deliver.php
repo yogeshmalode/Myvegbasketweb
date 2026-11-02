@@ -136,7 +136,16 @@ function sendLocation(lat, lng) {
   data.append('order_id', orderId);
   data.append('lat', lat);
   data.append('lng', lng);
-  fetch(window.__VEGBASKET_BASE__ + '/ajax/update_location.php', { method: 'POST', body: data });
+  data.append('csrf_token', <?= json_encode(csrf_token()) ?>);
+  fetch(window.__VEGBASKET_BASE__ + '/ajax/update_location.php', { method: 'POST', body: data })
+    .then(async response => {
+      const result = await response.json();
+      if (!response.ok || !result.success) throw new Error(result.message || 'Location could not be shared.');
+      document.getElementById('shareStatus').textContent = '🟢 Sharing your live location · updated just now';
+    })
+    .catch(error => {
+      document.getElementById('shareStatus').textContent = error.message || 'Could not share location. Check your connection.';
+    });
 }
 
 function onPosition(pos) {

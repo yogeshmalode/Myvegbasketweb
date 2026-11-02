@@ -172,6 +172,33 @@ include __DIR__ . '/../includes/header.php';
     white-space: pre-line;
     line-height: 1.6;
   }
+  .delivery-route-panel {
+    margin-top: 16px;
+    padding: 14px;
+    border: 1px solid #dfe9e2;
+    border-radius: 14px;
+    background: #f8fbf9;
+  }
+  .delivery-route-panel h4 { margin: 0 0 10px; color: #163d2d; }
+  .delivery-route-map {
+    width: 100%;
+    height: 260px;
+    border: 1px solid #dfe9e2;
+    border-radius: 11px;
+  }
+  .delivery-route-meta {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 10px;
+    flex-wrap: wrap;
+    margin-top: 10px;
+    color: #52635a;
+    font-size: .85rem;
+  }
+  .delivery-route-actions { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 12px; }
+  .delivery-route-actions .btn { min-height: 42px; }
+  .delivery-route-note { margin: 9px 0 0; color: #66736f; font-size: .78rem; }
   .action-row {
     display: flex;
     flex-wrap: wrap;
@@ -274,10 +301,10 @@ include __DIR__ . '/../includes/header.php';
 
     <?php foreach ($orders as $order): ?>
       <?php
-      $customerLat = !empty($order['address_lat']) ? (float)$order['address_lat'] : null;
-      $customerLng = !empty($order['address_lng']) ? (float)$order['address_lng'] : null;
+      $customerLat = $order['address_lat'] !== null ? (float)$order['address_lat'] : null;
+      $customerLng = $order['address_lng'] !== null ? (float)$order['address_lng'] : null;
       $distanceKm = null;
-      if ($customerLat !== null && $customerLng !== null && !empty($order['delivery_lat']) && !empty($order['delivery_lng'])) {
+      if ($customerLat !== null && $customerLng !== null && $order['delivery_lat'] !== null && $order['delivery_lng'] !== null) {
           $distanceKm = haversine_km((float)$order['delivery_lat'], (float)$order['delivery_lng'], $customerLat, $customerLng);
       }
       $eta = $distanceKm !== null ? estimate_eta_minutes($distanceKm) : 0;
@@ -307,6 +334,29 @@ include __DIR__ . '/../includes/header.php';
         </div>
 
         <p class="address-copy"><?= nl2br(h($order['address'])) ?></p>
+
+        <?php if (in_array($order['order_status'], ['out_for_delivery', 'arriving_soon'], true)): ?>
+          <section class="delivery-route-panel" aria-label="Live delivery route">
+            <h4>Live delivery route</h4>
+            <div
+              class="delivery-route-map"
+              data-delivery-map
+              data-map-order-id="<?= (int)$order['id'] ?>"
+              data-address-lat="<?= $customerLat !== null ? $customerLat : '' ?>"
+              data-address-lng="<?= $customerLng !== null ? $customerLng : '' ?>"></div>
+            <div class="delivery-route-meta">
+              <span data-location-status aria-live="polite">Live location sharing is off.</span>
+              <span>Distance: <strong data-route-distance><?= $distanceKm !== null ? number_format($distanceKm, 1) . ' km' : 'Waiting for GPS' ?></strong> · ETA: <strong data-route-eta><?= $eta > 0 ? $eta . ' min (approx.)' : 'Waiting' ?></strong></span>
+            </div>
+            <div class="delivery-route-actions">
+              <button type="button" class="btn btn-primary" data-location-order="<?= (int)$order['id'] ?>">Share live location</button>
+              <?php if ($customerLat !== null && $customerLng !== null): ?>
+                <a class="btn" href="https://www.google.com/maps/dir/?api=1&destination=<?= rawurlencode($customerLat . ',' . $customerLng) ?>&travelmode=driving" target="_blank" rel="noopener">Open driving directions</a>
+              <?php endif; ?>
+            </div>
+            <p class="delivery-route-note">Keep this page open while delivering. Customers can see your latest location while sharing is on. The map line is approximate; driving directions open in Google Maps.</p>
+          </section>
+        <?php endif; ?>
 
         <div class="action-row">
           <?php if ($order['order_status'] === 'delivery_partner_assigned'): ?>
@@ -475,6 +525,139 @@ document.querySelectorAll('[data-order-id]').forEach((button) => {
     runDeliveryAction(orderId, action, labels[action] || 'Order updated');
   });
 });
+</script>
+
+<script>
+(() => {
+  const csrfToken = <?= json_encode(csrf_token()) ?>;
+  let watchId = null;
+  let activeOrderId = null;
+  let lastSentAt = 0;
+  const routeMaps = new Map();
+
+  document.querySelectorAll('[data-delivery-map]').forEach((element) => {
+    const map = L.map(element).setView([18.5011, 73.9268], 12);
+    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+      attribution: '&copy; OpenStreetMap contributors',
+      maxZoom: 19
+    }).addTo(map);
+    const addressLat = Number(element.dataset.addressLat);
+    const addressLng = Number(element.dataset.addressLng);
+    let addressMarker = null;
+    if (Number.isFinite(addressLat) && Number.isFinite(addressLng) && element.dataset.addressLat !== '' && element.dataset.addressLng !== '') {
+      addressMarker = L.marker([addressLat, addressLng]).addTo(map).bindPopup('Customer delivery address');
+      map.setView([addressLat, addressLng], 14);
+    }
+    routeMaps.set(Number(element.dataset.mapOrderId), {map, addressLat, addressLng, addressMarker, riderMarker: null, routeLine: null, element, mapFramed: false});
+  });
+
+  function distanceKm(lat1, lng1, lat2, lng2) {
+    const rad = value => value * Math.PI / 180;
+    const dLat = rad(lat2 - lat1);
+    const dLng = rad(lng2 - lng1);
+    const a = Math.sin(dLat / 2) ** 2 + Math.cos(rad(lat1)) * Math.cos(rad(lat2)) * Math.sin(dLng / 2) ** 2;
+    return 6371 * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+  }
+
+  function stopSharing(button, message) {
+    if (watchId !== null) navigator.geolocation.clearWatch(watchId);
+    watchId = null;
+    activeOrderId = null;
+    button.textContent = 'Share live location';
+    button.disabled = false;
+    button.dataset.sharing = '0';
+    const panel = button.closest('.delivery-route-panel');
+    panel.querySelector('[data-location-status]').textContent = message;
+  }
+
+  function updatePosition(position, button, orderId) {
+    if (activeOrderId !== orderId) return;
+    const {latitude: lat, longitude: lng} = position.coords;
+    const route = routeMaps.get(orderId);
+    if (!route) return;
+    const point = [lat, lng];
+    if (!route.riderMarker) {
+      route.riderMarker = L.marker(point).addTo(route.map).bindPopup('Your location');
+    } else {
+      route.riderMarker.setLatLng(point);
+    }
+    if (route.addressMarker) {
+      if (route.routeLine) {
+        route.routeLine.setLatLngs([point, [route.addressLat, route.addressLng]]);
+      } else {
+        route.routeLine = L.polyline([point, [route.addressLat, route.addressLng]], {color: '#21845b', weight: 4, opacity: .8, dashArray: '7 8'}).addTo(route.map);
+      }
+      if (!route.mapFramed) {
+        route.map.fitBounds(L.latLngBounds([point, [route.addressLat, route.addressLng]]), {padding: [28, 28]});
+        route.mapFramed = true;
+      } else if (!route.map.getBounds().contains(point)) {
+        route.map.panTo(point);
+      }
+      const distance = distanceKm(lat, lng, route.addressLat, route.addressLng);
+      const panel = button.closest('.delivery-route-panel');
+      panel.querySelector('[data-route-distance]').textContent = distance.toFixed(1) + ' km';
+      panel.querySelector('[data-route-eta]').textContent = Math.max(4, Math.round(distance / 24 * 60)) + ' min (approx.)';
+    } else {
+      route.map.panTo(point);
+    }
+
+    const now = Date.now();
+    if (now - lastSentAt < 8000) return;
+    lastSentAt = now;
+    const data = new FormData();
+    data.append('order_id', String(orderId));
+    data.append('lat', String(lat));
+    data.append('lng', String(lng));
+    data.append('csrf_token', csrfToken);
+    fetch('../ajax/update_location.php', {method: 'POST', body: data})
+      .then(async response => {
+        const result = await response.json();
+        if (!response.ok || !result.success) throw new Error(result.message || 'Location could not be shared.');
+        button.closest('.delivery-route-panel').querySelector('[data-location-status]').textContent = 'Sharing live location · updated just now';
+      })
+      .catch(error => {
+        button.closest('.delivery-route-panel').querySelector('[data-location-status]').textContent = error.message || 'Could not share location. Check your connection.';
+      });
+  }
+
+  document.querySelectorAll('[data-location-order]').forEach((button) => {
+    button.addEventListener('click', () => {
+      if (button.dataset.sharing === '1') {
+        stopSharing(button, 'Location sharing stopped.');
+        return;
+      }
+      const orderId = Number(button.dataset.locationOrder);
+      if (watchId !== null) {
+        const previousButton = document.querySelector('[data-location-order][data-sharing="1"]');
+        if (previousButton) stopSharing(previousButton, 'Location sharing stopped.');
+      }
+      if (!navigator.geolocation) {
+        const status = button.closest('.delivery-route-panel').querySelector('[data-location-status]');
+        status.textContent = window.isSecureContext
+          ? 'GPS is not supported by this browser.'
+          : 'Live GPS requires a secure HTTPS connection. Open the rider page on the secure website.';
+        return;
+      }
+      activeOrderId = orderId;
+      lastSentAt = 0;
+      button.dataset.sharing = '1';
+      button.textContent = 'Stop sharing';
+      button.closest('.delivery-route-panel').querySelector('[data-location-status]').textContent = 'Waiting for GPS permission…';
+      watchId = navigator.geolocation.watchPosition(
+        position => updatePosition(position, button, orderId),
+        error => {
+          const message = error.code === 1
+            ? 'Location permission is needed to share your live route. Allow location access in your browser settings.'
+            : error.code === 3
+              ? 'GPS timed out. Move to an open area and try again.'
+              : 'Unable to get your location: ' + error.message;
+          stopSharing(button, message);
+        },
+        {enableHighAccuracy: true, maximumAge: 5000, timeout: 20000}
+      );
+    });
+  });
+})();
 </script>
 
 <?php
