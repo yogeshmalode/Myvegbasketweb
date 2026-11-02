@@ -2109,6 +2109,111 @@ function is_customer_logged_in() {
     return !empty($_SESSION['customer_id']);
 }
 
+function customer_remember_cookie_options($expires) {
+    $path = rtrim(BASE_URL, '/');
+    return [
+        'expires' => $expires,
+        'path' => $path === '' ? '/' : $path . '/',
+        'secure' => !empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off',
+        'httponly' => true,
+        'samesite' => 'Lax',
+    ];
+}
+
+function set_customer_remember_cookie($value, $expires) {
+    setcookie('vegbasket_customer_remember', $value, customer_remember_cookie_options($expires));
+    if ($expires > time()) {
+        $_COOKIE['vegbasket_customer_remember'] = $value;
+    } else {
+        unset($_COOKIE['vegbasket_customer_remember']);
+    }
+}
+
+function revoke_customer_remember_token() {
+    global $pdo;
+
+    $cookie = $_COOKIE['vegbasket_customer_remember'] ?? '';
+    if (is_string($cookie) && preg_match('/\A([a-f0-9]{32})\.[a-f0-9]{64}\z/i', $cookie, $matches)) {
+        $stmt = $pdo->prepare('DELETE FROM customer_login_tokens WHERE selector = ?');
+        $stmt->execute([$matches[1]]);
+    }
+
+    set_customer_remember_cookie('', time() - 3600);
+}
+
+function issue_customer_remember_token($customerId) {
+    global $pdo;
+
+    $selector = bin2hex(random_bytes(16));
+    $validator = bin2hex(random_bytes(32));
+    $stmt = $pdo->prepare('INSERT INTO customer_login_tokens (customer_id, selector, validator_hash) VALUES (?, ?, ?)');
+    $stmt->execute([(int)$customerId, $selector, hash('sha256', $validator)]);
+
+    set_customer_remember_cookie($selector . '.' . $validator, time() + (10 * 365 * 24 * 60 * 60));
+}
+
+function login_customer($customerId, $customerName) {
+    revoke_customer_remember_token();
+    session_regenerate_id(true);
+    $_SESSION['customer_id'] = (int)$customerId;
+    $_SESSION['customer_name'] = (string)$customerName;
+    issue_customer_remember_token($customerId);
+}
+
+function restore_customer_login() {
+    global $pdo;
+
+    $cookieName = 'vegbasket_customer_remember';
+    $cookie = $_COOKIE[$cookieName] ?? '';
+
+    if (!empty($_SESSION['customer_id'])) {
+        if (is_string($cookie) && preg_match('/\A([a-f0-9]{32})\.[a-f0-9]{64}\z/i', $cookie)) {
+            set_customer_remember_cookie($cookie, time() + (10 * 365 * 24 * 60 * 60));
+            return;
+        }
+
+        $stmt = $pdo->prepare('SELECT id, name FROM customers WHERE id = ?');
+        $stmt->execute([(int)$_SESSION['customer_id']]);
+        $customer = $stmt->fetch();
+        if ($customer) {
+            $_SESSION['customer_name'] = $customer['name'];
+            issue_customer_remember_token($customer['id']);
+        } else {
+            unset($_SESSION['customer_id'], $_SESSION['customer_name']);
+        }
+        return;
+    }
+
+    if (!is_string($cookie) || !preg_match('/\A([a-f0-9]{32})\.([a-f0-9]{64})\z/i', $cookie, $matches)) {
+        if ($cookie !== '') {
+            set_customer_remember_cookie('', time() - 3600);
+        }
+        return;
+    }
+
+    $stmt = $pdo->prepare(
+        'SELECT c.id, c.name, t.validator_hash
+         FROM customer_login_tokens t
+         JOIN customers c ON c.id = t.customer_id
+         WHERE t.selector = ?'
+    );
+    $stmt->execute([$matches[1]]);
+    $token = $stmt->fetch();
+    if (!$token || !hash_equals($token['validator_hash'], hash('sha256', $matches[2]))) {
+        set_customer_remember_cookie('', time() - 3600);
+        return;
+    }
+
+    session_regenerate_id(true);
+    $_SESSION['customer_id'] = (int)$token['id'];
+    $_SESSION['customer_name'] = $token['name'];
+    $pdo->prepare('UPDATE customer_login_tokens SET last_used_at = CURRENT_TIMESTAMP WHERE selector = ?')
+        ->execute([$matches[1]]);
+    set_customer_remember_cookie($cookie, time() + (10 * 365 * 24 * 60 * 60));
+}
+
+restore_customer_login();
+
 // Fetches the logged-in customer's row (name, email, phone, etc), or null
 // if nobody's logged in. Cached per-request so it only hits the DB once.
 function current_customer() {

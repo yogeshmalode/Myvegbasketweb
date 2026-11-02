@@ -21,8 +21,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $error = 'Too many failed attempts. Try again in ' . ceil($lockSeconds / 60) . ' minute(s).';
     } elseif ($customer && $customer['password'] && password_verify($password, $customer['password'])) {
         reset_failed_login($pdo, 'customers', $customer['id']);
-        $_SESSION['customer_id']   = $customer['id'];
-        $_SESSION['customer_name'] = $customer['name'];
+        login_customer($customer['id'], $customer['name']);
         redirect(BASE_URL . '/' . ltrim($redirectTo, '/'));
     } elseif ($customer && !$customer['password']) {
         $error = 'This account uses mobile OTP login, not a password. Use "Login with OTP" below.';

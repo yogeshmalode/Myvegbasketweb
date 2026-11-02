@@ -93,6 +93,8 @@ vegbasket/
 ### Existing database installation
 If your existing database is already in use, import `migration_management_system.sql` once before using the new management pages. For a fresh installation, `database.sql` already contains the new tables/columns.
 
+For persistent customer login across browser restarts, import `migration_customer_remember_login.sql` once on each application database after the `customers` table exists. Remembered customer sessions remain active until that browser logs out; the remember token is stored hashed in the database and revoked on logout.
+
 ## Product photographs
 
 The storefront product cards now use real photographs from Wikimedia Commons instead of the original SVG illustrations. The selected files are mapped in `config.php`, loaded from their Commons file URLs, and fall back to an emoji if a remote photograph is temporarily unavailable. `photo_credits.php` lists the source file, creator and stated licence for each product photograph.

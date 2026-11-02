@@ -27,15 +27,13 @@ $stmt->execute([$phone]);
 $customer = $stmt->fetch();
 
 if ($customer) {
-    $_SESSION['customer_id']   = $customer['id'];
-    $_SESSION['customer_name'] = $customer['name'];
+    login_customer($customer['id'], $customer['name']);
 } else {
     // First time this phone has logged in — create the account. Name is
     // collected in the same step on the front-end for new numbers.
     $insert = $pdo->prepare("INSERT INTO customers (name, phone) VALUES (?, ?)");
     $insert->execute([$name !== '' ? $name : 'Customer', $phone]);
-    $_SESSION['customer_id']   = $pdo->lastInsertId();
-    $_SESSION['customer_name'] = $name !== '' ? $name : 'Customer';
+    login_customer($pdo->lastInsertId(), $name !== '' ? $name : 'Customer');
 }
 
 // Clean up the OTP session markers now that login is complete.

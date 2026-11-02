@@ -29,8 +29,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $error = 'No Hotel/Shop account found with this email. Use the regular <a href="' . h(BASE_URL) . '/login.php">customer login</a> instead, or contact us to set up a wholesale account.';
     } elseif ($customer['password'] && password_verify($password, $customer['password'])) {
         reset_failed_login($pdo, 'customers', $customer['id']);
-        $_SESSION['customer_id']   = $customer['id'];
-        $_SESSION['customer_name'] = $customer['name'];
+        login_customer($customer['id'], $customer['name']);
         redirect(BASE_URL . '/' . ltrim($redirectTo, '/'));
     } else {
         record_failed_login($pdo, 'customers', $customer['id']);

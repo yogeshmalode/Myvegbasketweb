@@ -41,8 +41,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 $insert = $pdo->prepare("INSERT INTO customers (name, email, phone, password) VALUES (?, ?, ?, ?)");
                 $insert->execute([$name, $email, $phone, password_hash($password, PASSWORD_DEFAULT)]);
 
-                $_SESSION['customer_id']   = $pdo->lastInsertId();
-                $_SESSION['customer_name'] = $name;
+                login_customer($pdo->lastInsertId(), $name);
                 redirect(BASE_URL . '/' . ltrim($redirectTo, '/'));
             }
         }

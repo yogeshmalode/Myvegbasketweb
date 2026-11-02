@@ -37,8 +37,7 @@ $stmt->execute([$email]);
 $customer = $stmt->fetch();
 
 if ($customer) {
-    $_SESSION['customer_id']   = $customer['id'];
-    $_SESSION['customer_name'] = $customer['name'];
+    login_customer($customer['id'], $customer['name']);
 } else {
     // First time this email has logged in — create the account. Phone is
     // still required (it's how deliveries get coordinated), collected in
@@ -57,8 +56,7 @@ if ($customer) {
 
     $insert = $pdo->prepare("INSERT INTO customers (name, email, phone) VALUES (?, ?, ?)");
     $insert->execute([$name !== '' ? $name : 'Customer', $email, $phone]);
-    $_SESSION['customer_id']   = $pdo->lastInsertId();
-    $_SESSION['customer_name'] = $name !== '' ? $name : 'Customer';
+    login_customer($pdo->lastInsertId(), $name !== '' ? $name : 'Customer');
 }
 
 unset($_SESSION['email_otp_code'], $_SESSION['email_otp_email'], $_SESSION['email_otp_expires'], $_SESSION['email_otp_last_sent'], $_SESSION['email_otp_attempts']);

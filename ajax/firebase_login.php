@@ -34,8 +34,7 @@ $stmt->execute([$phone]);
 $customer = $stmt->fetch();
 
 if ($customer) {
-    $_SESSION['customer_id']   = $customer['id'];
-    $_SESSION['customer_name'] = $customer['name'];
+    login_customer($customer['id'], $customer['name']);
     echo json_encode(['success' => true]);
     exit;
 }
@@ -49,7 +48,6 @@ if ($name === '') {
 
 $insert = $pdo->prepare("INSERT INTO customers (name, phone) VALUES (?, ?)");
 $insert->execute([$name, $phone]);
-$_SESSION['customer_id']   = $pdo->lastInsertId();
-$_SESSION['customer_name'] = $name;
+login_customer($pdo->lastInsertId(), $name);
 
 echo json_encode(['success' => true]);
