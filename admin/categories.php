@@ -89,7 +89,7 @@ include __DIR__ . '/includes/admin_header.php';
 ?>
 <div class="section-head" style="text-align:left; margin-top:0;">
   <h2 style="display:block;">Categories</h2>
-  <p style="color:#5B6656; max-width:720px;">Manage the category list used on the Add/Edit Vegetable form and the storefront's filter chips. Add a category here first, then it shows up as a dropdown option — no more re-typing (and no more near-duplicates like "Vegetable" vs "Vegetables").</p>
+  <p style="color:#5B6656; max-width:720px;">Activate a category to show it and its active products in the store. Deactivating a category hides all its products without changing their individual visibility or stock. Use the Vegetable Catalog to show or hide individual products.</p>
 </div>
 
 <?php if (!empty($_SESSION['flash'])): ?>
@@ -102,7 +102,7 @@ include __DIR__ . '/includes/admin_header.php';
     <div class="table-wrap">
       <table>
         <thead>
-          <tr><th>#</th><th>Name</th><th>Products</th><th>Active</th><th>Actions</th></tr>
+          <tr><th>#</th><th>Name</th><th>Products</th><th>Store visibility</th><th>Actions</th></tr>
         </thead>
         <tbody>
           <?php foreach ($categories as $c): ?>
@@ -118,13 +118,13 @@ include __DIR__ . '/includes/admin_header.php';
                 </form>
               </td>
               <td><?= (int)$c['product_count'] ?></td>
-              <td><?= $c['is_active'] ? 'Yes' : 'No' ?></td>
+              <td><?= $c['is_active'] ? 'Visible' : 'Hidden' ?></td>
               <td style="white-space:nowrap;">
                 <form method="post" style="display:inline;">
                   <input type="hidden" name="csrf_token" value="<?= h(csrf_token()) ?>">
                   <input type="hidden" name="toggle_category" value="1">
                   <input type="hidden" name="category_id" value="<?= $c['id'] ?>">
-                  <button class="btn" style="padding:6px 10px; font-size:0.78rem;"><?= $c['is_active'] ? 'Deactivate' : 'Activate' ?></button>
+                  <button class="btn" style="padding:6px 10px; font-size:0.78rem;"><?= $c['is_active'] ? 'Hide category' : 'Show category' ?></button>
                 </form>
                 <form method="post" style="display:inline;" onsubmit="return confirm('Delete category \'<?= h($c['name']) ?>\'? Only possible if no products use it.');">
                   <input type="hidden" name="csrf_token" value="<?= h(csrf_token()) ?>">

@@ -5,27 +5,22 @@ $page_title = 'Fresh Vegetables Online';
 $search_q = trim($_GET['q'] ?? '');
 $category = trim($_GET['category'] ?? '');
 
-$sql = "SELECT * FROM vegetables WHERE is_active = 1";
+$sql = "SELECT v.* FROM vegetables v WHERE v.is_active = 1
+    AND EXISTS (
+        SELECT 1 FROM categories c
+        WHERE LOWER(TRIM(c.name)) = LOWER(TRIM(v.category))
+          AND c.is_active = 1
+    )";
 $params = [];
 if ($search_q !== '') {
-    $sql .= " AND name LIKE :q";
+    $sql .= " AND v.name LIKE :q";
     $params[':q'] = "%$search_q%";
 }
 if ($category !== '' && $category !== 'All') {
-    $categoryVariants = [$category];
-    $categoryVariants[] = preg_match('/s$/i', $category)
-        ? substr($category, 0, -1)
-        : $category . 's';
-    $categoryVariants = array_values(array_unique(array_map('strtolower', array_map('trim', $categoryVariants))));
-    $categoryPlaceholders = [];
-    foreach ($categoryVariants as $index => $categoryVariant) {
-        $placeholder = ':category' . $index;
-        $categoryPlaceholders[] = $placeholder;
-        $params[$placeholder] = $categoryVariant;
-    }
-    $sql .= ' AND LOWER(TRIM(category)) IN (' . implode(', ', $categoryPlaceholders) . ')';
+    $sql .= " AND LOWER(TRIM(v.category)) = LOWER(TRIM(:cat))";
+    $params[':cat'] = $category;
 }
-$sql .= " ORDER BY name ASC";
+$sql .= " ORDER BY v.name ASC";
 $stmt = $pdo->prepare($sql);
 $stmt->execute($params);
 $vegetables = $stmt->fetchAll();
@@ -41,13 +36,6 @@ foreach ($vegetables as &$vegRow) {
 unset($vegRow);
 
 $aisleNames = $pdo->query("SELECT name FROM categories WHERE is_active = 1 ORDER BY sort_order ASC, name ASC")->fetchAll(PDO::FETCH_COLUMN);
-$productCategoryNames = $pdo->query("
-    SELECT DISTINCT TRIM(category)
-    FROM vegetables
-    WHERE is_active = 1 AND category IS NOT NULL AND TRIM(category) <> ''
-    ORDER BY TRIM(category) ASC
-")->fetchAll(PDO::FETCH_COLUMN);
-$aisleNames = array_values(array_unique(array_merge($aisleNames, $productCategoryNames), SORT_STRING));
 $aisleIcons = [
     'dairy' => '🥛',
     'exotic vegetable' => '🧺',
@@ -70,7 +58,6 @@ foreach ($aisleNames as $aisleName) {
         continue;
     }
     $aisleKey = strtolower($aisleName);
-    $aisleKey = preg_replace('/s$/', '', $aisleKey);
     if (isset($seenAisles[$aisleKey])) {
         continue;
     }

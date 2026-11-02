@@ -1391,22 +1391,18 @@ function ensure_management_schema($pdo) {
             KEY idx_back_in_stock_pending (notified_at, vegetable_id)
         ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci");
         if ($hasTable('vegetables')) {
-            // First-run seed: pull in whatever categories already exist on
-            // products so nothing disappears from the storefront filters.
             $catCount = (int)$pdo->query("SELECT COUNT(*) FROM categories")->fetchColumn();
-            if ($catCount === 0) {
-                $existingCats = $pdo->query("SELECT DISTINCT category FROM vegetables WHERE category IS NOT NULL AND category <> '' ORDER BY category")->fetchAll(PDO::FETCH_COLUMN);
-                $insCat = $pdo->prepare("INSERT IGNORE INTO categories (name, sort_order) VALUES (?, ?)");
-                $order = 0;
-                foreach ($existingCats as $catName) {
-                    $insCat->execute([$catName, $order++]);
-                }
-                if (empty($existingCats)) {
-                    // Brand-new install with no products yet — give it a
-                    // sensible starting point instead of an empty dropdown.
-                    foreach (['Vegetable', 'Fruit', 'Leafy Greens', 'Flower'] as $i => $catName) {
-                        $insCat->execute([$catName, $i]);
-                    }
+            $existingCats = $pdo->query("SELECT DISTINCT TRIM(category) FROM vegetables WHERE category IS NOT NULL AND TRIM(category) <> '' ORDER BY TRIM(category)")->fetchAll(PDO::FETCH_COLUMN);
+            $insCat = $pdo->prepare("INSERT IGNORE INTO categories (name, sort_order) VALUES (?, ?)");
+            $order = (int)$pdo->query("SELECT COALESCE(MAX(sort_order), -1) + 1 FROM categories")->fetchColumn();
+            foreach ($existingCats as $catName) {
+                $insCat->execute([$catName, $order++]);
+            }
+            if ($catCount === 0 && empty($existingCats)) {
+                // Brand-new install with no products yet — give it a
+                // sensible starting point instead of an empty dropdown.
+                foreach (['Vegetable', 'Fruit', 'Leafy Greens', 'Flower'] as $i => $catName) {
+                    $insCat->execute([$catName, $i]);
                 }
             }
         }
