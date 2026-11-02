@@ -11,6 +11,9 @@ Options All -Indexes
 	Options +FollowSymlinks
 	RewriteEngine On
 
+	# Product uploads are only served through product_image.php.
+	RewriteRule ^uploads/vegetables(?:/|$) - [F,NC,L]
+
 	# If you installed CodeIgniter in a subfolder, you will need to
 	# change the following line to match the subfolder you need.
 	# http://httpd.apache.org/docs/current/mod/mod_rewrite.html#rewritebase

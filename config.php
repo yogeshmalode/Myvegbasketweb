@@ -2828,7 +2828,8 @@ function handle_vegetable_image_upload($fileField) {
     }
     $uploadDir = vegetable_image_storage_dir();
 
-    $convertToWebp = in_array($mime, ['image/jpeg', 'image/png'], true);
+    $convertToWebp = in_array($mime, ['image/jpeg', 'image/png'], true)
+        || ($mime === 'image/webp' && function_exists('imagecreatefromwebp') && function_exists('imagewebp'));
     $ext = $convertToWebp ? 'webp' : $allowedMimes[$mime];
     $filename = bin2hex(random_bytes(8)) . '.' . $ext;
     $destination = $uploadDir . '/' . $filename;

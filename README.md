@@ -95,6 +95,9 @@ If your existing database is already in use, import `migration_management_system
 
 For persistent customer login across browser restarts, import `migration_customer_remember_login.sql` once on each application database after the `customers` table exists. Remembered customer sessions remain active until that browser logs out; the remember token is stored hashed in the database and revoked on logout.
 
+### Product image protection
+Newly uploaded JPG/PNG photos are decoded and re-encoded as WebP derivatives (maximum 1000 pixels on the longest edge), which removes embedded EXIF metadata; source originals are not retained. WebP uploads are re-encoded when the server supports it. Images are served through `product_image.php` with a cached, bottom-right `MyVegBasket` watermark, including existing uploaded photos on first request. Watermark generation requires PHP GD WebP support; if unavailable, images remain visible without the watermark, and JPG/PNG uploads continue to report the existing conversion error. The endpoint is marked against search indexing, kept out of shared caches, and the legacy public upload directory is denied direct access. `robots.txt` also asks compliant crawlers not to fetch product image URLs. These measures reduce metadata exposure and discourage compliant indexing, but cannot prevent copying by a visitor or a scraper that ignores crawler rules. For stronger bot controls, configure Cloudflare Bot Fight Mode and rate limiting on `/product_image.php` and `/assets/images/*`.
+
 ## Product photographs
 
 The storefront product cards now use real photographs from Wikimedia Commons instead of the original SVG illustrations. The selected files are mapped in `config.php`, loaded from their Commons file URLs, and fall back to an emoji if a remote photograph is temporarily unavailable. `photo_credits.php` lists the source file, creator and stated licence for each product photograph.

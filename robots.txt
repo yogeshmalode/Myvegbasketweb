@@ -7,5 +7,7 @@ Disallow: /checkout.php
 Disallow: /my_account.php
 Disallow: /reorder.php
 Disallow: /track_order.php
+Disallow: /product_image.php
+Disallow: /uploads/vegetables/
 
 Sitemap: https://myvegbasket.com/sitemap.php
