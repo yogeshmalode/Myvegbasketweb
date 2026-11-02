@@ -7,9 +7,7 @@ unset($_SESSION['flash']);
 
 $allStores = $pdo->query("SELECT id, name FROM dark_stores WHERE is_active = 1 AND procurement_mode = 'centralized' ORDER BY name")->fetchAll();
 
-// Only per_store products ever need a transfer — shared products are already
-// visible to every store from the same central number, nothing to move.
-$perStoreProducts = $pdo->query("SELECT id, name, unit, stock FROM vegetables WHERE is_active = 1 AND stock_mode = 'per_store' ORDER BY name")->fetchAll();
+$products = $pdo->query("SELECT id, name, unit, stock, stock_mode FROM vegetables WHERE is_active = 1 ORDER BY name")->fetchAll();
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     require_csrf();
@@ -31,10 +29,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             if (!$product || !(int)$product['is_active']) {
                 throw new Exception('This product is no longer active. Refresh the page and choose another product.');
             }
-            if ($product['stock_mode'] !== 'per_store') {
-                throw new Exception('This product is in Shared mode — all stores already use the same stock number, no transfer needed.');
-            }
-
             // Guard against a tampered form posting an independent store's
             // id directly — that store manages its own stock on Store
             // Procurement and should never receive a silent central push.
@@ -46,6 +40,15 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             }
             if ($storeMode !== 'centralized') {
                 throw new Exception('That store manages its own purchasing and cannot receive a central stock transfer.');
+            }
+
+            if ($product['stock_mode'] === 'shared') {
+                if (($_POST['confirm_stock_mode_change'] ?? '') !== '1') {
+                    throw new Exception('Confirm the Shared-to-Per-Store change before transferring this product.');
+                }
+                $pdo->prepare("UPDATE vegetables SET stock_mode = 'per_store' WHERE id = ?")->execute([$vegId]);
+            } elseif ($product['stock_mode'] !== 'per_store') {
+                throw new Exception('This product has an unsupported stock mode. Refresh the page and try again.');
             }
 
             // Pull out of the central pool first; this fails (returns false)
@@ -81,7 +84,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 // the breakdown table; independent stores are deliberately excluded.
 $breakdown = [];
 $storeStocks = [];
-foreach ($perStoreProducts as $p) {
+foreach ($products as $p) {
     $siSt = $pdo->prepare("SELECT ds.id AS store_id, ds.name AS store_name, COALESCE(si.stock, 0) AS stock
         FROM dark_stores ds
         LEFT JOIN store_inventory si ON si.dark_store_id = ds.id AND si.vegetable_id = ?
@@ -106,7 +109,7 @@ include __DIR__ . '/includes/admin_header.php';
 <div class="admin-page-heading">
   <div>
     <h1>Stock Transfer</h1>
-    <p>Move stock from your central pool to a centralized-procurement store. Shared products need no transfer.</p>
+    <p>Move stock from your central pool to a centralized-procurement store. A Shared product becomes Per-Store when you confirm its first transfer.</p>
   </div>
 </div>
 <?php if ($flash): ?><div class="admin-alert admin-alert-<?= h($flash['type']) ?>"><?= h($flash['message']) ?></div><?php endif; ?>
@@ -139,16 +142,18 @@ include __DIR__ . '/includes/admin_header.php';
 </style>
 
 <div class="transfer-flow" aria-label="Transfer steps">
-  <div class="transfer-flow-step"><span class="transfer-flow-number">1</span><div><strong>Choose a product</strong><span>Only Per-Store products can be moved.</span></div></div>
+  <div class="transfer-flow-step"><span class="transfer-flow-number">1</span><div><strong>Choose a product</strong><span>All active products are listed, including Shared products.</span></div></div>
   <div class="transfer-flow-step"><span class="transfer-flow-number">2</span><div><strong>Choose a destination</strong><span>Independent stores manage their own purchasing.</span></div></div>
-  <div class="transfer-flow-step"><span class="transfer-flow-number">3</span><div><strong>Confirm the quantity</strong><span>Central stock decreases as store stock increases.</span></div></div>
+  <div class="transfer-flow-step"><span class="transfer-flow-number">3</span><div><strong>Confirm the quantity</strong><span>Shared products require confirmation to switch to Per-Store stock.</span></div></div>
 </div>
 
-<?php if (!$perStoreProducts): ?>
-  <div class="admin-panel transfer-empty"><strong>No transferable products yet.</strong><br>Set a product to <em>Per-Store</em> stock mode on its Add/Edit Vegetable page. Shared products are available to all stores automatically and should not be transferred.</div>
-<?php elseif (!$allStores): ?>
+<?php if (!$allStores): ?>
   <div class="admin-panel transfer-empty"><strong>No eligible destination stores.</strong><br>Add or activate a store using centralized procurement in the Stores page before transferring stock.</div>
 <?php else: ?>
+
+<?php if (!$products): ?>
+  <div class="admin-panel transfer-empty"><strong>No active products found.</strong><br>Add or activate a product before creating a stock transfer.</div>
+<?php endif; ?>
 
 <section class="admin-panel transfer-panel">
   <div class="admin-panel-head"><h2>New stock transfer</h2><span style="font-size:12px;color:var(--admin-muted)">Central pool → store stock</span></div>
@@ -158,9 +163,9 @@ include __DIR__ . '/includes/admin_header.php';
       <div class="admin-field">
         <label for="transferProduct">1. Product</label>
         <select id="transferProduct" name="vegetable_id" required>
-          <option value="">Choose a Per-Store product</option>
-          <?php foreach ($perStoreProducts as $p): ?>
-            <option value="<?= (int)$p['id'] ?>" data-unit="<?= h($p['unit']) ?>" data-central="<?= h((string)$p['stock']) ?>"><?= h($p['name']) ?></option>
+          <option value="">Choose an active product</option>
+          <?php foreach ($products as $p): ?>
+            <option value="<?= (int)$p['id'] ?>" data-unit="<?= h($p['unit']) ?>" data-mode="<?= h($p['stock_mode']) ?>"><?= h($p['name']) ?><?= $p['stock_mode'] === 'shared' ? ' (Shared — converts on transfer)' : '' ?></option>
           <?php endforeach; ?>
         </select>
       </div>
@@ -182,6 +187,12 @@ include __DIR__ . '/includes/admin_header.php';
         <input type="text" id="transferNotes" name="notes" maxlength="255" placeholder="e.g. Morning delivery">
       </div>
     </div>
+    <div id="sharedModeConfirmation" class="transfer-confirm" style="display:none;">
+      <label style="display:flex;align-items:flex-start;gap:9px;margin:0;">
+        <input type="checkbox" id="confirmStockModeChange" name="confirm_stock_mode_change" value="1" style="margin-top:3px;">
+        <span>I understand this will change the product from Shared stock to Per-Store stock. The remaining central quantity will stay in the central pool; only transferred quantities will be assigned to stores.</span>
+      </label>
+    </div>
     <div class="transfer-source-summary">
       <div><strong>Available in central pool</strong><small id="transferProductUnit">Choose a product to view stock</small></div>
       <span class="transfer-stock-value" id="centralStockValue">—</span>
@@ -199,17 +210,18 @@ include __DIR__ . '/includes/admin_header.php';
 </section>
 
 <section class="admin-panel transfer-panel">
-  <div class="admin-panel-head"><h2>Stock by product and store</h2><span style="font-size:12px;color:var(--admin-muted)">Central stock is not allocated to any one store</span></div>
+  <div class="admin-panel-head"><h2>Stock by product and store</h2><span style="font-size:12px;color:var(--admin-muted)">Shared products have no separate store allocation</span></div>
   <div class="transfer-table-scroll">
   <table class="admin-table">
-    <thead><tr><th>Product</th><th>Central pool</th><?php foreach ($allStores as $store): ?><th><?= h($store['name']) ?></th><?php endforeach; ?></tr></thead>
+    <thead><tr><th>Product</th><th>Stock mode</th><th>Central pool</th><?php foreach ($allStores as $store): ?><th><?= h($store['name']) ?></th><?php endforeach; ?></tr></thead>
     <tbody>
-      <?php foreach ($perStoreProducts as $p): ?>
+      <?php foreach ($products as $p): ?>
         <tr>
           <td class="product-cell"><?= h($p['name']) ?></td>
+          <td><?= $p['stock_mode'] === 'shared' ? 'Shared' : 'Per-Store' ?></td>
           <td><?= number_format((float)$p['stock'], 3) ?> <?= h($p['unit']) ?></td>
           <?php foreach ($allStores as $store): ?>
-            <td><?= number_format($storeStocks[(int)$p['id']][(int)$store['id']] ?? 0, 3) ?> <?= h($p['unit']) ?></td>
+            <td><?= $p['stock_mode'] === 'shared' ? '—' : number_format($storeStocks[(int)$p['id']][(int)$store['id']] ?? 0, 3) . ' ' . h($p['unit']) ?></td>
           <?php endforeach; ?>
         </tr>
       <?php endforeach; ?>
@@ -252,10 +264,12 @@ include __DIR__ . '/includes/admin_header.php';
   const centralAfter = document.getElementById('centralAfterValue');
   const storeAfter = document.getElementById('storeAfterValue');
   const confirmation = document.getElementById('transferConfirmation');
+  const modeConfirmation = document.getElementById('sharedModeConfirmation');
+  const modeAcknowledgement = document.getElementById('confirmStockModeChange');
   const submit = document.getElementById('transferSubmit');
-  const centralStock = <?= json_encode(array_column($perStoreProducts, 'stock', 'id'), JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT) ?>;
-  const units = <?= json_encode(array_column($perStoreProducts, 'unit', 'id'), JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT) ?>;
-  const names = <?= json_encode(array_column($perStoreProducts, 'name', 'id'), JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT) ?>;
+  const centralStock = <?= json_encode(array_column($products, 'stock', 'id'), JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT) ?>;
+  const units = <?= json_encode(array_column($products, 'unit', 'id'), JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT) ?>;
+  const names = <?= json_encode(array_column($products, 'name', 'id'), JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT) ?>;
   const storeNames = <?= json_encode(array_column($allStores, 'name', 'id'), JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT) ?>;
   const destinationStock = <?= json_encode($storeStocks, JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT) ?>;
   const format = value => Number(value).toLocaleString(undefined, {minimumFractionDigits: 0, maximumFractionDigits: 3});
@@ -264,18 +278,21 @@ include __DIR__ . '/includes/admin_header.php';
     const productId = product.value;
     const storeId = store.value;
     const selectedProduct = product.options[product.selectedIndex];
+    const isShared = selectedProduct.dataset.mode === 'shared';
     const available = productId ? Number(centralStock[productId] || 0) : 0;
     const destination = productId && storeId ? Number(destinationStock[productId]?.[storeId] || 0) : 0;
     const amount = Number(quantity.value);
     const validAmount = Number.isFinite(amount) && amount > 0 && amount <= available && Math.round(amount * 1000) / 1000 === amount;
     const hasSelections = Boolean(productId && storeId);
 
+    modeConfirmation.style.display = isShared ? 'block' : 'none';
+    modeAcknowledgement.required = isShared;
     quantity.max = productId ? String(available) : '';
     unitLabel.textContent = productId ? 'Unit: ' + (units[productId] || selectedProduct.dataset.unit || '') : 'Choose a product to view stock';
     centralValue.textContent = productId ? format(available) + ' ' + units[productId] : '—';
     centralAfter.textContent = hasSelections && validAmount ? format(available - amount) + ' ' + units[productId] : '—';
     storeAfter.textContent = hasSelections && validAmount ? format(destination + amount) + ' ' + units[productId] : hasSelections ? format(destination) + ' ' + units[productId] : '—';
-    submit.disabled = !hasSelections || !validAmount;
+    submit.disabled = !hasSelections || !validAmount || (isShared && !modeAcknowledgement.checked);
 
     if (!productId || !storeId) {
       confirmation.textContent = 'Choose a product and destination to preview how this transfer changes both stock balances.';
@@ -290,12 +307,18 @@ include __DIR__ . '/includes/admin_header.php';
     } else {
       confirmation.textContent = 'Confirm: move ' + format(amount) + ' ' + units[productId] + ' of ' + names[productId] +
         ' to ' + storeNames[storeId] + '. Central stock will be ' + format(available - amount) +
-        ' ' + units[productId] + '; store stock will be ' + format(destination + amount) + ' ' + units[productId] + '.';
+        ' ' + units[productId] + '; store stock will be ' + format(destination + amount) + ' ' + units[productId] + '.' +
+        (isShared ? ' This also changes the product from Shared to Per-Store stock.' : '');
     }
   }
 
-  [product, store, quantity].forEach(field => field.addEventListener('input', updatePreview));
-  [product, store].forEach(field => field.addEventListener('change', updatePreview));
+  [store, quantity, modeAcknowledgement].forEach(field => field.addEventListener('input', updatePreview));
+  store.addEventListener('change', updatePreview);
+  product.addEventListener('change', () => {
+    modeAcknowledgement.checked = false;
+    updatePreview();
+  });
+  modeAcknowledgement.addEventListener('change', updatePreview);
   form.addEventListener('submit', event => {
     updatePreview();
     if (submit.disabled) {
