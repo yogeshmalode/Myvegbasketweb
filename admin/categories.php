@@ -316,7 +316,7 @@ include __DIR__ . '/includes/admin_header.php';
     if (!list || !orderForm || !status) return;
 
     let activeRow = null;
-    let pointerX = 0;
+    let activePointerId = null;
     let pointerY = 0;
     let autoScrollFrame = 0;
 
@@ -330,11 +330,18 @@ include __DIR__ . '/includes/admin_header.php';
 
     const moveActiveRow = function () {
       if (!activeRow) return;
-      const target = document.elementFromPoint(pointerX, pointerY);
-      const targetRow = target && target.closest('[data-category-row]');
-      if (!targetRow || targetRow === activeRow || targetRow.parentElement !== list) return;
-      const bounds = targetRow.getBoundingClientRect();
-      list.insertBefore(activeRow, pointerY < bounds.top + bounds.height / 2 ? targetRow : targetRow.nextSibling);
+      const otherRows = Array.from(list.querySelectorAll('[data-category-row]')).filter(function (row) {
+        return row !== activeRow;
+      });
+      const targetRow = otherRows.find(function (row) {
+        const bounds = row.getBoundingClientRect();
+        return pointerY < bounds.top + bounds.height / 2;
+      });
+      if (targetRow) {
+        if (activeRow.nextElementSibling !== targetRow) list.insertBefore(activeRow, targetRow);
+      } else if (activeRow !== list.lastElementChild) {
+        list.appendChild(activeRow);
+      }
     };
 
     const autoScroll = function () {
@@ -357,38 +364,36 @@ include __DIR__ . '/includes/admin_header.php';
       handle.addEventListener('pointerdown', function (event) {
         if (event.button !== undefined && event.button !== 0) return;
         activeRow = handle.closest('[data-category-row]');
-        pointerX = event.clientX;
+        activePointerId = event.pointerId;
         pointerY = event.clientY;
         activeRow.classList.add('category-row-dragging');
-        handle.setPointerCapture(event.pointerId);
         status.textContent = 'Move the category, then release to place it.';
         if (!autoScrollFrame) autoScrollFrame = window.requestAnimationFrame(autoScroll);
         event.preventDefault();
       });
-
-      handle.addEventListener('pointermove', function (event) {
-        if (!activeRow) return;
-        pointerX = event.clientX;
-        pointerY = event.clientY;
-        moveActiveRow();
-      });
-
-      const finishDrag = function () {
-        if (!activeRow) return;
-        activeRow.classList.remove('category-row-dragging');
-        activeRow = null;
-        if (autoScrollFrame) {
-          window.cancelAnimationFrame(autoScrollFrame);
-          autoScrollFrame = 0;
-        }
-        syncOrderInputs();
-        status.textContent = 'Order changed. Click Save category order to apply it to the store.';
-      };
-      handle.addEventListener('pointerup', finishDrag);
-      handle.addEventListener('pointercancel', finishDrag);
-      handle.addEventListener('lostpointercapture', finishDrag);
     });
 
+    const finishDrag = function (event) {
+      if (!activeRow || (event && event.pointerId !== activePointerId)) return;
+      activeRow.classList.remove('category-row-dragging');
+      activeRow = null;
+      activePointerId = null;
+      if (autoScrollFrame) {
+        window.cancelAnimationFrame(autoScrollFrame);
+        autoScrollFrame = 0;
+      }
+      syncOrderInputs();
+      status.textContent = 'Order changed. Click Save category order to apply it to the store.';
+    };
+
+    window.addEventListener('pointermove', function (event) {
+      if (!activeRow || event.pointerId !== activePointerId) return;
+      pointerY = event.clientY;
+      moveActiveRow();
+      event.preventDefault();
+    }, { passive: false });
+    window.addEventListener('pointerup', finishDrag);
+    window.addEventListener('pointercancel', finishDrag);
     orderForm.addEventListener('submit', syncOrderInputs);
   })();
 </script>
