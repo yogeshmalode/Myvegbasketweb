@@ -12,6 +12,7 @@ $historyBasedBasket = false;
 $restoreBasketAfterError = false;
 $restoreSelected = [];
 $restoreQuantities = [];
+$restoreVariants = [];
 
 $categoryStmt = $pdo->query(
     "SELECT DISTINCT v.category
@@ -55,6 +56,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     if ($error === '' && $action === 'add') {
         $selected = $_POST['selected'] ?? [];
         $quantities = $_POST['quantities'] ?? [];
+        $variantsInput = $_POST['variants'] ?? [];
         if (is_array($selected)) {
             foreach ($selected as $productId => $selectedValue) {
                 if (ctype_digit((string)$productId) && is_scalar($selectedValue) && (string)$selectedValue === '1') {
@@ -70,7 +72,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 }
             }
         }
-        if (!is_array($selected) || !is_array($quantities) || count($selected) < 1 || count($selected) > 50) {
+        if (is_array($variantsInput)) {
+            foreach ($variantsInput as $productId => $variantIdValue) {
+                if (ctype_digit((string)$productId) && is_scalar($variantIdValue) && ctype_digit((string)$variantIdValue)) {
+                    $restoreVariants[(int)$productId] = (int)$variantIdValue;
+                }
+            }
+        }
+        if (!is_array($selected) || !is_array($quantities) || !is_array($variantsInput) || count($selected) < 1 || count($selected) > 50) {
             $error = 'Select between 1 and 50 products for your basket.';
         } else {
             $basketItems = [];
@@ -101,15 +110,38 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     break;
                 }
 
+                $variantIdInput = $variantsInput[$productId] ?? '';
+                $variant = null;
+                if ($variantIdInput !== '' && $variantIdInput !== '0') {
+                    if (!is_string($variantIdInput) || !ctype_digit($variantIdInput)) {
+                        $error = 'Choose a valid pack size for ' . $product['name'] . '.';
+                        break;
+                    }
+                    try {
+                        $variantStmt = $pdo->prepare("SELECT * FROM vegetable_variants WHERE id = ? AND vegetable_id = ?");
+                        $variantStmt->execute([(int)$variantIdInput, (int)$product['id']]);
+                        $variant = $variantStmt->fetch();
+                    } catch (PDOException $exception) {
+                        $variant = null;
+                    }
+                    if (!$variant) {
+                        $error = 'That pack size is no longer available for ' . $product['name'] . '.';
+                        break;
+                    }
+                }
+
                 $stock = get_storefront_display_stock($pdo, $product['id'], $product['stock_mode'] ?? 'shared', $product['stock']);
-                $maxQuantity = get_cart_item_stock_limit($pdo, $product['id'], $stock, $product['unit']);
-                $existingQuantity = (int)($_SESSION['cart'][(string)$product['id']]['qty'] ?? 0);
+                $maxQuantity = get_cart_item_stock_limit($pdo, $product['id'], $stock, $product['unit'], $variant['id'] ?? null);
+                $cartKey = $variant ? $product['id'] . '-' . $variant['id'] : (string)$product['id'];
+                $existingQuantity = (int)($_SESSION['cart'][$cartKey]['qty'] ?? 0);
                 if ($quantity + $existingQuantity > $maxQuantity) {
                     $error = $product['name'] . ' does not have enough stock for that quantity.';
                     break;
                 }
 
-                $price = get_price_for_customer($pdo, $product, $customerType);
+                $price = $variant
+                    ? get_price_for_variant_for_customer($pdo, $product, $variant, $customerType)
+                    : get_price_for_customer($pdo, $product, $customerType);
                 if ($price <= 0) {
                     $error = $product['name'] . ' does not have a valid price right now.';
                     break;
@@ -120,6 +152,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     'quantity' => $quantity,
                     'price' => $price,
                     'stock' => $maxQuantity,
+                    'variant' => $variant,
                 ];
             }
 
@@ -130,17 +163,18 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             if ($error === '') {
                 foreach ($basketItems as $basketItem) {
                     $product = $basketItem['product'];
-                    $key = (string)$product['id'];
+                    $variant = $basketItem['variant'];
+                    $key = $variant ? $product['id'] . '-' . $variant['id'] : (string)$product['id'];
                     if (isset($_SESSION['cart'][$key])) {
                         $_SESSION['cart'][$key]['qty'] += $basketItem['quantity'];
                     } else {
                         $_SESSION['cart'][$key] = [
                             'key' => $key,
                             'id' => (int)$product['id'],
-                            'variant_id' => null,
-                            'name' => $product['name'],
+                            'variant_id' => $variant['id'] ?? null,
+                            'name' => $variant ? $product['name'] . ' (' . $variant['label'] . ')' : $product['name'],
                             'price' => $basketItem['price'],
-                            'unit' => $product['unit'],
+                            'unit' => $variant['label'] ?? $product['unit'],
                             'qty' => $basketItem['quantity'],
                         ];
                     }
@@ -162,15 +196,51 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
              WHERE v.is_active = 1
              ORDER BY v.category, v.name"
         );
+        $catalogProducts = $productsStmt->fetchAll();
+        $variantsByProduct = get_variants_by_vegetable($pdo, array_column($catalogProducts, 'id'));
         $uniqueProductsByName = [];
-        foreach ($productsStmt->fetchAll() as $product) {
+        foreach ($catalogProducts as $product) {
             if ($category !== 'all' && strcasecmp(trim($product['category']), $category) !== 0) {
                 continue;
             }
             $stock = get_storefront_display_stock($pdo, $product['id'], $product['stock_mode'] ?? 'shared', $product['stock']);
             $maxQuantity = get_cart_item_stock_limit($pdo, $product['id'], $stock, $product['unit']);
-            $price = get_price_for_customer($pdo, $product, current_customer_type());
-            if ($maxQuantity < 1 || $price <= 0 || $price > $budget) {
+            if ($maxQuantity < 1) {
+                continue;
+            }
+            $productVariants = [];
+            foreach ($variantsByProduct[(int)$product['id']] ?? [] as $variant) {
+                $variantPrice = get_price_for_variant_for_customer($pdo, $product, $variant, current_customer_type());
+                $variantStock = get_cart_item_stock_limit($pdo, $product['id'], $stock, $product['unit'], $variant['id']);
+                if ($variantPrice <= 0 || $variantStock < 1) {
+                    continue;
+                }
+                $productVariants[] = [
+                    'id' => (int)$variant['id'],
+                    'label' => $variant['label'],
+                    'price' => $variantPrice,
+                    'stock' => $variantStock,
+                ];
+            }
+            if ($productVariants) {
+                $defaultVariant = $productVariants[0];
+                foreach ($productVariants as $variantOption) {
+                    if ($variantOption['price'] < $defaultVariant['price']) {
+                        $defaultVariant = $variantOption;
+                    }
+                }
+                $price = $defaultVariant['price'];
+                $product['_builder_variant_id'] = $defaultVariant['id'];
+                $product['_builder_variant_label'] = $defaultVariant['label'];
+                $product['_builder_variants'] = $productVariants;
+                $maxQuantity = $defaultVariant['stock'];
+            } else {
+                $price = get_price_for_customer($pdo, $product, current_customer_type());
+                $product['_builder_variant_id'] = 0;
+                $product['_builder_variant_label'] = $product['unit'];
+                $product['_builder_variants'] = [];
+            }
+            if ($price <= 0 || $price > $budget) {
                 continue;
             }
             $product['_builder_price'] = $price;
@@ -324,9 +394,29 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
 $previewTotal = 0.0;
 foreach ($recommendations as $recommendation) {
-    if ($basketMode !== 'custom') {
-        $previewTotal += $recommendation['product']['_builder_price'] * $recommendation['quantity'];
+    $product = $recommendation['product'];
+    $productId = (int)$product['id'];
+    $selected = $restoreBasketAfterError
+        ? isset($restoreSelected[$productId])
+        : $basketMode !== 'custom';
+    if (!$selected) {
+        continue;
     }
+
+    $variantId = $restoreBasketAfterError && isset($restoreVariants[$productId])
+        ? $restoreVariants[$productId]
+        : (int)$product['_builder_variant_id'];
+    $selectedPrice = (float)$product['_builder_price'];
+    foreach ($product['_builder_variants'] as $variantOption) {
+        if ($variantOption['id'] === $variantId) {
+            $selectedPrice = (float)$variantOption['price'];
+            break;
+        }
+    }
+    $quantity = $restoreBasketAfterError && isset($restoreQuantities[$productId])
+        ? $restoreQuantities[$productId]
+        : (int)$recommendation['quantity'];
+    $previewTotal += $selectedPrice * $quantity;
 }
 
 include __DIR__ . '/includes/header.php';
@@ -350,8 +440,9 @@ include __DIR__ . '/includes/header.php';
   .budget-panel-heading h2{margin:0 0 3px;font-size:1.15rem;color:#1F4D36}
   .budget-panel-heading p{margin:0;color:#697466;font-size:.87rem}
   .budget-controls{display:grid;grid-template-columns:minmax(180px,.8fr) minmax(210px,1fr);gap:14px;align-items:end}
-  .budget-controls .form-group{margin:0}
-  .budget-controls input,.budget-controls select{min-height:48px}
+  .budget-controls .form-group{min-width:0;margin:0}
+  .budget-controls input,.budget-controls select{box-sizing:border-box;width:100%;min-width:0;min-height:50px}
+  .budget-controls select{padding-right:38px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
   .budget-scale{margin-top:16px;padding:14px 15px;border:1px solid #E5ECE1;border-radius:13px;background:#F9FCF7}
   .budget-scale-heading{display:flex;justify-content:space-between;align-items:center;gap:12px;color:#425846;font-size:.84rem;font-weight:750}
   .budget-scale-value{color:#1F4D36;font-size:1.05rem;font-weight:850;font-variant-numeric:tabular-nums}
@@ -363,8 +454,9 @@ include __DIR__ . '/includes/header.php';
   .budget-preset:hover{background:#EAF3E6;border-color:#76A96D}
   .budget-preset.is-active,.budget-preset[aria-pressed="true"],.budget-preset.is-active:hover{background:#276943;border-color:#276943;color:#fff;box-shadow:0 3px 9px rgba(39,105,67,.2)}
   .budget-preset:hover{transform:translateY(-1px)}
-  .budget-build-actions{display:grid;grid-template-columns:1fr 1fr;gap:10px;grid-column:1/-1}
-  .budget-build-button,.budget-custom-button{min-height:48px;white-space:nowrap}
+  .budget-build-actions{display:grid;grid-template-columns:1fr 1fr;gap:12px;grid-column:1/-1;margin-top:8px}
+  .budget-build-button,.budget-custom-button{display:flex;align-items:center;justify-content:center;min-height:62px;padding:14px 20px;white-space:normal;text-align:center;font-size:1rem;font-weight:800}
+  .budget-build-button{box-shadow:0 8px 18px rgba(187,56,46,.2)}
   .budget-custom-button{border:1px solid #DCE8D5;background:#fff;color:#245A39;font-weight:750}
   .budget-custom-button:hover{background:#F1F7EE;border-color:#AFCDA5}
   .budget-how{display:flex;align-items:center;gap:8px;margin:15px 0 0;color:#64705F;font-size:.82rem}
@@ -394,6 +486,9 @@ include __DIR__ . '/includes/header.php';
   .budget-product-copy{grid-column:3;grid-row:1;min-width:0}
   .budget-product-name{display:block;color:#273528;font-size:.96rem;font-weight:750}
   .budget-product-meta{display:block;margin-top:4px;color:#697466;font-size:.8rem}
+  .budget-variant-label{display:block;grid-column:1/-1;margin-top:2px;color:#526455;font-size:.75rem;font-weight:700}
+  .budget-variant-select{box-sizing:border-box;width:100%;min-height:41px;margin-top:5px;padding:7px 32px 7px 10px;border:1px solid #D9E4D5;border-radius:10px;background-color:#fff;color:#26382b;font:inherit;font-size:.82rem;cursor:pointer}
+  .budget-variant-select:focus,.budget-product-search:focus,.budget-scale input:focus{outline:3px solid rgba(51,131,75,.22);outline-offset:1px}
   .budget-product-line-total{display:block;margin-top:5px;color:#285F3D;font-size:.81rem;font-weight:800}
   .budget-qty-wrap{grid-column:2/4;display:flex;align-items:center;justify-self:start;gap:5px;padding:4px;border:1px solid #E0E7DA;border-radius:11px;background:#fff}
   .budget-qty-adjust{display:grid;place-items:center;width:30px;height:30px;border:0;border-radius:8px;background:#F1F6ED;color:#285F3D;font-size:1rem;font-weight:800;cursor:pointer}
@@ -414,7 +509,7 @@ include __DIR__ . '/includes/header.php';
   @keyframes budgetReveal{from{opacity:0;transform:translateY(12px)}to{opacity:1;transform:translateY(0)}}
   @keyframes budgetNudge{25%{transform:translateX(-4px)}75%{transform:translateX(4px)}}
   @media(max-width:800px){.budget-workspace{grid-template-columns:1fr}.budget-summary{position:sticky;top:auto;bottom:8px;z-index:4;padding:14px;background:rgba(255,255,255,.97);backdrop-filter:blur(10px)}.budget-summary-line{grid-template-columns:1fr auto;align-items:center}.budget-summary-actions{grid-template-columns:1fr auto}.budget-add-button{min-width:180px}}
-  @media(max-width:520px){.budget-builder{padding-top:18px;padding-bottom:38px}.budget-hero{border-radius:18px;margin-bottom:14px}.budget-hero:after{right:-2%;bottom:-16px}.budget-controls{grid-template-columns:1fr}.budget-build-actions{grid-template-columns:1fr}.budget-product-list{grid-template-columns:1fr 1fr;gap:8px}.budget-product{grid-template-columns:18px 42px minmax(0,1fr);gap:8px;padding:9px}.budget-product-image{width:42px;height:42px}.budget-product-name{font-size:.85rem}.budget-product-meta{font-size:.72rem}.budget-qty-wrap{grid-column:1/-1;justify-self:stretch;justify-content:space-between}.budget-summary{bottom:5px;padding:11px}.budget-summary-total{font-size:1.04rem}.budget-summary-meta{font-size:.72rem}.budget-summary-actions{grid-template-columns:1fr}.budget-add-button{width:100%;min-width:0;padding:10px 12px;font-size:.85rem}}
+  @media(max-width:520px){.budget-builder{padding-top:18px;padding-bottom:38px}.budget-hero{border-radius:18px;margin-bottom:14px}.budget-hero:after{right:-2%;bottom:-16px}.budget-controls{grid-template-columns:1fr}.budget-build-actions{grid-template-columns:1fr}.budget-build-button,.budget-custom-button{min-height:56px}.budget-product-list{grid-template-columns:1fr 1fr;gap:8px}.budget-product{grid-template-columns:18px 42px minmax(0,1fr);gap:8px;padding:9px}.budget-product-image{width:42px;height:42px}.budget-product-name{font-size:.85rem}.budget-product-meta{font-size:.72rem}.budget-variant-select{min-height:39px;padding-left:7px;font-size:.76rem}.budget-qty-wrap{grid-column:1/-1;justify-self:stretch;justify-content:space-between}.budget-summary{bottom:5px;padding:11px}.budget-summary-total{font-size:1.04rem}.budget-summary-meta{font-size:.72rem}.budget-summary-actions{grid-template-columns:1fr}.budget-add-button{width:100%;min-width:0;padding:10px 12px;font-size:.85rem}}
   @media(prefers-reduced-motion:reduce){.budget-results{animation:none}.budget-product,.budget-preset,.budget-progress-fill{transition:none}.budget-error{animation:none}}
 </style>
 
@@ -465,13 +560,14 @@ include __DIR__ . '/includes/header.php';
           </div>
         </div>
         <div class="form-group" style="margin:0;">
-          <label for="category">What would you like?</label>
-          <select id="category" name="category">
-            <option value="all" <?= $category === 'all' ? 'selected' : '' ?>>A little of everything</option>
+          <label for="category">Choose a product category</label>
+          <select id="category" name="category" aria-describedby="categoryHelp">
+            <option value="all" <?= $category === 'all' ? 'selected' : '' ?>>All categories — a mixed basket</option>
             <?php foreach ($budgetCategories as $budgetCategory): ?>
               <option value="<?= h($budgetCategory) ?>" <?= $category === $budgetCategory ? 'selected' : '' ?>><?= h($budgetCategory) ?></option>
             <?php endforeach; ?>
           </select>
+          <p id="categoryHelp" class="budget-scale-help">Choose one category or keep all categories for more variety.</p>
         </div>
       </div>
       <div class="budget-build-actions">
@@ -516,10 +612,26 @@ include __DIR__ . '/includes/header.php';
             <?php foreach ($recommendations as $recommendation):
               $product = $recommendation['product'];
               $id = (int)$product['id'];
-              $price = (float)$product['_builder_price'];
               $quantity = (int)$recommendation['quantity'];
+              $variantOptions = $product['_builder_variants'];
+              $selectedVariantId = $restoreBasketAfterError && isset($restoreVariants[$id])
+                ? $restoreVariants[$id]
+                : (int)$product['_builder_variant_id'];
+              $selectedVariant = null;
+              foreach ($variantOptions as $variantOption) {
+                if ($variantOption['id'] === $selectedVariantId) {
+                  $selectedVariant = $variantOption;
+                  break;
+                }
+              }
+              if ($variantOptions && !$selectedVariant) {
+                $selectedVariant = $variantOptions[0];
+                $selectedVariantId = $selectedVariant['id'];
+              }
+              $price = $selectedVariant ? $selectedVariant['price'] : (float)$product['_builder_price'];
+              $maxQuantity = $selectedVariant ? $selectedVariant['stock'] : (int)$product['_builder_stock'];
               if ($restoreBasketAfterError && isset($restoreQuantities[$id])) {
-                $quantity = min($restoreQuantities[$id], min(100, (int)$product['_builder_stock']));
+                $quantity = min($restoreQuantities[$id], min(100, $maxQuantity));
               }
               $isSelected = $restoreBasketAfterError
                 ? isset($restoreSelected[$id])
@@ -531,12 +643,27 @@ include __DIR__ . '/includes/header.php';
                 <span class="budget-product-image"><?= $image ?></span>
                 <label class="budget-product-copy" for="budget-product-<?= $id ?>">
                   <strong class="budget-product-name"><?= h($product['name']) ?></strong>
-                  <small class="budget-product-meta"><?= h($product['category']) ?> · <?= SITE_CURRENCY ?><?= number_format($price, 2) ?> / <?= h($product['unit']) ?></small>
+                  <small class="budget-product-meta"><?= h($product['category']) ?></small>
                   <small class="budget-product-line-total"><?= SITE_CURRENCY ?><span class="budget-line-amount"><?= number_format($price * $quantity, 2) ?></span></small>
+                </label>
+                <label class="budget-variant-label" for="budget-variant-<?= $id ?>">Pack size
+                  <select class="budget-variant-select" id="budget-variant-<?= $id ?>" name="variants[<?= $id ?>]" data-product-id="<?= $id ?>">
+                    <?php if ($variantOptions): ?>
+                      <?php foreach ($variantOptions as $variantOption): ?>
+                        <option value="<?= (int)$variantOption['id'] ?>" data-price="<?= h(number_format($variantOption['price'], 2, '.', '')) ?>" data-stock="<?= (int)$variantOption['stock'] ?>" <?= (int)$variantOption['id'] === $selectedVariantId ? 'selected' : '' ?>>
+                          <?= h($variantOption['label']) ?> · <?= SITE_CURRENCY ?><?= number_format($variantOption['price'], 2) ?>
+                        </option>
+                      <?php endforeach; ?>
+                    <?php else: ?>
+                      <option value="0" data-price="<?= h(number_format($price, 2, '.', '')) ?>" data-stock="<?= (int)$maxQuantity ?>" selected>
+                        <?= h($product['unit']) ?> · <?= SITE_CURRENCY ?><?= number_format($price, 2) ?>
+                      </option>
+                    <?php endif; ?>
+                  </select>
                 </label>
                 <span class="budget-qty-wrap" aria-label="Quantity controls for <?= h($product['name']) ?>">
                   <button type="button" class="budget-qty-adjust" data-qty-step="-1" aria-label="Decrease <?= h($product['name']) ?> quantity">−</button>
-                  <input class="budget-qty" type="number" name="quantities[<?= $id ?>]" min="1" max="<?= min(100, (int)$product['_builder_stock']) ?>" value="<?= $quantity ?>" aria-label="Quantity of <?= h($product['name']) ?>" <?= $isSelected ? '' : 'disabled' ?>>
+                  <input class="budget-qty" type="number" name="quantities[<?= $id ?>]" min="1" max="<?= min(100, $maxQuantity) ?>" value="<?= $quantity ?>" aria-label="Quantity of <?= h($product['name']) ?>" <?= $isSelected ? '' : 'disabled' ?>>
                   <button type="button" class="budget-qty-adjust" data-qty-step="1" aria-label="Increase <?= h($product['name']) ?> quantity" <?= $isSelected ? '' : 'disabled' ?>>+</button>
                 </span>
               </article>
@@ -581,7 +708,7 @@ function syncBudgetPresetSelection() {
   const selectedBudget = Number(budgetInput.value);
   if (Number.isFinite(selectedBudget)) {
     budgetScale.value = String(Math.max(Number(budgetScale.min), Math.min(Number(budgetScale.max), selectedBudget)));
-    budgetScaleValue.value = '<?= h(SITE_CURRENCY) ?>' + new Intl.NumberFormat('en-IN', {maximumFractionDigits: 0}).format(selectedBudget);
+    budgetScaleValue.value = <?= json_encode(SITE_CURRENCY) ?> + new Intl.NumberFormat('en-IN', {maximumFractionDigits: 0}).format(selectedBudget);
     budgetScaleValue.textContent = budgetScaleValue.value;
   }
   budgetPresets.forEach(function (preset) {
@@ -698,6 +825,19 @@ if (budgetForm) {
         this.checked = false;
         if (limitMessage) limitMessage.hidden = false;
       }
+    });
+  });
+
+  budgetForm.querySelectorAll('.budget-variant-select').forEach(function (select) {
+    select.addEventListener('change', function () {
+      const productId = this.dataset.productId;
+      const option = this.selectedOptions[0];
+      const quantity = budgetForm.querySelector('.budget-qty[name="quantities[' + productId + ']"]');
+      const price = budgetForm.querySelector('.budget-item-price[data-product-id="' + productId + '"]');
+      price.value = option.dataset.price;
+      quantity.max = option.dataset.stock;
+      quantity.value = Math.min(Number(quantity.value) || 1, Number(quantity.max));
+      updateBudgetPreview();
     });
   });
 
