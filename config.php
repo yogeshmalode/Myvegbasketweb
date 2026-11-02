@@ -1376,11 +1376,15 @@ function ensure_management_schema($pdo) {
         $pdo->exec("CREATE TABLE IF NOT EXISTS categories (
             id INT AUTO_INCREMENT PRIMARY KEY,
             name VARCHAR(100) NOT NULL,
+            image_path VARCHAR(255) DEFAULT NULL,
             sort_order INT NOT NULL DEFAULT 0,
             is_active TINYINT(1) NOT NULL DEFAULT 1,
             created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
             UNIQUE KEY uniq_category_name (name)
         ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci");
+        if (!$hasColumn('categories', 'image_path')) {
+            $pdo->exec("ALTER TABLE categories ADD COLUMN image_path VARCHAR(255) DEFAULT NULL AFTER name");
+        }
         $pdo->exec("CREATE TABLE IF NOT EXISTS back_in_stock_notifications (
             id INT AUTO_INCREMENT PRIMARY KEY,
             vegetable_id INT NOT NULL,

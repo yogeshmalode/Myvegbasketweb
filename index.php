@@ -35,7 +35,7 @@ foreach ($vegetables as &$vegRow) {
 }
 unset($vegRow);
 
-$aisleNames = $pdo->query("SELECT name FROM categories WHERE is_active = 1 ORDER BY sort_order ASC, name ASC")->fetchAll(PDO::FETCH_COLUMN);
+$aisleRows = $pdo->query("SELECT name, image_path FROM categories WHERE is_active = 1 ORDER BY sort_order ASC, name ASC")->fetchAll();
 $aisleIcons = [
     'dairy' => '🥛',
     'exotic vegetable' => '🧺',
@@ -52,8 +52,8 @@ $aisleIcons = [
 ];
 $aisleCategories = [];
 $seenAisles = [];
-foreach ($aisleNames as $aisleName) {
-    $aisleName = trim((string)$aisleName);
+foreach ($aisleRows as $aisleRow) {
+    $aisleName = trim((string)$aisleRow['name']);
     if ($aisleName === '') {
         continue;
     }
@@ -65,6 +65,7 @@ foreach ($aisleNames as $aisleName) {
     $aisleCategories[] = [
         'name' => $aisleName,
         'icon' => $aisleIcons[$aisleKey] ?? '🧺',
+        'image_url' => !empty($aisleRow['image_path']) ? vegetable_image_url($aisleRow['image_path']) : '',
     ];
 }
 
@@ -340,7 +341,7 @@ $showStorefrontPromotions = $category === '' || $category === 'All';
               class="catalog-category-item<?= $isAisleActive ? ' is-active' : '' ?>"
               href="<?= BASE_URL ?>/index.php?category=<?= urlencode($aisle['name']) ?><?= $search_q !== '' ? '&q=' . urlencode($search_q) : '' ?>"
               <?= $isAisleActive ? 'aria-current="page"' : '' ?>>
-              <span class="catalog-category-icon" aria-hidden="true"><?= $aisle['icon'] ?></span>
+              <span class="catalog-category-icon" aria-hidden="true"><?php if ($aisle['image_url']): ?><img src="<?= h($aisle['image_url']) ?>" alt="" style="width:100%;height:100%;object-fit:cover;border-radius:inherit;"><?php else: ?><?= $aisle['icon'] ?><?php endif; ?></span>
               <span class="catalog-category-label"><?= h($aisle['name']) ?></span>
             </a>
           <?php endforeach; ?>

@@ -8,13 +8,70 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['add_category'])) {
     if ($name === '') {
         $_SESSION['flash'] = ['type' => 'error', 'message' => 'Category name is required.'];
     } else {
+        $upload = handle_vegetable_image_upload('category_image');
         try {
-            $maxOrder = (int)$pdo->query("SELECT COALESCE(MAX(sort_order), -1) FROM categories")->fetchColumn();
-            $st = $pdo->prepare("INSERT INTO categories (name, sort_order, is_active) VALUES (?, ?, 1)");
-            $st->execute([$name, $maxOrder + 1]);
-            $_SESSION['flash'] = ['type' => 'success', 'message' => "\"$name\" added. It'll show up in the Category dropdown on Add/Edit Vegetable right away."];
+            if ($upload['error']) {
+                $_SESSION['flash'] = ['type' => 'error', 'message' => $upload['error']];
+            } else {
+                $maxOrder = (int)$pdo->query("SELECT COALESCE(MAX(sort_order), -1) FROM categories")->fetchColumn();
+                $st = $pdo->prepare("INSERT INTO categories (name, image_path, sort_order, is_active) VALUES (?, ?, ?, 1)");
+                $st->execute([$name, $upload['path'], $maxOrder + 1]);
+                $_SESSION['flash'] = ['type' => 'success', 'message' => "\"$name\" added. It'll show up in the Category dropdown on Add/Edit Vegetable right away."];
+            }
         } catch (Throwable $e) {
-            $_SESSION['flash'] = ['type' => 'error', 'message' => 'That category already exists.'];
+            if (!empty($upload['path'])) {
+                delete_vegetable_image_file($upload['path']);
+            }
+            if ($e instanceof PDOException && (string)$e->getCode() === '23000') {
+                $_SESSION['flash'] = ['type' => 'error', 'message' => 'That category already exists.'];
+            } else {
+                error_log('Could not add category image/category: ' . $e->getMessage());
+                $_SESSION['flash'] = ['type' => 'error', 'message' => 'Could not add the category. Please try again.'];
+            }
+        }
+    }
+    redirect('categories.php');
+}
+
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['save_category_image'])) {
+    require_csrf();
+    $id = filter_var($_POST['category_id'] ?? null, FILTER_VALIDATE_INT);
+    $removeImage = isset($_POST['remove_category_image']);
+    $upload = handle_vegetable_image_upload('category_image');
+    if (!$id || $id < 1) {
+        if (!empty($upload['path'])) {
+            delete_vegetable_image_file($upload['path']);
+        }
+        $_SESSION['flash'] = ['type' => 'error', 'message' => 'Invalid category.'];
+    } elseif ($upload['error']) {
+        $_SESSION['flash'] = ['type' => 'error', 'message' => $upload['error']];
+    } else {
+        $current = $pdo->prepare('SELECT image_path FROM categories WHERE id = ?');
+        $current->execute([$id]);
+        $oldImage = $current->fetchColumn();
+        if ($oldImage === false) {
+            if (!empty($upload['path'])) {
+                delete_vegetable_image_file($upload['path']);
+            }
+            $_SESSION['flash'] = ['type' => 'error', 'message' => 'Category not found.'];
+        } elseif ($upload['path'] || $removeImage) {
+            $newImage = $upload['path'] ?: null;
+            try {
+                $stmt = $pdo->prepare('UPDATE categories SET image_path = ? WHERE id = ?');
+                $stmt->execute([$newImage, $id]);
+                if ($oldImage && $oldImage !== $newImage) {
+                    delete_vegetable_image_file($oldImage);
+                }
+                $_SESSION['flash'] = ['type' => 'success', 'message' => 'Category image updated.'];
+            } catch (Throwable $e) {
+                if (!empty($upload['path'])) {
+                    delete_vegetable_image_file($upload['path']);
+                }
+                error_log('Could not update category image #' . $id . ': ' . $e->getMessage());
+                $_SESSION['flash'] = ['type' => 'error', 'message' => 'Could not save the category image. Please try again.'];
+            }
+        } else {
+            $_SESSION['flash'] = ['type' => 'error', 'message' => 'Choose an image or select Remove image.'];
         }
     }
     redirect('categories.php');
@@ -60,9 +117,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['delete_category'])) {
     require_csrf();
     $id = (int)($_POST['category_id'] ?? 0);
     if ($id > 0) {
-        $name = $pdo->prepare("SELECT name FROM categories WHERE id = ?");
+        $name = $pdo->prepare("SELECT name, image_path FROM categories WHERE id = ?");
         $name->execute([$id]);
-        $catName = $name->fetchColumn();
+        $categoryRow = $name->fetch();
+        $catName = $categoryRow['name'] ?? false;
         $inUseCount = 0;
         if ($catName !== false) {
             $countStmt = $pdo->prepare("SELECT COUNT(*) FROM vegetables WHERE category = ?");
@@ -73,6 +131,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['delete_category'])) {
             $_SESSION['flash'] = ['type' => 'error', 'message' => "Can't delete \"$catName\" — $inUseCount product(s) still use it. Move them to another category first."];
         } else {
             $pdo->prepare("DELETE FROM categories WHERE id = ?")->execute([$id]);
+            if (!empty($categoryRow['image_path'])) {
+                delete_vegetable_image_file($categoryRow['image_path']);
+            }
             $_SESSION['flash'] = ['type' => 'success', 'message' => 'Category deleted.'];
         }
     }
@@ -102,7 +163,7 @@ include __DIR__ . '/includes/admin_header.php';
     <div class="table-wrap">
       <table>
         <thead>
-          <tr><th>#</th><th>Name</th><th>Products</th><th>Store visibility</th><th>Actions</th></tr>
+          <tr><th>#</th><th>Name</th><th>Image / logo</th><th>Products</th><th>Store visibility</th><th>Actions</th></tr>
         </thead>
         <tbody>
           <?php foreach ($categories as $c): ?>
@@ -115,6 +176,28 @@ include __DIR__ . '/includes/admin_header.php';
                   <input type="hidden" name="category_id" value="<?= $c['id'] ?>">
                   <input type="text" name="name" value="<?= h($c['name']) ?>" style="flex:1; padding:6px 8px; border-radius:8px; border:1px solid #D9E0CD;">
                   <button class="btn" type="submit" style="padding:6px 10px; font-size:0.78rem;">Save</button>
+                </form>
+              </td>
+              <td>
+                <form method="post" enctype="multipart/form-data" style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;min-width:220px;">
+                  <input type="hidden" name="csrf_token" value="<?= h(csrf_token()) ?>">
+                  <input type="hidden" name="save_category_image" value="1">
+                  <input type="hidden" name="category_id" value="<?= (int)$c['id'] ?>">
+                  <?php if (!empty($c['image_path'])): ?>
+                    <?php $categoryImageUrl = vegetable_image_url($c['image_path']); ?>
+                    <?php if ($categoryImageUrl): ?>
+                      <img src="<?= h($categoryImageUrl) ?>" alt="<?= h($c['name']) ?> category" style="width:44px;height:44px;object-fit:cover;border-radius:10px;border:1px solid #D9E0CD;">
+                    <?php else: ?>
+                      <span style="font-size:.75rem;color:#9A2E24;">Image missing</span>
+                    <?php endif; ?>
+                    <label style="display:inline-flex;align-items:center;gap:4px;font-size:.75rem;">
+                      <input type="checkbox" name="remove_category_image" style="width:auto;"> Remove
+                    </label>
+                  <?php else: ?>
+                    <span style="width:44px;height:44px;display:grid;place-items:center;background:#F3F7EF;border-radius:10px;font-size:1.2rem;" aria-hidden="true">🧺</span>
+                  <?php endif; ?>
+                  <input type="file" name="category_image" accept="image/jpeg,image/png,image/webp" style="max-width:180px;font-size:.75rem;">
+                  <button class="btn" type="submit" style="padding:6px 9px;font-size:.78rem;">Save image</button>
                 </form>
               </td>
               <td><?= (int)$c['product_count'] ?></td>
@@ -136,7 +219,7 @@ include __DIR__ . '/includes/admin_header.php';
             </tr>
           <?php endforeach; ?>
           <?php if (empty($categories)): ?>
-            <tr><td colspan="5" style="text-align:center; color:#5B6656;">No categories yet. Add your first one!</td></tr>
+            <tr>            <td colspan="6" style="text-align:center; color:#5B6656;">No categories yet. Add your first one!</td></tr>
           <?php endif; ?>
         </tbody>
       </table>
@@ -145,12 +228,17 @@ include __DIR__ . '/includes/admin_header.php';
   <aside style="width:320px;">
     <div class="form-card">
       <h3>Add category</h3>
-      <form method="post">
+      <form method="post" enctype="multipart/form-data">
         <input type="hidden" name="csrf_token" value="<?= h(csrf_token()) ?>">
         <input type="hidden" name="add_category" value="1">
         <div class="form-group">
           <label for="name">Category name</label>
           <input type="text" id="name" name="name" placeholder="e.g. Exotic Vegetables" required>
+        </div>
+        <div class="form-group">
+          <label for="newCategoryImage">Category image or logo (optional)</label>
+          <input type="file" id="newCategoryImage" name="category_image" accept="image/jpeg,image/png,image/webp">
+          <small style="color:#5B6656;">JPG, PNG, or WEBP; up to 5 MB.</small>
         </div>
         <div style="text-align:right;">
           <button class="btn btn-primary">Add category</button>
