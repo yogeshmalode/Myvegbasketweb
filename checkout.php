@@ -81,9 +81,11 @@ include __DIR__ . '/includes/header.php';
         </select>
         <small id="deliveryAreaHelp" style="color:#5B6656;">We’ll detect a supported locality from your address when possible. You can also choose it here.</small>
         <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-top:8px;">
-          <button type="button" class="btn" id="useCurrentLocationBtn">📍 Use my current location</button>
+          <button type="button" class="btn" id="useCurrentLocationBtn">📍 Check delivery at my location</button>
           <span id="currentLocationStatus" role="status" aria-live="polite" style="font-size:.82rem;color:#5B6656;"></span>
         </div>
+        <input type="hidden" id="deliveryLatitude" name="delivery_latitude">
+        <input type="hidden" id="deliveryLongitude" name="delivery_longitude">
         <div class="form-group" id="pincodeDisplayWrap" style="display:none;margin-top:10px;">
           <label for="pincode">Delivery PIN code</label>
           <input type="text" id="pincode" name="pincode" inputmode="numeric" pattern="[0-9]{6}" maxlength="6" autocomplete="postal-code" readonly required>
@@ -315,25 +317,62 @@ deliveryAddressInput.addEventListener('input', function () {
 
 document.getElementById('useCurrentLocationBtn').addEventListener('click', function () {
   const locationStatus = document.getElementById('currentLocationStatus');
+  const locationButton = this;
   if (!navigator.geolocation) {
-    locationStatus.textContent = 'Location is not supported by this browser. Please choose your area from the list.';
+    locationStatus.textContent = 'Your browser does not support location. Please choose your area from the list.';
     return;
   }
-  this.disabled = true;
-  locationStatus.textContent = 'Checking your location permission…';
-  navigator.geolocation.getCurrentPosition(function () {
-    locationStatus.textContent = 'Location found on this device. Choose the matching locality above to check delivery availability; your coordinates are not sent.';
-    deliveryAreaSelect.focus();
-    document.getElementById('deliveryAreaHelp').scrollIntoView({ behavior: 'smooth', block: 'center' });
-    document.getElementById('useCurrentLocationBtn').disabled = false;
+  locationButton.disabled = true;
+  locationStatus.textContent = 'Getting your location and checking delivery coverage…';
+  document.getElementById('deliveryLatitude').value = '';
+  document.getElementById('deliveryLongitude').value = '';
+  navigator.geolocation.getCurrentPosition(function (position) {
+    const latitude = position.coords.latitude;
+    const longitude = position.coords.longitude;
+    const body = new URLSearchParams({ latitude: String(latitude), longitude: String(longitude) });
+    fetch(window.__VEGBASKET_BASE__ + '/ajax/check_delivery_location.php', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      body: body.toString()
+    }).then(function (response) {
+      return response.json().then(function (result) {
+        if (!response.ok) throw new Error(result.message || 'Could not check delivery coverage.');
+        return result;
+      });
+    }).then(function (result) {
+      if (result.serviceable) {
+        document.getElementById('deliveryLatitude').value = String(latitude);
+        document.getElementById('deliveryLongitude').value = String(longitude);
+        if (result.address) {
+          const currentAddress = deliveryAddressInput.value.trim();
+          if (!currentAddress) {
+            deliveryAddressInput.value = result.address;
+          } else if (!currentAddress.toLocaleLowerCase().includes(result.address.toLocaleLowerCase())) {
+            deliveryAddressInput.value = currentAddress + ', ' + result.address;
+          }
+          deliveryAddressInput.dispatchEvent(new Event('input', { bubbles: true }));
+        }
+        locationStatus.textContent = result.message;
+        locationStatus.style.color = '#17643f';
+      } else {
+        locationStatus.textContent = result.message || 'Sorry, we do not deliver to your current location yet.';
+        locationStatus.style.color = '#9A2E24';
+      }
+    }).catch(function (error) {
+      locationStatus.textContent = error.message || 'We could not check delivery coverage. Please choose your area manually or try again.';
+      locationStatus.style.color = '#9A2E24';
+    }).finally(function () {
+      locationButton.disabled = false;
+    });
   }, function (error) {
     const messages = {
       1: 'Location permission was denied. Please choose your area from the list.',
-      2: 'Your location could not be determined. Please choose your area from the list.',
-      3: 'Location check timed out. Please choose your area from the list.'
+      2: 'Your location could not be determined. Please try again or choose your area from the list.',
+      3: 'Location check timed out. Please try again or choose your area from the list.'
     };
     locationStatus.textContent = messages[error.code] || 'Location check failed. Please choose your area from the list.';
-    document.getElementById('useCurrentLocationBtn').disabled = false;
+    locationStatus.style.color = '#9A2E24';
+    locationButton.disabled = false;
   }, { enableHighAccuracy: false, timeout: 10000, maximumAge: 60000 });
 });
 
