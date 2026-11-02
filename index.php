@@ -380,9 +380,12 @@ $showStorefrontPromotions = $category === '' || $category === 'All';
             <h2 id="shopHeading"><?= $category !== '' ? h($category) : ($search_q !== '' ? 'Search results' : 'Fresh from the farm') ?></h2>
             <p class="section-description">Clear prices, fresh produce, and easy add-to-basket shopping.</p>
           </div>
-          <?php if ($category !== '' || $search_q !== ''): ?>
-            <a href="<?= BASE_URL ?>/index.php" class="section-text-link">Clear filters</a>
-          <?php endif; ?>
+          <div style="display:flex;align-items:center;gap:14px;flex-wrap:wrap;">
+            <a href="<?= BASE_URL ?>/budget_basket.php" class="section-text-link">💰 Shop within a budget</a>
+            <?php if ($category !== '' || $search_q !== ''): ?>
+              <a href="<?= BASE_URL ?>/index.php" class="section-text-link">Clear filters</a>
+            <?php endif; ?>
+          </div>
         </div>
 
         <?php if (empty($vegetables)): ?>
