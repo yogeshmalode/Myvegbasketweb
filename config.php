@@ -372,6 +372,24 @@ function h($str) {
     return htmlspecialchars($str ?? '', ENT_QUOTES, 'UTF-8');
 }
 
+function is_serviceable_delivery_pincode($pincode) {
+    static $allowedPinCodes = [
+        '412308', // Fursungi / Bhekrai Nagar and Uruli Devachi
+        '411013', // Magarpatta City
+        '411028', // Magarpatta City
+        '411040', // Wanowrie
+        '411048', // Kondhwa Budruk / Khurd
+        '411060', // Undri / Pisoli
+        '412307', // Manjari Budruk
+        '411036', // Mundhwa
+        '422003', // Panchavati
+    ];
+
+    $pincode = trim((string)$pincode);
+    return preg_match('/\A[0-9]{6}\z/', $pincode) === 1
+        && in_array($pincode, $allowedPinCodes, true);
+}
+
 function cart_count() {
     global $pdo;
     reconcile_cart_stock($pdo);
@@ -1477,6 +1495,7 @@ function ensure_management_schema($pdo) {
             // failed with "Unknown column 'delivery_date'". Self-heal it here
             // too so it can never silently regress again.
             if (!$hasColumn('orders', 'delivery_date')) $pdo->exec("ALTER TABLE orders ADD COLUMN delivery_date DATE DEFAULT NULL AFTER address");
+            if (!$hasColumn('orders', 'delivery_pincode')) $pdo->exec("ALTER TABLE orders ADD COLUMN delivery_pincode VARCHAR(6) DEFAULT NULL AFTER delivery_date");
             if (!$hasColumn('orders', 'delivery_slot')) $pdo->exec("ALTER TABLE orders ADD COLUMN delivery_slot VARCHAR(50) DEFAULT NULL AFTER delivery_date");
 
             // Exceptions tab (cancellations/returns/refunds) on the admin

@@ -18,11 +18,17 @@ $name    = trim($_POST['name'] ?? '');
 $email   = trim($_POST['email'] ?? '');
 $phone   = trim($_POST['phone'] ?? '');
 $address = trim($_POST['address'] ?? '');
+$pincode = trim($_POST['pincode'] ?? '');
 $deliveryDate = trim($_POST['delivery_date'] ?? '');
 $deliverySlot = trim($_POST['delivery_slot'] ?? '');
 
 if ($name === '' || $email === '' || $phone === '' || $address === '') {
     echo json_encode(['success' => false, 'message' => 'Please fill in all delivery details.']);
+    exit;
+}
+
+if (!is_serviceable_delivery_pincode($pincode)) {
+    echo json_encode(['success' => false, 'message' => 'Sorry, we do not deliver to your area yet']);
     exit;
 }
 
@@ -92,7 +98,7 @@ if ($requestedPayment === 'credit') {
 // back to treating that line as "no store stock available" (same as a
 // product variant that's out of stock), while shared-mode products are
 // completely unaffected either way.
-$geo = geocode_address($address);
+$geo = geocode_address($address . ', ' . $pincode);
 $darkStoreId = null;
 $etaMinutes = null;
 if ($geo) {
@@ -108,9 +114,9 @@ try {
     $pdo->beginTransaction();
 
     $stmt = $pdo->prepare("INSERT INTO orders
-        (customer_id, customer_name, email, phone, address, address_lat, address_lng, delivery_date, delivery_slot, total_amount, coupon_code, discount_amount, payment_method, payment_status, order_status, dark_store_id, eta_minutes, customer_type)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'placed', ?, ?, ?)");
-    $stmt->execute([$customerId, $name, $email, $phone, $address, $geo['lat'] ?? null, $geo['lng'] ?? null, $deliveryDate, $deliverySlot, $total, $couponCode, $discountAmount, $isCreditOrder ? 'credit' : 'upi_qr', $isCreditOrder ? 'pending' : 'awaiting_verification', $darkStoreId, $etaMinutes, $customerType]);
+        (customer_id, customer_name, email, phone, address, delivery_pincode, address_lat, address_lng, delivery_date, delivery_slot, total_amount, coupon_code, discount_amount, payment_method, payment_status, order_status, dark_store_id, eta_minutes, customer_type)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'placed', ?, ?, ?)");
+    $stmt->execute([$customerId, $name, $email, $phone, $address, $pincode, $geo['lat'] ?? null, $geo['lng'] ?? null, $deliveryDate, $deliverySlot, $total, $couponCode, $discountAmount, $isCreditOrder ? 'credit' : 'upi_qr', $isCreditOrder ? 'pending' : 'awaiting_verification', $darkStoreId, $etaMinutes, $customerType]);
     $orderId = $pdo->lastInsertId();
 
     $itemStmt  = $pdo->prepare("INSERT INTO order_items (order_id, vegetable_id, vegetable_variant_id, variant_label, name, price, quantity, subtotal, cost_price)

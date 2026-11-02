@@ -70,6 +70,11 @@ include __DIR__ . '/includes/header.php';
         <label for="address">Delivery address</label>
         <textarea id="address" name="address" rows="3" required></textarea>
       </div>
+      <div class="form-group">
+        <label for="pincode">Delivery PIN code</label>
+        <input type="text" id="pincode" name="pincode" inputmode="numeric" pattern="[0-9]{6}" maxlength="6" autocomplete="postal-code" placeholder="6-digit PIN code" aria-describedby="pincodeHelp" required>
+        <small id="pincodeHelp" style="color:#5B6656;">We currently deliver only to selected areas around Pune. Enter your 6-digit PIN code to continue.</small>
+      </div>
 
       <div class="form-group">
         <label for="delivery_date">Preferred delivery date</label>

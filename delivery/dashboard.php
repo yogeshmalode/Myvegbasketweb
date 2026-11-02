@@ -22,7 +22,7 @@ $riderCompensation = $compensationStmt->fetch() ?: [
 
 $orders = [];
 if ($rider) {
-    $stmt = $pdo->prepare("SELECT o.id, o.customer_name, o.phone, o.address, o.address_lat, o.address_lng, o.delivery_lat, o.delivery_lng, o.order_status, o.payment_status, o.rider_id, o.rider_accepted_at, o.assigned_picker_id, o.total_amount, o.created_at FROM orders o WHERE o.rider_id = ? AND o.order_status IN ('delivery_partner_assigned', 'out_for_delivery', 'arriving_soon') ORDER BY o.created_at DESC");
+    $stmt = $pdo->prepare("SELECT o.id, o.customer_name, o.phone, o.address, o.delivery_pincode, o.address_lat, o.address_lng, o.delivery_lat, o.delivery_lng, o.order_status, o.payment_status, o.rider_id, o.rider_accepted_at, o.assigned_picker_id, o.total_amount, o.created_at FROM orders o WHERE o.rider_id = ? AND o.order_status IN ('delivery_partner_assigned', 'out_for_delivery', 'arriving_soon') ORDER BY o.created_at DESC");
     $stmt->execute([$riderId]);
     $orders = $stmt->fetchAll();
 }
@@ -333,7 +333,7 @@ include __DIR__ . '/../includes/header.php';
           </div>
         </div>
 
-        <p class="address-copy"><?= nl2br(h($order['address'])) ?></p>
+        <p class="address-copy"><?= nl2br(h($order['address'])) ?><?php if (!empty($order['delivery_pincode'])): ?><br><strong>PIN code:</strong> <?= h($order['delivery_pincode']) ?><?php endif; ?></p>
 
         <?php if (in_array($order['order_status'], ['out_for_delivery', 'arriving_soon'], true)): ?>
           <section class="delivery-route-panel" aria-label="Live delivery route">
