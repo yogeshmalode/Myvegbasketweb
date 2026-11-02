@@ -37,7 +37,7 @@ function onDetected(result){
   if(!orderId) { alert('Unrecognized barcode: ' + code); return; }
   if(!confirm('Mark order #' + orderId + ' as delivered?')) return;
   fetch('<?= BASE_URL ?>/ajax/scan_mark_delivered.php', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ order_id: orderId, csrf_token: '<?= h(csrf_token()) ?>' }) }).then(r=>r.json()).then(data=>{
-    if(data.success){ alert('Order marked delivered.'); location.reload(); } else alert('Failed: ' + (data.error||''));
+    if(data.success){ const emailNote = data.customer_notification === 'missing_email' ? ' No valid customer email is saved.' : data.customer_notification === 'failed' ? ' The customer email could not be sent; check mail/SMTP configuration.' : ''; alert('Order marked delivered.' + emailNote); location.reload(); } else alert('Failed: ' + (data.error||''));
   }).catch(()=>alert('Network error'));
 }
 
@@ -51,7 +51,7 @@ if (navigator.mediaDevices && typeof Quagga !== 'undefined'){
 }
 
 // Manual form
-document.getElementById('manualForm').addEventListener('submit', function(e){ e.preventDefault(); const fd = new FormData(this); const b = fd.get('barcode').trim(); if(!b) return; fetch('<?= BASE_URL ?>/ajax/scan_mark_delivered.php', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ order_id_raw: b, note: fd.get('note'), csrf_token: '<?= h(csrf_token()) ?>' }) }).then(r=>r.json()).then(data=>{ if(data.success){ alert('Order marked delivered'); location.reload(); } else alert('Error: '+(data.error||'')); }).catch(()=>alert('Network error')); });
+document.getElementById('manualForm').addEventListener('submit', function(e){ e.preventDefault(); const fd = new FormData(this); const b = fd.get('barcode').trim(); if(!b) return; fetch('<?= BASE_URL ?>/ajax/scan_mark_delivered.php', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ order_id_raw: b, note: fd.get('note'), csrf_token: '<?= h(csrf_token()) ?>' }) }).then(r=>r.json()).then(data=>{ if(data.success){ const emailNote = data.customer_notification === 'missing_email' ? ' No valid customer email is saved.' : data.customer_notification === 'failed' ? ' The customer email could not be sent; check mail/SMTP configuration.' : ''; alert('Order marked delivered.' + emailNote); location.reload(); } else alert('Error: '+(data.error||'')); }).catch(()=>alert('Network error')); });
 </script>
 
 <?php include __DIR__ . '/includes/admin_footer.php'; ?>

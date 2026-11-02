@@ -103,12 +103,9 @@ try {
         }
     }
     $customerNotification = null;
-    if ($currentStatus !== $status) {
-        $customerStatus = ($status === 'ready_for_pickup' && is_array($riderAssignment) && !empty($riderAssignment['assigned']))
-            ? 'delivery_partner_assigned'
-            : $status;
+    if (in_array($status, ['processing', 'delivered'], true) && $currentStatus !== $status) {
         try {
-            $customerNotification = send_customer_order_status_notification($pdo, $id, $customerStatus);
+            $customerNotification = send_customer_order_status_notification($pdo, $id, $status);
         } catch (Throwable $notificationError) {
             error_log('Customer status notification failed for order #' . $id . ': ' . $notificationError->getMessage());
             $customerNotification = 'failed';

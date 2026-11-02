@@ -25,5 +25,6 @@ try{
     $pdo->commit();
     // Notify admin
     send_order_alert("Order #$orderId delivered", ["Order #$orderId has been marked delivered via scan."]);
-    echo json_encode(['success'=>true]);
+    $customerNotification = send_customer_order_status_notification($pdo, $orderId, 'delivered');
+    echo json_encode(['success'=>true, 'customer_notification'=>$customerNotification]);
 } catch(Exception $e){ $pdo->rollBack(); echo json_encode(['success'=>false,'error'=>$e->getMessage()]); }

@@ -1095,7 +1095,6 @@ function auto_assign_next_order_to_rider($pdo, $riderId, $excludeOrderId = null)
         $pdo->commit();
 
         send_order_alert("Order #{$order['id']} rider assigned", ["Order #{$order['id']} was auto-assigned to rider #$riderId as soon as they became available."]);
-        send_customer_order_status_notification($pdo, (int)$order['id'], 'delivery_partner_assigned');
         return $order['id'];
     } catch (Exception $e) {
         if ($pdo->inTransaction()) $pdo->rollBack();
@@ -2239,12 +2238,19 @@ function send_customer_order_status_notification($pdo, $orderId, $status = null)
     $stmt = $pdo->prepare('SELECT customer_name, email, order_status FROM orders WHERE id = ?');
     $stmt->execute([(int)$orderId]);
     $order = $stmt->fetch();
-    if (!$order || !filter_var($order['email'], FILTER_VALIDATE_EMAIL)) {
+    if (!$order) {
         return 'missing_email';
     }
 
     $status = normalize_order_status($status ?? $order['order_status']);
-    $statusLabel = get_order_status_options()[$status] ?? ucfirst(str_replace('_', ' ', $status));
+    if (!in_array($status, ['processing', 'delivered'], true)) {
+        return 'skipped';
+    }
+    if (!filter_var($order['email'], FILTER_VALIDATE_EMAIL)) {
+        return 'missing_email';
+    }
+
+    $statusLabel = $status === 'processing' ? 'Order confirmed' : 'Order completed';
     $orderNumber = 'ORD-' . str_pad((string)$orderId, 5, '0', STR_PAD_LEFT);
     $subject = SITE_NAME . ' order ' . $orderNumber . ': ' . $statusLabel;
     $safeName = h($order['customer_name']);
@@ -2254,10 +2260,12 @@ function send_customer_order_status_notification($pdo, $orderId, $status = null)
         '<div style="max-width:560px;margin:32px auto;background:#fff;border-radius:14px;overflow:hidden;">' .
         '<div style="padding:22px 28px;background:#1f4d36;color:#fff;font-size:20px;font-weight:bold;">' . h(SITE_NAME) . '</div>' .
         '<div style="padding:28px;"><p>Hello ' . $safeName . ',</p>' .
-        '<p>Your order <strong>' . $safeOrderNumber . '</strong> status is now <strong>' . $safeStatus . '</strong>.</p>' .
-        '<p>We will keep you updated as your order moves through delivery.</p>' .
+        '<p><strong>' . $safeOrderNumber . '</strong>: ' . $safeStatus . '.</p>' .
+        ($status === 'processing' ? '<p>We have started preparing your order. We will email you again when it has been delivered.</p>' : '<p>Your order has been delivered. Thank you for shopping with us!</p>') .
         '<p style="color:#65715f;font-size:13px;margin-top:28px;">Thank you for shopping with ' . h(SITE_NAME) . '.</p></div></div></body></html>';
-    $text = "Hello {$order['customer_name']},\n\nYour order {$orderNumber} status is now {$statusLabel}.\nWe will keep you updated as your order moves through delivery.\n\nThank you for shopping with " . SITE_NAME . '.';
+    $text = "Hello {$order['customer_name']},\n\n{$orderNumber}: {$statusLabel}.\n" .
+        ($status === 'processing' ? "We have started preparing your order. We will email you again when it has been delivered.\n\n" : "Your order has been delivered. Thank you for shopping with us!\n\n") .
+        'Thank you for shopping with ' . SITE_NAME . '.';
 
     try {
         $sent = send_notification_email($order['email'], $subject, $html, $text);

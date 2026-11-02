@@ -96,14 +96,7 @@ try {
         // order at their dark store instead of leaving them idle until an
         // admin manually clicks Auto-Assign.
         auto_assign_next_order_to_rider($pdo, $riderId, $orderId);
-        $rejectedOrder = $pdo->prepare('SELECT order_status FROM orders WHERE id = ?');
-        $rejectedOrder->execute([$orderId]);
-        if (normalize_order_status($rejectedOrder->fetchColumn()) === 'ready_for_pickup') {
-            $customerNotification = send_customer_order_status_notification($pdo, $orderId, 'ready_for_pickup');
-        } else {
-            $customerNotification = 'sent';
-        }
-        echo json_encode(['success' => true, 'status' => 'ready_for_pickup', 'retry_assignment' => true, 'customer_notification' => $customerNotification]);
+        echo json_encode(['success' => true, 'status' => 'ready_for_pickup', 'retry_assignment' => true]);
         exit;
     }
 
@@ -120,8 +113,7 @@ try {
         }
         $pdo->prepare("UPDATE orders SET order_status = 'out_for_delivery', updated_at = NOW() WHERE id = ?")->execute([$orderId]);
         $pdo->commit();
-        $customerNotification = send_customer_order_status_notification($pdo, $orderId, 'out_for_delivery');
-        echo json_encode(['success' => true, 'status' => 'out_for_delivery', 'customer_notification' => $customerNotification]);
+        echo json_encode(['success' => true, 'status' => 'out_for_delivery']);
         exit;
     }
 
@@ -133,8 +125,7 @@ try {
         }
         $pdo->prepare("UPDATE orders SET order_status = 'arriving_soon', updated_at = NOW() WHERE id = ?")->execute([$orderId]);
         $pdo->commit();
-        $customerNotification = send_customer_order_status_notification($pdo, $orderId, 'arriving_soon');
-        echo json_encode(['success' => true, 'status' => 'arriving_soon', 'customer_notification' => $customerNotification]);
+        echo json_encode(['success' => true, 'status' => 'arriving_soon']);
         exit;
     }
 

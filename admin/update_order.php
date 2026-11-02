@@ -78,6 +78,13 @@ if ($id && $type === 'payment' && in_array($value, $allowedPaymentValues, true))
                 // actually sold — put it back on the shelf now.
                 restock_cancelled_order($pdo, $id);
             }
+            if (in_array($normalized, ['processing', 'delivered'], true) && $currentStatus !== $normalized) {
+                try {
+                    send_customer_order_status_notification($pdo, $id, $normalized);
+                } catch (Throwable $notificationError) {
+                    error_log('Customer status notification failed for order #' . $id . ': ' . $notificationError->getMessage());
+                }
+            }
             $message = "Order #$id status set to " . str_replace('_', ' ', $normalized) . ".";
             if ($riderAssignment) {
                 $message .= $riderAssignment['assigned']

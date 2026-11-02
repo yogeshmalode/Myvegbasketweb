@@ -115,13 +115,7 @@ try {
         auto_assign_next_order_to_rider($pdo, $previousRiderId);
     }
     send_order_alert("Order #$orderId rider assigned", ["Order #$orderId was assigned to rider #$riderId and is waiting for pickup confirmation."]);
-    $customerNotification = send_customer_order_status_notification($pdo, $orderId, 'delivery_partner_assigned');
     $response = ['success'=>true, 'rider_id' => $riderId, 'status' => 'delivery_partner_assigned'];
-    if ($customerNotification !== 'sent') {
-        $response['notification_warning'] = $customerNotification === 'missing_email'
-            ? 'Rider assigned, but no valid customer email is saved for this order.'
-            : 'Rider assigned, but customer status email could not be sent. Check Hostinger mail/SMTP configuration.';
-    }
     echo json_encode($response);
 } catch (Throwable $e) {
     if ($pdo->inTransaction()) $pdo->rollBack();
