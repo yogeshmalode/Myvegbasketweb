@@ -4,32 +4,34 @@ $page_title = 'Categories';
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['save_category_order'])) {
     require_csrf();
-    $submittedOrder = $_POST['category_order'] ?? null;
+    $submittedOrder = $_POST['category_ids'] ?? null;
     if (!is_array($submittedOrder)) {
         $_SESSION['flash'] = ['type' => 'error', 'message' => 'The category order submitted was invalid.'];
     } else {
         $categoryIds = array_map('intval', $pdo->query('SELECT id FROM categories')->fetchAll(PDO::FETCH_COLUMN));
-        $submittedIds = array_map('intval', array_keys($submittedOrder));
-        sort($categoryIds);
-        sort($submittedIds);
-        $positions = [];
-        $validOrder = $categoryIds === $submittedIds && count($submittedOrder) === count($categoryIds);
-        foreach ($submittedOrder as $position) {
-            $position = filter_var($position, FILTER_VALIDATE_INT);
-            if ($position === false || $position < 1 || $position > count($categoryIds) || isset($positions[$position])) {
+        $submittedIds = [];
+        $validOrder = true;
+        foreach ($submittedOrder as $submittedId) {
+            $categoryId = filter_var($submittedId, FILTER_VALIDATE_INT);
+            if ($categoryId === false || $categoryId < 1) {
                 $validOrder = false;
                 break;
             }
-            $positions[$position] = true;
+            $submittedIds[] = $categoryId;
         }
+        sort($categoryIds);
+        $sortedSubmittedIds = $submittedIds;
+        sort($sortedSubmittedIds);
+        $validOrder = $validOrder && $categoryIds === $sortedSubmittedIds
+            && count($submittedIds) === count(array_unique($submittedIds));
         if (!$validOrder) {
-            $_SESSION['flash'] = ['type' => 'error', 'message' => 'Enter each position once, from 1 to the number of categories.'];
+            $_SESSION['flash'] = ['type' => 'error', 'message' => 'The category order was invalid. Refresh the page and try again.'];
         } else {
             try {
                 $pdo->beginTransaction();
                 $updateOrder = $pdo->prepare('UPDATE categories SET sort_order = ? WHERE id = ?');
-                foreach ($submittedOrder as $id => $position) {
-                    $updateOrder->execute([(int)$position - 1, (int)$id]);
+                foreach ($submittedIds as $position => $id) {
+                    $updateOrder->execute([$position, $id]);
                 }
                 $pdo->commit();
                 $_SESSION['flash'] = ['type' => 'success', 'message' => 'Category order saved. The storefront now uses your new order.'];
@@ -193,7 +195,7 @@ include __DIR__ . '/includes/admin_header.php';
 ?>
 <div class="section-head" style="text-align:left; margin-top:0;">
   <h2 style="display:block;">Categories</h2>
-  <p style="color:#5B6656; max-width:720px;">Set each category’s position below and save to control its order in the storefront. Activate a category to show it and its active products; use the Vegetable Catalog to show or hide individual products.</p>
+  <p style="color:#5B6656; max-width:720px;">Drag categories using the handle to arrange their order in the storefront. On long lists, move the dragged category near the top or bottom of the screen to scroll automatically. Click Save category order when finished.</p>
 </div>
 
 <?php if (!empty($_SESSION['flash'])): ?>
@@ -210,18 +212,19 @@ include __DIR__ . '/includes/admin_header.php';
             <th colspan="6">
               <form id="categoryOrderForm" method="post" style="display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;">
                 <input type="hidden" name="csrf_token" value="<?= h(csrf_token()) ?>">
-                <span style="font-weight:500;color:#5B6656;">Lower position numbers appear first in the store. Use every number once.</span>
+                <span id="categoryOrderStatus" role="status" aria-live="polite" style="font-weight:500;color:#5B6656;">Drag categories to arrange them.</span>
                 <button class="btn btn-primary" type="submit" name="save_category_order" value="1">Save category order</button>
               </form>
             </th>
           </tr>
-          <tr><th>Position</th><th>Name</th><th>Image / logo</th><th>Products</th><th>Store visibility</th><th>Actions</th></tr>
+          <tr><th>Order</th><th>Name</th><th>Image / logo</th><th>Products</th><th>Store visibility</th><th>Actions</th></tr>
         </thead>
-        <tbody>
-          <?php foreach ($categories as $categoryIndex => $c): ?>
-            <tr>
+        <tbody id="categoryOrderRows">
+          <?php foreach ($categories as $c): ?>
+            <tr data-category-row data-category-id="<?= (int)$c['id'] ?>">
               <td>
-                <input type="number" form="categoryOrderForm" name="category_order[<?= (int)$c['id'] ?>]" value="<?= $categoryIndex + 1 ?>" min="1" max="<?= count($categories) ?>" required aria-label="Position for <?= h($c['name']) ?>" style="width:76px;padding:7px;border:1px solid #D9E0CD;border-radius:8px;">
+                <button type="button" class="category-drag-handle" aria-label="Drag to arrange <?= h($c['name']) ?>" title="Drag to arrange" style="border:1px solid #D9E0CD;border-radius:8px;background:#F7F9F5;color:#53645a;padding:8px 10px;cursor:grab;touch-action:none;font-size:1.1rem;line-height:1;">☰</button>
+                <input type="hidden" form="categoryOrderForm" name="category_ids[]" value="<?= (int)$c['id'] ?>">
               </td>
               <td>
                 <form method="post" style="display:flex; gap:8px; align-items:center;">
@@ -304,5 +307,95 @@ include __DIR__ . '/includes/admin_header.php';
     </div>
   </aside>
 </div>
+
+<script>
+  (function () {
+    const list = document.getElementById('categoryOrderRows');
+    const orderForm = document.getElementById('categoryOrderForm');
+    const status = document.getElementById('categoryOrderStatus');
+    if (!list || !orderForm || !status) return;
+
+    let activeRow = null;
+    let pointerX = 0;
+    let pointerY = 0;
+    let autoScrollFrame = 0;
+
+    const syncOrderInputs = function () {
+      const inputs = Array.from(document.querySelectorAll('input[form="categoryOrderForm"][name="category_ids[]"]'));
+      const rows = Array.from(list.querySelectorAll('[data-category-row]'));
+      rows.forEach(function (row, index) {
+        inputs[index].value = row.dataset.categoryId;
+      });
+    };
+
+    const moveActiveRow = function () {
+      if (!activeRow) return;
+      const target = document.elementFromPoint(pointerX, pointerY);
+      const targetRow = target && target.closest('[data-category-row]');
+      if (!targetRow || targetRow === activeRow || targetRow.parentElement !== list) return;
+      const bounds = targetRow.getBoundingClientRect();
+      list.insertBefore(activeRow, pointerY < bounds.top + bounds.height / 2 ? targetRow : targetRow.nextSibling);
+    };
+
+    const autoScroll = function () {
+      if (!activeRow) {
+        autoScrollFrame = 0;
+        return;
+      }
+      const edgeSize = 90;
+      const maxStep = 18;
+      if (pointerY < edgeSize) {
+        window.scrollBy(0, -Math.ceil((edgeSize - pointerY) / edgeSize * maxStep));
+      } else if (pointerY > window.innerHeight - edgeSize) {
+        window.scrollBy(0, Math.ceil((pointerY - (window.innerHeight - edgeSize)) / edgeSize * maxStep));
+      }
+      moveActiveRow();
+      autoScrollFrame = window.requestAnimationFrame(autoScroll);
+    };
+
+    list.querySelectorAll('.category-drag-handle').forEach(function (handle) {
+      handle.addEventListener('pointerdown', function (event) {
+        if (event.button !== undefined && event.button !== 0) return;
+        activeRow = handle.closest('[data-category-row]');
+        pointerX = event.clientX;
+        pointerY = event.clientY;
+        activeRow.classList.add('category-row-dragging');
+        handle.setPointerCapture(event.pointerId);
+        status.textContent = 'Move the category, then release to place it.';
+        if (!autoScrollFrame) autoScrollFrame = window.requestAnimationFrame(autoScroll);
+        event.preventDefault();
+      });
+
+      handle.addEventListener('pointermove', function (event) {
+        if (!activeRow) return;
+        pointerX = event.clientX;
+        pointerY = event.clientY;
+        moveActiveRow();
+      });
+
+      const finishDrag = function () {
+        if (!activeRow) return;
+        activeRow.classList.remove('category-row-dragging');
+        activeRow = null;
+        if (autoScrollFrame) {
+          window.cancelAnimationFrame(autoScrollFrame);
+          autoScrollFrame = 0;
+        }
+        syncOrderInputs();
+        status.textContent = 'Order changed. Click Save category order to apply it to the store.';
+      };
+      handle.addEventListener('pointerup', finishDrag);
+      handle.addEventListener('pointercancel', finishDrag);
+      handle.addEventListener('lostpointercapture', finishDrag);
+    });
+
+    orderForm.addEventListener('submit', syncOrderInputs);
+  })();
+</script>
+<style>
+  #categoryOrderRows tr.category-row-dragging{opacity:.55;background:#eef7ed}
+  #categoryOrderRows tr{transition:background-color .15s ease}
+  .category-drag-handle:active{cursor:grabbing!important}
+</style>
 
 <?php include __DIR__ . '/includes/admin_footer.php'; ?>
