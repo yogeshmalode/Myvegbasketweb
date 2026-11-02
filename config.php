@@ -1853,9 +1853,16 @@ function ensure_management_schema($pdo) {
             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
             KEY idx_stock_transfers_veg (vegetable_id),
             KEY idx_stock_transfers_store (dark_store_id),
+            KEY idx_stock_transfers_created (created_at),
             CONSTRAINT fk_stock_transfers_veg FOREIGN KEY (vegetable_id) REFERENCES vegetables(id) ON DELETE CASCADE,
             CONSTRAINT fk_stock_transfers_store FOREIGN KEY (dark_store_id) REFERENCES dark_stores(id) ON DELETE CASCADE
         ) ENGINE=InnoDB");
+        $transferDateIndex = $pdo->prepare("SELECT COUNT(*) FROM information_schema.STATISTICS
+            WHERE TABLE_SCHEMA = ? AND TABLE_NAME = 'stock_transfers' AND INDEX_NAME = 'idx_stock_transfers_created'");
+        $transferDateIndex->execute([$db]);
+        if (!(int)$transferDateIndex->fetchColumn()) {
+            $pdo->exec("ALTER TABLE stock_transfers ADD INDEX idx_stock_transfers_created (created_at)");
+        }
         $transferQuantityScale = $pdo->prepare("SELECT NUMERIC_SCALE FROM information_schema.COLUMNS
             WHERE TABLE_SCHEMA = ? AND TABLE_NAME = 'stock_transfers' AND COLUMN_NAME = 'quantity'");
         $transferQuantityScale->execute([$db]);
