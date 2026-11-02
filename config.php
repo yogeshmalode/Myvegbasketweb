@@ -875,27 +875,6 @@ function find_nearest_dark_store($pdo, $lat, $lng) {
     return $best;
 }
 
-function find_serviceable_dark_store($pdo, $lat, $lng) {
-    if ($lat === null || $lng === null || $lat === '' || $lng === '') return null;
-    $stores = $pdo->query("SELECT * FROM dark_stores WHERE is_active = 1")->fetchAll();
-    $serviceableStore = null;
-    $serviceableDistance = null;
-    foreach ($stores as $store) {
-        $distanceKm = haversine_km($store['lat'], $store['lng'], $lat, $lng);
-        if ($distanceKm <= (float)$store['service_radius_km']
-            && ($serviceableDistance === null || $distanceKm < $serviceableDistance)) {
-            $serviceableStore = $store;
-            $serviceableDistance = $distanceKm;
-        }
-    }
-
-    if ($serviceableStore !== null) {
-        $serviceableStore['distance_km'] = round($serviceableDistance, 3);
-        $serviceableStore['in_range'] = true;
-    }
-    return $serviceableStore;
-}
-
 // Best-effort estimate of where a rider currently is, in priority order:
 // 1) the live GPS ping from any order they're actively delivering right now,
 // 2) a manually-set base_lat/base_lng on their own rider profile,
@@ -2542,74 +2521,6 @@ function geocode_address($address) {
         return ['lat' => (float)$data[0]['lat'], 'lng' => (float)$data[0]['lon']];
     }
     return $fallback($address);
-}
-
-function reverse_geocode_coordinates($lat, $lng) {
-    if (!function_exists('curl_init')) {
-        throw new RuntimeException('cURL is required for reverse geocoding.');
-    }
-
-    $url = 'https://nominatim.openstreetmap.org/reverse?format=jsonv2&addressdetails=1&zoom=18&lat='
-        . urlencode((string)$lat) . '&lon=' . urlencode((string)$lng);
-    $ch = curl_init($url);
-    curl_setopt_array($ch, [
-        CURLOPT_RETURNTRANSFER => true,
-        CURLOPT_TIMEOUT        => 6,
-        CURLOPT_CONNECTTIMEOUT => 3,
-        CURLOPT_USERAGENT      => 'VegBasketOrderTracking/1.0 (' . (defined('ADMIN_ALERT_EMAIL') ? ADMIN_ALERT_EMAIL : 'contact@example.com') . ')',
-    ]);
-    $result = curl_exec($ch);
-    $curlError = curl_error($ch);
-    $httpStatus = (int)curl_getinfo($ch, CURLINFO_HTTP_CODE);
-    curl_close($ch);
-
-    if ($result === false || $httpStatus < 200 || $httpStatus >= 300) {
-        throw new RuntimeException('OpenStreetMap reverse geocoding failed: ' . ($curlError ?: 'HTTP ' . $httpStatus));
-    }
-
-    $data = json_decode($result, true);
-    if (!is_array($data) || json_last_error() !== JSON_ERROR_NONE) {
-        throw new RuntimeException('OpenStreetMap returned an invalid reverse geocoding response.');
-    }
-
-    $addressParts = [];
-    $hasLocality = false;
-    $localityKeys = [
-        'house_number', 'road', 'pedestrian', 'residential', 'neighbourhood',
-        'suburb', 'quarter', 'hamlet', 'village', 'town', 'city_district',
-        'city', 'county',
-    ];
-    $addressFields = is_array($data['address'] ?? null) ? $data['address'] : [];
-    foreach ([
-        'house_number', 'road', 'pedestrian', 'residential', 'neighbourhood',
-        'suburb', 'quarter', 'hamlet', 'village', 'town', 'city_district',
-        'city', 'county', 'state_district', 'state', 'postcode', 'country',
-    ] as $key) {
-        $part = trim((string)($addressFields[$key] ?? ''));
-        if ($part === '') {
-            continue;
-        }
-
-        $normalizedPart = strtolower($part);
-        $addressParts[$normalizedPart] = $part;
-        if (in_array($key, $localityKeys, true)) {
-            $hasLocality = true;
-        }
-    }
-
-    if (!$hasLocality) {
-        throw new RuntimeException('OpenStreetMap returned a postcode without a street or locality.');
-    }
-
-    $address = implode(', ', array_values($addressParts));
-    if ($address === '') {
-        throw new RuntimeException('OpenStreetMap did not return a readable address.');
-    }
-
-    return [
-        'address' => $address,
-        'postcode' => trim((string)($addressFields['postcode'] ?? '')),
-    ];
 }
 
 // Fetches an order's row and makes sure its delivery address has a cached

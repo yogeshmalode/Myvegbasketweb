@@ -20,10 +20,6 @@ $phone   = trim($_POST['phone'] ?? '');
 $address = trim($_POST['address'] ?? '');
 $deliveryArea = trim($_POST['delivery_area'] ?? '');
 $pincode = trim($_POST['pincode'] ?? '');
-$latitudeRaw = $_POST['delivery_latitude'] ?? '';
-$longitudeRaw = $_POST['delivery_longitude'] ?? '';
-$latitudeInput = is_string($latitudeRaw) ? trim($latitudeRaw) : '';
-$longitudeInput = is_string($longitudeRaw) ? trim($longitudeRaw) : '';
 $customerNoteInput = $_POST['customer_note'] ?? '';
 if (!is_string($customerNoteInput)) {
     echo json_encode(['success' => false, 'message' => 'The order note is invalid.']);
@@ -41,35 +37,6 @@ if ($name === '' || $email === '' || $phone === '' || $address === '') {
 if (!is_serviceable_delivery_area($deliveryArea, $pincode)) {
     echo json_encode(['success' => false, 'message' => 'Sorry, we do not deliver to your area yet']);
     exit;
-}
-
-if (($latitudeInput === '') !== ($longitudeInput === '')) {
-    echo json_encode(['success' => false, 'message' => 'Could not verify your current location. Please check it again or choose your area manually.']);
-    exit;
-}
-$customerLocation = null;
-if ($latitudeInput !== '') {
-    $latitude = filter_var($latitudeInput, FILTER_VALIDATE_FLOAT);
-    $longitude = filter_var($longitudeInput, FILTER_VALIDATE_FLOAT);
-    if ($latitude === false || $longitude === false
-        || $latitude < -90 || $latitude > 90
-        || $longitude < -180 || $longitude > 180) {
-        echo json_encode(['success' => false, 'message' => 'Could not verify your current location. Please check it again or choose your area manually.']);
-        exit;
-    }
-
-    try {
-        $serviceableStore = find_serviceable_dark_store($pdo, $latitude, $longitude);
-    } catch (Throwable $e) {
-        error_log('Checkout delivery-area validation failed: ' . $e->getMessage());
-        echo json_encode(['success' => false, 'message' => 'We could not verify delivery availability right now. Please try again.']);
-        exit;
-    }
-    if (!$serviceableStore) {
-        echo json_encode(['success' => false, 'message' => 'Sorry, we do not deliver to your current location yet.']);
-        exit;
-    }
-    $customerLocation = ['lat' => $latitude, 'lng' => $longitude];
 }
 
 $customerNoteLength = preg_match_all('/./us', $customerNote);
@@ -144,7 +111,7 @@ if ($requestedPayment === 'credit') {
 // back to treating that line as "no store stock available" (same as a
 // product variant that's out of stock), while shared-mode products are
 // completely unaffected either way.
-$geo = $customerLocation ?? geocode_address($address . ', ' . $pincode);
+$geo = geocode_address($address . ', ' . $pincode);
 $darkStoreId = null;
 $etaMinutes = null;
 if ($geo) {
