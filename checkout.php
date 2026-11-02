@@ -369,21 +369,30 @@ document.getElementById('useCurrentLocationBtn').addEventListener('click', funct
         return result;
       });
     }).then(function (result) {
-      if (result.address) {
-        deliveryAddressInput.value = result.address;
-      }
       detectedGpsPostcode = result.postcode || '';
+      const selectedPin = pincodeInput.value;
+      const enteredAddress = deliveryAddressInput.value.trim();
+      const enteredAddressPins = enteredAddress.match(/(?:^|\D)(\d{6})(?!\d)/g) || [];
+      const enteredAddressPin = enteredAddressPins.length
+        ? enteredAddressPins[enteredAddressPins.length - 1].replace(/\D/g, '')
+        : '';
+      const expectedPin = selectedPin || enteredAddressPin;
+      const postcodeMatchesSelection = !detectedGpsPostcode
+        || !expectedPin
+        || detectedGpsPostcode === expectedPin;
 
       if (result.serviceable) {
-        const selectedPin = pincodeInput.value;
-        if (detectedGpsPostcode && selectedPin && detectedGpsPostcode !== selectedPin) {
+        if (!postcodeMatchesSelection) {
           document.getElementById('deliveryLatitude').value = '';
           document.getElementById('deliveryLongitude').value = '';
-          locationStatus.textContent = 'Map detected PIN ' + detectedGpsPostcode
-            + ', but your selected area uses PIN ' + selectedPin
-            + '. Please correct the address; GPS coordinates were not attached to the order.';
+          locationStatus.textContent = 'The map detected PIN ' + detectedGpsPostcode
+            + ', but your address/selected area uses PIN ' + expectedPin
+            + '. Your entered address was kept unchanged, and these GPS coordinates were not attached to the order. Please select the correct delivery area and verify your address.';
           locationStatus.style.color = '#9A2E24';
         } else {
+          if (result.address && !enteredAddress) {
+            deliveryAddressInput.value = result.address;
+          }
           document.getElementById('deliveryLatitude').value = String(latitude);
           document.getElementById('deliveryLongitude').value = String(longitude);
           locationStatus.textContent = result.message
