@@ -339,7 +339,7 @@ include __DIR__ . '/includes/admin_header.php';
     <tbody>
       <?php foreach ($todayTransfers as $t): ?>
         <tr>
-          <td><?= h(date('h:i A', strtotime($t['created_at']))) ?></td>
+          <td><?= h(format_ist($t['created_at'], 'h:i A')) ?></td>
           <td><?= h($t['vegetable_name']) ?></td>
           <td><?= h($t['store_name']) ?></td>
           <td><?= number_format((float)$t['quantity'], 3) ?> <?= h($t['unit']) ?></td>
@@ -361,7 +361,7 @@ include __DIR__ . '/includes/admin_header.php';
     <tbody>
       <?php foreach ($recentTransfers as $t): ?>
         <tr>
-          <td><?= h(date('d M Y, h:i A', strtotime($t['created_at']))) ?></td>
+          <td><?= h(format_ist($t['created_at'])) ?></td>
           <td><?= h($t['vegetable_name']) ?></td>
           <td><?= h($t['store_name']) ?></td>
           <td><?= number_format((float)$t['quantity'], 3) ?> <?= h($t['unit']) ?></td>
