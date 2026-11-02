@@ -5,6 +5,7 @@ $minimumBudget = 100.0;
 $maximumBudget = 2000.0;
 $budget = 500.0;
 $category = 'all';
+$basketMode = 'recommended';
 $error = '';
 $recommendations = [];
 $historyBasedBasket = false;
@@ -36,6 +37,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     } else {
         $category = $categoryInput;
     }
+    $modeInput = $_POST['mode'] ?? 'recommended';
+    if (!is_string($modeInput) || !in_array($modeInput, ['recommended', 'custom'], true)) {
+        $error = 'Choose a valid basket-building option.';
+    } else {
+        $basketMode = $modeInput;
+    }
 
     $action = $_POST['action'] ?? 'build';
     if (!is_string($action) || !in_array($action, ['build', 'add'], true)) {
@@ -45,8 +52,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     if ($error === '' && $action === 'add') {
         $selected = $_POST['selected'] ?? [];
         $quantities = $_POST['quantities'] ?? [];
-        if (!is_array($selected) || !is_array($quantities) || count($selected) < 1 || count($selected) > 8) {
-            $error = 'Select between 1 and 8 products for your basket.';
+        if (!is_array($selected) || !is_array($quantities) || count($selected) < 1 || count($selected) > 50) {
+            $error = 'Select between 1 and 50 products for your basket.';
         } else {
             $basketItems = [];
             $basketTotal = 0.0;
@@ -177,7 +184,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $chosenIds = [];
         $remaining = $budget;
 
-        if (is_customer_logged_in()) {
+        if ($basketMode === 'recommended' && is_customer_logged_in()) {
             $historyStmt = $pdo->prepare(
                 "SELECT oi.vegetable_id, COUNT(DISTINCT recent.id) AS order_count,
                         SUM(oi.quantity) AS total_quantity, MAX(recent.created_at) AS last_ordered
@@ -281,8 +288,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             unset($chosen);
         } while ($addedQuantity);
 
-        foreach ($chosenIds as $chosen) {
-            $recommendations[] = $chosen;
+        if ($basketMode === 'custom') {
+            foreach ($productsById as $product) {
+                $recommendations[] = ['product' => $product, 'quantity' => 1];
+            }
+        } else {
+            foreach ($chosenIds as $chosen) {
+                $recommendations[] = $chosen;
+            }
         }
         if (!$recommendations) {
             $error = 'We could not find in-stock products that fit this budget and preference. Try a higher budget or choose all categories.';
@@ -292,7 +305,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
 $previewTotal = 0.0;
 foreach ($recommendations as $recommendation) {
-    $previewTotal += $recommendation['product']['_builder_price'] * $recommendation['quantity'];
+    if ($basketMode !== 'custom') {
+        $previewTotal += $recommendation['product']['_builder_price'] * $recommendation['quantity'];
+    }
 }
 
 include __DIR__ . '/includes/header.php';
@@ -315,7 +330,7 @@ include __DIR__ . '/includes/header.php';
   .budget-panel-icon{display:grid;place-items:center;flex:0 0 42px;height:42px;border-radius:13px;background:#EDF5E9;font-size:1.25rem}
   .budget-panel-heading h2{margin:0 0 3px;font-size:1.15rem;color:#1F4D36}
   .budget-panel-heading p{margin:0;color:#697466;font-size:.87rem}
-  .budget-controls{display:grid;grid-template-columns:minmax(180px,.8fr) minmax(210px,1fr) auto;gap:14px;align-items:end}
+  .budget-controls{display:grid;grid-template-columns:minmax(180px,.8fr) minmax(210px,1fr);gap:14px;align-items:end}
   .budget-controls .form-group{margin:0}
   .budget-controls input,.budget-controls select{min-height:48px}
   .budget-presets{display:flex;flex-wrap:wrap;gap:8px;margin-top:10px}
@@ -323,45 +338,58 @@ include __DIR__ . '/includes/header.php';
   .budget-preset:hover{background:#EAF3E6;border-color:#76A96D}
   .budget-preset.is-active,.budget-preset[aria-pressed="true"],.budget-preset.is-active:hover{background:#276943;border-color:#276943;color:#fff;box-shadow:0 3px 9px rgba(39,105,67,.2)}
   .budget-preset:hover{transform:translateY(-1px)}
-  .budget-build-button{min-height:48px;white-space:nowrap;box-shadow:0 6px 14px rgba(187,56,46,.18)}
+  .budget-build-actions{display:grid;grid-template-columns:1fr 1fr;gap:10px;grid-column:1/-1}
+  .budget-build-button,.budget-custom-button{min-height:48px;white-space:nowrap}
+  .budget-custom-button{border:1px solid #DCE8D5;background:#fff;color:#245A39;font-weight:750}
+  .budget-custom-button:hover{background:#F1F7EE;border-color:#AFCDA5}
   .budget-how{display:flex;align-items:center;gap:8px;margin:15px 0 0;color:#64705F;font-size:.82rem}
   .budget-how span{display:grid;place-items:center;flex:0 0 20px;height:20px;border-radius:50%;background:#EDF5E9;color:#285F3D;font-size:.72rem;font-weight:800}
   .budget-results{margin-top:20px;animation:budgetReveal .45s cubic-bezier(.2,.8,.2,1) both}
-  .budget-result-top{display:flex;justify-content:space-between;align-items:flex-start;gap:12px;flex-wrap:wrap;margin-bottom:14px}
+  .budget-workspace{display:grid;grid-template-columns:minmax(0,1fr) 285px;gap:18px;align-items:start}
+  .budget-products-panel{min-width:0}
+  .budget-result-top{display:flex;justify-content:space-between;align-items:flex-start;gap:12px;flex-wrap:wrap;margin-bottom:16px}
   .budget-result-top h2{margin:0 0 5px;font-size:1.3rem;color:#1F4D36}
   .budget-result-top p{margin:0;color:#697466;font-size:.88rem}
   .budget-result-badge{display:inline-flex;align-items:center;gap:6px;padding:7px 11px;border-radius:999px;background:#EFF7EB;color:#28603A;font-size:.8rem;font-weight:800}
-  .budget-product-list{display:grid;gap:9px}
-  .budget-product{display:grid;grid-template-columns:24px 66px minmax(0,1fr) auto;gap:13px;align-items:center;padding:12px;border:1px solid #E7ECE3;border-radius:14px;background:#fff;cursor:pointer;transition:border-color .2s ease,background .2s ease,transform .2s ease,box-shadow .2s ease}
+  .budget-product-tools{display:flex;gap:10px;flex-wrap:wrap;margin-bottom:14px}
+  .budget-product-search{flex:1 1 220px;min-height:44px;padding:0 13px;border:1px solid #DCE5D8;border-radius:11px;background:#fff;font:inherit}
+  .budget-product-filters{display:flex;gap:7px;overflow-x:auto;padding:2px 0 7px;margin-bottom:9px}
+  .budget-product[hidden],.budget-how[hidden]{display:none!important}
+  .budget-filter-chip{flex:0 0 auto;padding:7px 11px;border:1px solid #DCE8D5;border-radius:999px;background:#fff;color:#3F5946;font:inherit;font-size:.78rem;font-weight:700;cursor:pointer}
+  .budget-filter-chip.is-active{background:#276943;border-color:#276943;color:#fff}
+  .budget-product-list{display:grid;grid-template-columns:repeat(auto-fill,minmax(225px,1fr));gap:11px}
+  .budget-product{display:grid;grid-template-columns:20px 58px minmax(0,1fr);grid-template-rows:auto auto;gap:9px 10px;align-items:center;padding:12px;border:1px solid #E7ECE3;border-radius:15px;background:#fff;cursor:pointer;transition:border-color .2s ease,background .2s ease,transform .2s ease,box-shadow .2s ease}
   .budget-product:hover{transform:translateY(-1px);border-color:#BDD5B5;box-shadow:0 6px 16px rgba(31,77,54,.06)}
   .budget-product.is-selected{border-color:#B8D5AE;background:#FBFDF9}
-  .budget-product.is-unselected{opacity:.62;background:#F8F9F6}
-  .budget-product>input[type=checkbox]{width:19px;height:19px;accent-color:#33834B;cursor:pointer}
-  .budget-product img{width:66px;height:66px;object-fit:contain;border-radius:12px;background:#F4F7F1}
+  .budget-product.is-unselected{background:#fff}
+  .budget-product.is-unselected .budget-product-line-total{visibility:hidden}
+  .budget-product>input[type=checkbox]{grid-column:1;grid-row:1;width:19px;height:19px;accent-color:#33834B;cursor:pointer}
+  .budget-product img{grid-column:2;grid-row:1;width:58px;height:58px;object-fit:contain;border-radius:12px;background:#F4F7F1}
   .budget-product-copy{min-width:0}
+  .budget-product-copy{grid-column:3;grid-row:1}
   .budget-product-name{display:block;color:#273528;font-size:.96rem;font-weight:750}
   .budget-product-meta{display:block;margin-top:4px;color:#697466;font-size:.8rem}
   .budget-product-line-total{display:block;margin-top:5px;color:#285F3D;font-size:.81rem;font-weight:800}
-  .budget-qty-wrap{display:flex;align-items:center;gap:5px;padding:4px;border:1px solid #E0E7DA;border-radius:11px;background:#fff}
+  .budget-qty-wrap{grid-column:2/4;display:flex;align-items:center;justify-self:start;gap:5px;padding:4px;border:1px solid #E0E7DA;border-radius:11px;background:#fff}
   .budget-qty-adjust{display:grid;place-items:center;width:30px;height:30px;border:0;border-radius:8px;background:#F1F6ED;color:#285F3D;font-size:1rem;font-weight:800;cursor:pointer}
   .budget-qty-adjust:hover{background:#E2EEDB}
   .budget-qty{width:38px;padding:5px 2px;border:0;background:transparent;color:#26301F;text-align:center;font:inherit;font-size:.9rem;font-weight:700;appearance:textfield}
   .budget-qty::-webkit-inner-spin-button,.budget-qty::-webkit-outer-spin-button{appearance:none;margin:0}
-  .budget-summary{position:sticky;bottom:10px;z-index:2;margin-top:16px;padding:15px 17px;border:1px solid #DCE8D5;border-radius:15px;background:rgba(255,255,255,.97);box-shadow:0 10px 28px rgba(31,77,54,.14);backdrop-filter:blur(8px)}
-  .budget-summary-line{display:flex;justify-content:space-between;align-items:center;gap:12px}
+  .budget-summary{position:sticky;top:18px;margin:0;padding:19px;border:1px solid #DCE8D5;border-radius:17px;background:linear-gradient(160deg,#fff,#F8FCF6);box-shadow:0 12px 30px rgba(31,77,54,.1)}
+  .budget-summary-line{display:grid;gap:8px}
   .budget-summary-total{color:#1F4D36;font-size:1.15rem;font-weight:850;font-variant-numeric:tabular-nums}
   .budget-summary-meta{color:#697466;font-size:.8rem}
   .budget-progress{height:8px;overflow:hidden;margin-top:11px;border-radius:999px;background:#EAF0E6}
   .budget-progress-fill{height:100%;width:0;border-radius:inherit;background:linear-gradient(90deg,#57A765,#E2A550);transition:width .32s ease,background .2s ease}
   .budget-progress-fill.is-over{background:#C94A3F}
-  .budget-summary-actions{display:flex;align-items:center;justify-content:space-between;gap:10px;margin-top:12px}
+  .budget-summary-actions{display:grid;gap:10px;margin-top:14px}
   .budget-selection-count{color:#64705F;font-size:.82rem}
   .budget-add-button{min-height:45px}
   .budget-error{animation:budgetNudge .3s ease}
   @keyframes budgetReveal{from{opacity:0;transform:translateY(12px)}to{opacity:1;transform:translateY(0)}}
   @keyframes budgetNudge{25%{transform:translateX(-4px)}75%{transform:translateX(4px)}}
-  @media(max-width:700px){.budget-controls{grid-template-columns:1fr 1fr}.budget-build-button{grid-column:1/-1;width:100%}}
-  @media(max-width:520px){.budget-builder{padding-top:18px;padding-bottom:38px}.budget-hero{border-radius:18px;margin-bottom:14px}.budget-hero:after{right:-2%;bottom:-16px}.budget-controls{grid-template-columns:1fr}.budget-build-button{grid-column:auto}.budget-product{grid-template-columns:22px 52px minmax(0,1fr);gap:9px;padding:10px}.budget-product img{width:52px;height:52px}.budget-product-copy{padding-right:2px}.budget-qty-wrap{grid-column:3;justify-self:start;margin-top:3px}.budget-summary{bottom:6px;padding:12px}.budget-summary-actions{align-items:flex-end}.budget-add-button{padding:10px 12px;font-size:.85rem}}
+  @media(max-width:800px){.budget-workspace{grid-template-columns:1fr}.budget-summary{position:sticky;top:auto;bottom:8px;z-index:4;padding:14px;background:rgba(255,255,255,.97);backdrop-filter:blur(10px)}.budget-summary-line{grid-template-columns:1fr auto;align-items:center}.budget-summary-actions{grid-template-columns:1fr auto}.budget-add-button{min-width:180px}}
+  @media(max-width:520px){.budget-builder{padding-top:18px;padding-bottom:38px}.budget-hero{border-radius:18px;margin-bottom:14px}.budget-hero:after{right:-2%;bottom:-16px}.budget-controls{grid-template-columns:1fr}.budget-build-actions{grid-template-columns:1fr}.budget-product-list{grid-template-columns:1fr 1fr;gap:8px}.budget-product{grid-template-columns:18px 42px minmax(0,1fr);gap:8px;padding:9px}.budget-product img{width:42px;height:42px}.budget-product-name{font-size:.85rem}.budget-product-meta{font-size:.72rem}.budget-qty-wrap{grid-column:1/-1;justify-self:stretch;justify-content:space-between}.budget-summary{bottom:5px;padding:11px}.budget-summary-total{font-size:1.04rem}.budget-summary-meta{font-size:.72rem}.budget-summary-actions{grid-template-columns:1fr}.budget-add-button{width:100%;min-width:0;padding:10px 12px;font-size:.85rem}}
   @media(prefers-reduced-motion:reduce){.budget-results{animation:none}.budget-product,.budget-preset,.budget-progress-fill{transition:none}.budget-error{animation:none}}
 </style>
 
@@ -384,6 +412,7 @@ include __DIR__ . '/includes/header.php';
   <section class="budget-panel" aria-labelledby="budgetSetupHeading">
     <form method="post" action="<?= BASE_URL ?>/budget_basket.php" id="budgetBuildForm">
       <input type="hidden" name="csrf_token" value="<?= h(csrf_token()) ?>">
+      <input type="hidden" name="mode" id="budgetMode" value="<?= h($basketMode) ?>">
       <div class="budget-panel-heading">
         <span class="budget-panel-icon" aria-hidden="true">💰</span>
         <div>
@@ -410,7 +439,10 @@ include __DIR__ . '/includes/header.php';
             <?php endforeach; ?>
           </select>
         </div>
-        <button type="submit" name="action" value="build" class="btn btn-primary budget-build-button"><span aria-hidden="true">✨</span> Build my basket</button>
+      </div>
+      <div class="budget-build-actions">
+        <button type="submit" name="action" value="build" data-build-mode="recommended" class="btn btn-primary budget-build-button"><span aria-hidden="true">✨</span> Suggest a basket</button>
+        <button type="submit" name="action" value="build" data-build-mode="custom" class="btn budget-custom-button">🧺 I’ll choose my products</button>
       </div>
       <div class="budget-how" id="budgetHelp"><span aria-hidden="true">i</span> Product total only. Delivery is calculated separately in your cart.</div>
     </form>
@@ -421,54 +453,76 @@ include __DIR__ . '/includes/header.php';
       <input type="hidden" name="csrf_token" value="<?= h(csrf_token()) ?>">
       <input type="hidden" name="budget" value="<?= h(number_format($budget, 2, '.', '')) ?>">
       <input type="hidden" name="category" value="<?= h($category) ?>">
+      <input type="hidden" name="mode" value="<?= h($basketMode) ?>">
       <input type="hidden" name="action" value="add">
-      <section class="budget-panel budget-results" aria-labelledby="budgetItemsHeading">
-        <div class="budget-result-top">
-          <div>
+      <section class="budget-results" aria-labelledby="budgetItemsHeading">
+        <div class="budget-workspace">
+          <div class="budget-panel budget-products-panel">
+            <div class="budget-result-top">
+              <div>
             <span class="budget-result-badge"><span aria-hidden="true">✓</span> Fits your <?= SITE_CURRENCY ?><?= number_format($budget) ?> budget</span>
-            <h2 id="budgetItemsHeading" style="margin-top:12px;">Your fresh basket mix</h2>
-            <p><?= $historyBasedBasket ? 'Prioritized from your recent orders, with today’s prices and stock. Adjust anything you like.' : 'Choose what you need and adjust quantities. Current prices are shown below.' ?></p>
+            <h2 id="budgetItemsHeading" style="margin-top:12px;"><?= $basketMode === 'custom' ? 'Choose your fresh picks' : 'Your suggested basket' ?></h2>
+            <p><?= $basketMode === 'custom' ? 'Pick the products you want, then adjust quantities. We’ll keep your total within budget.' : ($historyBasedBasket ? 'Inspired by your recent orders and current availability. Adjust anything you like.' : 'Choose what you need and adjust quantities. Current prices are shown below.') ?></p>
+              </div>
+              <span class="budget-result-badge"><?= count($recommendations) ?> fresh picks</span>
+            </div>
+            <?php if ($basketMode === 'custom'): ?>
+              <div class="budget-product-tools">
+                <input type="search" class="budget-product-search" id="budgetProductSearch" placeholder="Search vegetables..." aria-label="Search products">
+              </div>
+              <div class="budget-product-filters" id="budgetProductFilters" aria-label="Filter by category">
+                <button type="button" class="budget-filter-chip is-active" data-category-filter="all" aria-pressed="true">All products</button>
+                <?php foreach ($categoryNames as $categoryName): ?>
+                  <button type="button" class="budget-filter-chip" data-category-filter="<?= h(mb_strtolower($categoryName)) ?>" aria-pressed="false"><?= h($categoryName) ?></button>
+                <?php endforeach; ?>
+              </div>
+              <p id="budgetSelectionLimit" class="budget-how" role="status" hidden>You can add up to 50 different products to one custom basket.</p>
+            <?php endif; ?>
+            <div class="budget-product-list" id="budgetProductList">
+            <?php foreach ($recommendations as $recommendation):
+              $product = $recommendation['product'];
+              $id = (int)$product['id'];
+              $price = (float)$product['_builder_price'];
+              $quantity = (int)$recommendation['quantity'];
+              $isSelected = $basketMode !== 'custom';
+              $image = veg_thumb_html($product, false, 'lazy');
+            ?>
+              <label class="budget-product<?= $isSelected ? ' is-selected' : ' is-unselected' ?>" for="budget-product-<?= $id ?>" data-product-name="<?= h(mb_strtolower($product['name'])) ?>" data-product-category="<?= h(mb_strtolower($product['category'])) ?>">
+                <input type="checkbox" class="budget-check" id="budget-product-<?= $id ?>" name="selected[<?= $id ?>]" value="1" <?= $isSelected ? 'checked' : '' ?> aria-label="Include <?= h($product['name']) ?>">
+                <?= $image ?>
+                <span class="budget-product-copy">
+                  <strong class="budget-product-name"><?= h($product['name']) ?></strong>
+                  <small class="budget-product-meta"><?= h($product['category']) ?> · <?= SITE_CURRENCY ?><?= number_format($price, 2) ?> / <?= h($product['unit']) ?></small>
+                  <small class="budget-product-line-total"><?= SITE_CURRENCY ?><span class="budget-line-amount"><?= number_format($price * $quantity, 2) ?></span></small>
+                </span>
+                <span class="budget-qty-wrap" aria-label="Quantity controls for <?= h($product['name']) ?>">
+                  <button type="button" class="budget-qty-adjust" data-qty-step="-1" aria-label="Decrease <?= h($product['name']) ?> quantity">−</button>
+                  <input class="budget-qty" type="number" name="quantities[<?= $id ?>]" min="1" max="<?= min(100, (int)$product['_builder_stock']) ?>" value="<?= $quantity ?>" aria-label="Quantity of <?= h($product['name']) ?>" <?= $isSelected ? '' : 'disabled' ?>>
+                  <button type="button" class="budget-qty-adjust" data-qty-step="1" aria-label="Increase <?= h($product['name']) ?> quantity" <?= $isSelected ? '' : 'disabled' ?>>+</button>
+                </span>
+              </label>
+              <input type="hidden" class="budget-item-price" data-product-id="<?= $id ?>" value="<?= h(number_format($price, 2, '.', '')) ?>">
+            <?php endforeach; ?>
+            </div>
+            <?php if ($basketMode === 'custom'): ?>
+              <p id="budgetNoProducts" class="budget-how" hidden>No products match your search. Try another name or category.</p>
+            <?php endif; ?>
           </div>
-          <button type="button" class="btn" id="budgetSelectAll" style="background:#fff;border:1px solid #DCE8D5;color:#1F4D36;">Select none</button>
-        </div>
-        <div class="budget-product-list">
-        <?php foreach ($recommendations as $recommendation):
-          $product = $recommendation['product'];
-          $id = (int)$product['id'];
-          $price = (float)$product['_builder_price'];
-          $quantity = (int)$recommendation['quantity'];
-          $image = veg_thumb_html($product, false, 'lazy');
-        ?>
-          <label class="budget-product is-selected" for="budget-product-<?= $id ?>">
-            <input type="checkbox" class="budget-check" id="budget-product-<?= $id ?>" name="selected[<?= $id ?>]" value="1" checked aria-label="Include <?= h($product['name']) ?>">
-            <?= $image ?>
-            <span class="budget-product-copy">
-              <strong class="budget-product-name"><?= h($product['name']) ?></strong>
-              <small class="budget-product-meta"><?= h($product['category']) ?> · <?= SITE_CURRENCY ?><?= number_format($price, 2) ?> / <?= h($product['unit']) ?></small>
-              <small class="budget-product-line-total"><?= SITE_CURRENCY ?><span class="budget-line-amount"><?= number_format($price * $quantity, 2) ?></span></small>
-            </span>
-            <span class="budget-qty-wrap" aria-label="Quantity controls for <?= h($product['name']) ?>">
-              <button type="button" class="budget-qty-adjust" data-qty-step="-1" aria-label="Decrease <?= h($product['name']) ?> quantity">−</button>
-              <input class="budget-qty" type="number" name="quantities[<?= $id ?>]" min="1" max="<?= min(100, (int)$product['_builder_stock']) ?>" value="<?= $quantity ?>" aria-label="Quantity of <?= h($product['name']) ?>">
-              <button type="button" class="budget-qty-adjust" data-qty-step="1" aria-label="Increase <?= h($product['name']) ?> quantity">+</button>
-            </span>
-          </label>
-          <input type="hidden" class="budget-item-price" data-product-id="<?= $id ?>" value="<?= h(number_format($price, 2, '.', '')) ?>">
-        <?php endforeach; ?>
-        </div>
-
-        <div class="budget-summary">
-          <div class="budget-summary-line">
-            <span><strong>Basket estimate</strong><small class="budget-summary-meta" id="budgetRemaining"><?= SITE_CURRENCY ?><?= number_format(max(0, $budget - $previewTotal), 2) ?> left to your budget</small></span>
-            <strong class="budget-summary-total" id="budgetPreviewTotal" data-budget="<?= h(number_format($budget, 2, '.', '')) ?>"><?= SITE_CURRENCY ?><span><?= number_format($previewTotal, 2) ?></span></strong>
-          </div>
-          <div class="budget-progress" role="progressbar" aria-label="Budget used" aria-valuemin="0" aria-valuemax="<?= h(number_format($budget, 2, '.', '')) ?>" aria-valuenow="<?= h(number_format(min($previewTotal, $budget), 2, '.', '')) ?>">
-            <div class="budget-progress-fill" id="budgetProgressFill"></div>
-          </div>
-          <div class="budget-summary-actions">
-            <span class="budget-selection-count" id="budgetSelectionCount" aria-live="polite"><?= count($recommendations) ?> items selected</span>
-            <button type="submit" class="btn btn-primary budget-add-button" id="budgetAddButton">Add selected to basket <span aria-hidden="true">→</span></button>
-          </div>
+          <aside class="budget-summary" aria-label="Basket summary">
+            <div class="budget-summary-line">
+              <strong>Basket summary</strong>
+              <small class="budget-summary-meta" id="budgetRemaining"><?= SITE_CURRENCY ?><?= number_format(max(0, $budget - $previewTotal), 2) ?> remaining</small>
+              <strong class="budget-summary-total" id="budgetPreviewTotal" data-budget="<?= h(number_format($budget, 2, '.', '')) ?>"><?= SITE_CURRENCY ?><span><?= number_format($previewTotal, 2) ?></span></strong>
+            </div>
+            <div class="budget-progress" role="progressbar" aria-label="Budget used" aria-valuemin="0" aria-valuemax="<?= h(number_format($budget, 2, '.', '')) ?>" aria-valuenow="<?= h(number_format(min($previewTotal, $budget), 2, '.', '')) ?>">
+              <div class="budget-progress-fill" id="budgetProgressFill"></div>
+            </div>
+            <div class="budget-summary-actions">
+              <span class="budget-selection-count" id="budgetSelectionCount" aria-live="polite"><?= $basketMode === 'custom' ? 'Choose your first item' : count($recommendations) . ' items selected' ?></span>
+              <button type="button" class="btn budget-custom-button" id="budgetSelectAll"><?= $basketMode === 'custom' ? 'Select all products' : 'Select none' ?></button>
+              <button type="submit" class="btn btn-primary budget-add-button" id="budgetAddButton" <?= $basketMode === 'custom' ? 'disabled' : '' ?>>Add to basket <span aria-hidden="true">→</span></button>
+            </div>
+        </aside>
         </div>
       </section>
     </form>
@@ -479,6 +533,7 @@ include __DIR__ . '/includes/header.php';
 const budgetBuildForm = document.getElementById('budgetBuildForm');
 const budgetInput = document.getElementById('budget');
 const budgetPresets = Array.from(document.querySelectorAll('[data-budget-preset]'));
+const budgetMode = document.getElementById('budgetMode');
 const buildButton = budgetBuildForm.querySelector('button[name="action"][value="build"]');
 
 function syncBudgetPresetSelection() {
@@ -502,6 +557,11 @@ budgetPresets.forEach(function (button) {
 });
 
 budgetInput.addEventListener('input', syncBudgetPresetSelection);
+budgetBuildForm.querySelectorAll('[data-build-mode]').forEach(function (button) {
+  button.addEventListener('click', function () {
+    budgetMode.value = button.dataset.buildMode;
+  });
+});
 syncBudgetPresetSelection();
 
 const budgetForm = document.getElementById('budgetBasketForm');
@@ -514,12 +574,34 @@ if (budgetForm) {
   const remainingLabel = document.getElementById('budgetRemaining');
   const countLabel = document.getElementById('budgetSelectionCount');
   const addButton = document.getElementById('budgetAddButton');
+  const selectAllButton = document.getElementById('budgetSelectAll');
+  const isCustomMode = budgetForm.querySelector('input[name="mode"]').value === 'custom';
+  const selectionLimit = 50;
+  const filterButtons = Array.from(document.querySelectorAll('[data-category-filter]'));
+  const searchInput = document.getElementById('budgetProductSearch');
+  const noProductsMessage = document.getElementById('budgetNoProducts');
+  const limitMessage = document.getElementById('budgetSelectionLimit');
   const currencySymbol = <?= json_encode(SITE_CURRENCY) ?>;
   const money = new Intl.NumberFormat('en-IN', {minimumFractionDigits: 2, maximumFractionDigits: 2});
+
+  function filterProducts() {
+    const searchTerm = searchInput ? searchInput.value.trim().toLocaleLowerCase() : '';
+    const activeCategory = filterButtons.find(function (button) { return button.classList.contains('is-active'); });
+    let visibleCount = 0;
+    budgetForm.querySelectorAll('.budget-product').forEach(function (row) {
+      const matchesSearch = row.dataset.productName.includes(searchTerm);
+      const matchesCategory = !activeCategory || activeCategory.dataset.categoryFilter === 'all' || row.dataset.productCategory === activeCategory.dataset.categoryFilter;
+      const visible = matchesSearch && matchesCategory;
+      row.hidden = !visible;
+      if (visible) visibleCount++;
+    });
+    if (noProductsMessage) noProductsMessage.hidden = visibleCount > 0;
+  }
 
   function updateBudgetPreview() {
     let total = 0;
     let selectedCount = 0;
+    let selectedVisibleCount = 0;
     budgetForm.querySelectorAll('.budget-product').forEach(function (row) {
       const checkbox = row.querySelector('.budget-check');
       const quantity = row.querySelector('.budget-qty');
@@ -535,9 +617,14 @@ if (budgetForm) {
         const lineTotal = Number(price.value) * safeQuantity;
         total += lineTotal;
         selectedCount++;
+        if (!row.hidden) selectedVisibleCount++;
         row.querySelector('.budget-line-amount').textContent = money.format(lineTotal);
       }
     });
+    if (selectAllButton) {
+      selectAllButton.textContent = selectedVisibleCount ? 'Clear visible selection' : (isCustomMode ? 'Select visible products' : 'Select all');
+    }
+    if (limitMessage) limitMessage.hidden = selectedCount < selectionLimit;
     totalElement.textContent = money.format(total);
     const overBudget = total > budgetAmount;
     totalWrap.style.color = overBudget ? '#9A2E24' : '#1F4D36';
@@ -548,9 +635,32 @@ if (budgetForm) {
     remainingLabel.textContent = overBudget
       ? 'Over budget by ' + currencySymbol + money.format(total - budgetAmount)
       : currencySymbol + money.format(budgetAmount - total) + ' left to your budget';
-    countLabel.textContent = selectedCount + ' item' + (selectedCount === 1 ? '' : 's') + ' selected';
+    countLabel.textContent = selectedCount
+      ? selectedCount + ' product' + (selectedCount === 1 ? '' : 's') + ' selected'
+      : 'Choose your first item';
     addButton.disabled = selectedCount === 0 || overBudget;
   }
+
+  budgetForm.querySelectorAll('.budget-check').forEach(function (checkbox) {
+    checkbox.addEventListener('change', function () {
+      if (this.checked && budgetForm.querySelectorAll('.budget-check:checked').length > selectionLimit) {
+        this.checked = false;
+        if (limitMessage) limitMessage.hidden = false;
+      }
+    });
+  });
+
+  if (searchInput) searchInput.addEventListener('input', filterProducts);
+  filterButtons.forEach(function (button) {
+    button.addEventListener('click', function () {
+      filterButtons.forEach(function (filter) {
+        const active = filter === button;
+        filter.classList.toggle('is-active', active);
+        filter.setAttribute('aria-pressed', active ? 'true' : 'false');
+      });
+      filterProducts();
+    });
+  });
 
   budgetForm.addEventListener('input', updateBudgetPreview);
   budgetForm.addEventListener('change', updateBudgetPreview);
@@ -562,13 +672,23 @@ if (budgetForm) {
       updateBudgetPreview();
     });
   });
-  document.getElementById('budgetSelectAll').addEventListener('click', function () {
-    const checks = budgetForm.querySelectorAll('.budget-check');
-    const selectAll = Array.from(checks).some(function (checkbox) { return !checkbox.checked; });
-    checks.forEach(function (checkbox) { checkbox.checked = selectAll; });
-    this.textContent = selectAll ? 'Select none' : 'Select all';
+  selectAllButton.addEventListener('click', function () {
+    const visibleChecks = Array.from(budgetForm.querySelectorAll('.budget-product:not([hidden]) .budget-check'));
+    const selectedVisible = visibleChecks.some(function (checkbox) { return checkbox.checked; });
+    if (selectedVisible) {
+      visibleChecks.forEach(function (checkbox) { checkbox.checked = false; });
+    } else {
+      let selectedCount = budgetForm.querySelectorAll('.budget-check:checked').length;
+      visibleChecks.forEach(function (checkbox) {
+        if (!checkbox.checked && selectedCount < selectionLimit) {
+          checkbox.checked = true;
+          selectedCount++;
+        }
+      });
+    }
     updateBudgetPreview();
   });
+  filterProducts();
   updateBudgetPreview();
 }
 </script>
