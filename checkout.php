@@ -28,6 +28,10 @@ if (!empty($_SESSION['applied_coupon_code'])) {
 
 $total = $subtotal - $discountAmount + $deliveryCharge;
 $customer = current_customer();
+$checkoutMapsConfig = require __DIR__ . '/config/maps.php';
+$checkoutMapCenter = $checkoutMapsConfig['default_center'];
+$page_head_html = '<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">'
+    . '<script defer src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>';
 $customerType = $customer['customer_type'] ?? 'retail';
 $creditAvailable = 0;
 if ($customer && in_array($customerType, ['hotel', 'shop'], true) && (float)$customer['credit_limit'] > 0) {
@@ -82,7 +86,14 @@ include __DIR__ . '/includes/header.php';
         <small id="deliveryAreaHelp" style="color:#5B6656;">We’ll detect a supported locality from your address when possible. You can also choose it here.</small>
         <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-top:8px;">
           <button type="button" class="btn" id="useCurrentLocationBtn">📍 Check delivery at my location</button>
+          <button type="button" class="btn" id="openDeliveryMapBtn">Choose exact point on map</button>
           <span id="currentLocationStatus" role="status" aria-live="polite" style="font-size:.82rem;color:#5B6656;"></span>
+        </div>
+        <div id="deliveryMapWrap" style="display:none;margin-top:12px;">
+          <p style="font-size:.85rem;color:#5B6656;margin:0 0 8px;">Move the map and tap your exact building or entrance. The pin you choose will be used for delivery.</p>
+          <div id="deliveryLocationMap" style="height:340px;width:100%;border:1px solid #D7DFD2;border-radius:12px;z-index:0;"></div>
+          <button type="button" class="btn" id="confirmMapPointBtn" style="margin-top:8px;" disabled>Use this map pin</button>
+          <small id="deliveryMapStatus" role="status" aria-live="polite" style="display:block;margin-top:6px;color:#5B6656;"></small>
         </div>
         <input type="hidden" id="deliveryLatitude" name="delivery_latitude">
         <input type="hidden" id="deliveryLongitude" name="delivery_longitude">
@@ -259,6 +270,10 @@ const pincodeInput = document.getElementById('pincode');
 const pincodeDisplayWrap = document.getElementById('pincodeDisplayWrap');
 const deliveryAddressInput = document.getElementById('address');
 let detectedGpsPostcode = '';
+let deliveryMap = null;
+let deliveryMapMarker = null;
+let selectedMapPoint = null;
+const checkoutMapCenter = <?= json_encode($checkoutMapCenter, JSON_HEX_TAG | JSON_HEX_APOS | JSON_HEX_AMP | JSON_HEX_QUOT) ?>;
 const deliveryAreaAliases = <?= json_encode(get_serviceable_delivery_area_aliases(), JSON_HEX_TAG | JSON_HEX_APOS | JSON_HEX_AMP | JSON_HEX_QUOT) ?>;
 const selectDeliveryArea = function (areaName, message) {
   deliveryAreaSelect.value = areaName;
@@ -334,6 +349,124 @@ deliveryAddressInput.addEventListener('input', function () {
   }
 });
 
+const deliveryMapWrap = document.getElementById('deliveryMapWrap');
+const deliveryMapStatus = document.getElementById('deliveryMapStatus');
+const confirmMapPointBtn = document.getElementById('confirmMapPointBtn');
+function initializeDeliveryMap() {
+  if (deliveryMap) {
+    deliveryMap.invalidateSize();
+    return true;
+  }
+  if (!window.L) {
+    deliveryMapStatus.textContent = 'The map could not load. Check your internet connection or enter the address manually.';
+    return false;
+  }
+
+  deliveryMap = L.map('deliveryLocationMap').setView([checkoutMapCenter.lat, checkoutMapCenter.lng], 13);
+  L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+    maxZoom: 19,
+    attribution: '&copy; OpenStreetMap contributors'
+  }).addTo(deliveryMap);
+  deliveryMap.on('click', function (event) {
+    selectedMapPoint = { lat: event.latlng.lat, lng: event.latlng.lng };
+    if (!deliveryMapMarker) {
+      deliveryMapMarker = L.marker(event.latlng, { draggable: true }).addTo(deliveryMap);
+      deliveryMapMarker.on('dragend', function (dragEvent) {
+        const point = dragEvent.target.getLatLng();
+        selectedMapPoint = { lat: point.lat, lng: point.lng };
+      });
+    } else {
+      deliveryMapMarker.setLatLng(event.latlng);
+    }
+    confirmMapPointBtn.disabled = false;
+    deliveryMapStatus.textContent = 'Pin selected. Move it onto your building entrance, then choose “Use this map pin”.';
+  });
+  return true;
+}
+
+document.getElementById('openDeliveryMapBtn').addEventListener('click', function () {
+  deliveryMapWrap.style.display = 'block';
+  if (initializeDeliveryMap()) {
+    deliveryMapStatus.textContent = 'Tap the map to place the pin on your exact delivery entrance.';
+    setTimeout(function () { deliveryMap.invalidateSize(); }, 0);
+  }
+});
+
+function checkSelectedDeliveryPoint(latitude, longitude, source) {
+  const locationStatus = document.getElementById('currentLocationStatus');
+  locationStatus.textContent = 'Checking the selected point and fetching its mapped address…';
+  locationStatus.style.color = '#5B6656';
+  const body = new URLSearchParams({ latitude: String(latitude), longitude: String(longitude) });
+  return fetch(window.__VEGBASKET_BASE__ + '/ajax/check_delivery_location.php', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+    body: body.toString()
+  }).then(function (response) {
+    return response.json().then(function (result) {
+      if (!response.ok) throw new Error(result.message || 'Could not check delivery coverage.');
+      return result;
+    });
+  }).then(function (result) {
+    detectedGpsPostcode = result.postcode || '';
+    const selectedPin = pincodeInput.value;
+    const enteredAddress = deliveryAddressInput.value.trim();
+    const enteredAddressPins = enteredAddress.match(/(?:^|\D)(\d{6})(?!\d)/g) || [];
+    const enteredAddressPin = enteredAddressPins.length
+      ? enteredAddressPins[enteredAddressPins.length - 1].replace(/\D/g, '')
+      : '';
+    const expectedPin = selectedPin || enteredAddressPin;
+    const postcodeMismatch = detectedGpsPostcode && expectedPin && detectedGpsPostcode !== expectedPin;
+
+    if (!result.serviceable) {
+      document.getElementById('deliveryLatitude').value = '';
+      document.getElementById('deliveryLongitude').value = '';
+      locationStatus.textContent = (result.message || 'Sorry, we do not deliver to this location yet.')
+        + (result.postcode ? ' Map PIN: ' + result.postcode + '.' : '');
+      locationStatus.style.color = '#9A2E24';
+      return;
+    }
+
+    if (postcodeMismatch && source === 'gps') {
+      document.getElementById('deliveryLatitude').value = '';
+      document.getElementById('deliveryLongitude').value = '';
+      locationStatus.textContent = 'The map detected PIN ' + detectedGpsPostcode
+        + ', but your address/selected area uses PIN ' + expectedPin
+        + '. Your entered address was kept unchanged, and these GPS coordinates were not attached to the order. Choose the exact point on the map or enter the address manually.';
+      locationStatus.style.color = '#9A2E24';
+      return;
+    }
+
+    if (!enteredAddress && result.address) {
+      let address = result.address;
+      if (postcodeMismatch && detectedGpsPostcode) {
+        address = address.split(',').map(function (part) {
+          return part.trim();
+        }).filter(function (part) {
+          return part && part !== detectedGpsPostcode;
+        }).join(', ');
+      }
+      deliveryAddressInput.value = address;
+    }
+    document.getElementById('deliveryLatitude').value = String(latitude);
+    document.getElementById('deliveryLongitude').value = String(longitude);
+    locationStatus.textContent = postcodeMismatch
+      ? 'Map pin selected. Map data says PIN ' + detectedGpsPostcode + ', while your chosen delivery area is ' + expectedPin + '. Verify the pin and address before placing the order.'
+      : (result.message || 'Delivery is available at the selected point.')
+        + (result.postcode ? ' Map PIN: ' + result.postcode + '.' : '');
+    locationStatus.style.color = postcodeMismatch ? '#9A2E24' : '#17643f';
+  }).catch(function (error) {
+    locationStatus.textContent = error.message || 'We could not check this point. Please try again or enter the address manually.';
+    locationStatus.style.color = '#9A2E24';
+  });
+}
+
+confirmMapPointBtn.addEventListener('click', function () {
+  if (!selectedMapPoint) return;
+  confirmMapPointBtn.disabled = true;
+  checkSelectedDeliveryPoint(selectedMapPoint.lat, selectedMapPoint.lng, 'map')
+    .finally(function () { confirmMapPointBtn.disabled = false; });
+});
+
 document.getElementById('useCurrentLocationBtn').addEventListener('click', function () {
   const locationStatus = document.getElementById('currentLocationStatus');
   const locationButton = this;
@@ -358,58 +491,7 @@ document.getElementById('useCurrentLocationBtn').addEventListener('click', funct
 
     const latitude = position.coords.latitude;
     const longitude = position.coords.longitude;
-    const body = new URLSearchParams({ latitude: String(latitude), longitude: String(longitude) });
-    fetch(window.__VEGBASKET_BASE__ + '/ajax/check_delivery_location.php', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-      body: body.toString()
-    }).then(function (response) {
-      return response.json().then(function (result) {
-        if (!response.ok) throw new Error(result.message || 'Could not check delivery coverage.');
-        return result;
-      });
-    }).then(function (result) {
-      detectedGpsPostcode = result.postcode || '';
-      const selectedPin = pincodeInput.value;
-      const enteredAddress = deliveryAddressInput.value.trim();
-      const enteredAddressPins = enteredAddress.match(/(?:^|\D)(\d{6})(?!\d)/g) || [];
-      const enteredAddressPin = enteredAddressPins.length
-        ? enteredAddressPins[enteredAddressPins.length - 1].replace(/\D/g, '')
-        : '';
-      const expectedPin = selectedPin || enteredAddressPin;
-      const postcodeMatchesSelection = !detectedGpsPostcode
-        || !expectedPin
-        || detectedGpsPostcode === expectedPin;
-
-      if (result.serviceable) {
-        if (!postcodeMatchesSelection) {
-          document.getElementById('deliveryLatitude').value = '';
-          document.getElementById('deliveryLongitude').value = '';
-          locationStatus.textContent = 'The map detected PIN ' + detectedGpsPostcode
-            + ', but your address/selected area uses PIN ' + expectedPin
-            + '. Your entered address was kept unchanged, and these GPS coordinates were not attached to the order. Please select the correct delivery area and verify your address.';
-          locationStatus.style.color = '#9A2E24';
-        } else {
-          if (result.address && !enteredAddress) {
-            deliveryAddressInput.value = result.address;
-          }
-          document.getElementById('deliveryLatitude').value = String(latitude);
-          document.getElementById('deliveryLongitude').value = String(longitude);
-          locationStatus.textContent = result.message
-            + (result.postcode ? ' Map PIN: ' + result.postcode + '.' : '')
-            + ' Device accuracy: about ' + Math.round(accuracyMeters) + ' metres.';
-          locationStatus.style.color = '#17643f';
-        }
-      } else {
-        locationStatus.textContent = (result.message || 'Sorry, we do not deliver to your current location yet.')
-          + (result.postcode ? ' Map PIN: ' + result.postcode + '.' : '')
-          + ' Device accuracy: about ' + Math.round(accuracyMeters) + ' metres.';
-        locationStatus.style.color = '#9A2E24';
-      }
-    }).catch(function (error) {
-      locationStatus.textContent = error.message || 'We could not check delivery coverage. Please choose your area manually or try again.';
-      locationStatus.style.color = '#9A2E24';
-    }).finally(function () {
+    checkSelectedDeliveryPoint(latitude, longitude, 'gps').finally(function () {
       locationButton.disabled = false;
     });
   }, function (error) {

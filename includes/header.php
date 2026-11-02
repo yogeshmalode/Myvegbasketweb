@@ -58,6 +58,7 @@ $__canonical = SITE_URL . strtok($_SERVER['REQUEST_URI'] ?? '/', '?');
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="<?= BASE_URL ?>/assets/css/style.css">
 <script>window.__VEGBASKET_BASE__ = "<?= BASE_URL ?>";</script>
+<?php if (!empty($page_head_html)) echo $page_head_html; ?>
 
 <?php if (!isset($page_title) || $page_title === 'Fresh Vegetables Online'): ?>
 <script type="application/ld+json">
