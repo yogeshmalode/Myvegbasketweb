@@ -71,9 +71,23 @@ include __DIR__ . '/includes/header.php';
         <textarea id="address" name="address" rows="3" required></textarea>
       </div>
       <div class="form-group">
-        <label for="pincode">Delivery PIN code</label>
-        <input type="text" id="pincode" name="pincode" inputmode="numeric" pattern="[0-9]{6}" maxlength="6" autocomplete="postal-code" placeholder="6-digit PIN code" aria-describedby="pincodeHelp" required>
-        <small id="pincodeHelp" style="color:#5B6656;">We currently deliver only to selected areas around Pune. Enter your 6-digit PIN code to continue.</small>
+        <label for="delivery_area">Choose your delivery area</label>
+        <select id="delivery_area" name="delivery_area" aria-describedby="deliveryAreaHelp" required>
+          <option value="">Select your locality</option>
+          <?php foreach (get_serviceable_delivery_areas() as $areaName => $areaPin): ?>
+            <option value="<?= h($areaName) ?>" data-pincode="<?= h($areaPin) ?>"><?= h($areaName) ?> — <?= h($areaPin) ?></option>
+          <?php endforeach; ?>
+        </select>
+        <small id="deliveryAreaHelp" style="color:#5B6656;">Choose the locality that matches your delivery address.</small>
+        <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-top:8px;">
+          <button type="button" class="btn" id="useCurrentLocationBtn">📍 Use my current location</button>
+          <span id="currentLocationStatus" role="status" aria-live="polite" style="font-size:.82rem;color:#5B6656;"></span>
+        </div>
+        <div class="form-group" id="pincodeDisplayWrap" style="display:none;margin-top:10px;">
+          <label for="pincode">Delivery PIN code</label>
+          <input type="text" id="pincode" name="pincode" inputmode="numeric" pattern="[0-9]{6}" maxlength="6" autocomplete="postal-code" readonly required>
+          <small style="color:#5B6656;">PIN code is filled from the selected locality.</small>
+        </div>
       </div>
       <div class="form-group">
         <label for="customer_note">Order note or instructions (optional)</label>
@@ -236,6 +250,41 @@ const payBtn       = document.getElementById('payBtn');
 const confirmBtn   = document.getElementById('confirmPaidBtn');
 const notPaidBtn   = document.getElementById('notPaidBtn');
 let currentOrderId = null;
+
+const deliveryAreaSelect = document.getElementById('delivery_area');
+const pincodeInput = document.getElementById('pincode');
+const pincodeDisplayWrap = document.getElementById('pincodeDisplayWrap');
+deliveryAreaSelect.addEventListener('change', function () {
+  const option = deliveryAreaSelect.options[deliveryAreaSelect.selectedIndex];
+  pincodeInput.value = option.dataset.pincode || '';
+  pincodeInput.disabled = !pincodeInput.value;
+  pincodeDisplayWrap.style.display = pincodeInput.value ? 'block' : 'none';
+});
+pincodeInput.disabled = !deliveryAreaSelect.value;
+
+document.getElementById('useCurrentLocationBtn').addEventListener('click', function () {
+  const locationStatus = document.getElementById('currentLocationStatus');
+  if (!navigator.geolocation) {
+    locationStatus.textContent = 'Location is not supported by this browser. Please choose your area from the list.';
+    return;
+  }
+  this.disabled = true;
+  locationStatus.textContent = 'Checking your location permission…';
+  navigator.geolocation.getCurrentPosition(function () {
+    locationStatus.textContent = 'Location found on this device. Choose the matching locality above to check delivery availability; your coordinates are not sent.';
+    deliveryAreaSelect.focus();
+    document.getElementById('deliveryAreaHelp').scrollIntoView({ behavior: 'smooth', block: 'center' });
+    document.getElementById('useCurrentLocationBtn').disabled = false;
+  }, function (error) {
+    const messages = {
+      1: 'Location permission was denied. Please choose your area from the list.',
+      2: 'Your location could not be determined. Please choose your area from the list.',
+      3: 'Location check timed out. Please choose your area from the list.'
+    };
+    locationStatus.textContent = messages[error.code] || 'Location check failed. Please choose your area from the list.';
+    document.getElementById('useCurrentLocationBtn').disabled = false;
+  }, { enableHighAccuracy: false, timeout: 10000, maximumAge: 60000 });
+});
 
 checkoutForm.addEventListener('submit', function (e) {
   e.preventDefault();

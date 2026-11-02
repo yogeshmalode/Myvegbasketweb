@@ -554,6 +554,9 @@ function render_order_card($o, $itemsByOrder, $colorMap, $actionsHtml, $orderSta
       </div>
       <div class="order-card-customer"><?= h($o['customer_name']) ?></div>
       <div class="order-card-sub">📞 <?= h($o['phone']) ?></div>
+      <?php if (!empty($o['delivery_area'])): ?>
+        <div class="order-card-sub">📍 <?= h($o['delivery_area']) ?><?= !empty($o['delivery_pincode']) ? ' · ' . h($o['delivery_pincode']) : '' ?></div>
+      <?php endif; ?>
       <?php if (!empty($o['delivery_date'])): ?>
         <div class="order-card-sub">🗓 <?= h(date('d M', strtotime($o['delivery_date']))) ?>, <?= h($o['delivery_slot']) ?></div>
       <?php endif; ?>

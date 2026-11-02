@@ -373,21 +373,31 @@ function h($str) {
 }
 
 function is_serviceable_delivery_pincode($pincode) {
-    static $allowedPinCodes = [
-        '412308', // Fursungi / Bhekrai Nagar and Uruli Devachi
-        '411013', // Magarpatta City
-        '411028', // Magarpatta City
-        '411040', // Wanowrie
-        '411048', // Kondhwa Budruk / Khurd
-        '411060', // Undri / Pisoli
-        '412307', // Manjari Budruk
-        '411036', // Mundhwa
-        '422003', // Panchavati
-    ];
-
     $pincode = trim((string)$pincode);
     return preg_match('/\A[0-9]{6}\z/', $pincode) === 1
-        && in_array($pincode, $allowedPinCodes, true);
+        && in_array($pincode, array_values(get_serviceable_delivery_areas()), true);
+}
+
+function get_serviceable_delivery_areas() {
+    return [
+        'Fursungi / Bhekrai Nagar' => '412308',
+        'Magarpatta City (Hadapsar)' => '411013',
+        'Magarpatta City (Kharadi side)' => '411028',
+        'Wanowrie' => '411040',
+        'Kondhwa Budruk / Khurd' => '411048',
+        'Undri / Pisoli' => '411060',
+        'Manjari Budruk' => '412307',
+        'Uruli Devachi' => '412308',
+        'Mundhwa' => '411036',
+        'Panchavati' => '422003',
+    ];
+}
+
+function is_serviceable_delivery_area($area, $pincode) {
+    $areas = get_serviceable_delivery_areas();
+    $area = trim((string)$area);
+    $pincode = trim((string)$pincode);
+    return isset($areas[$area]) && hash_equals($areas[$area], $pincode);
 }
 
 function cart_count() {
@@ -1497,6 +1507,7 @@ function ensure_management_schema($pdo) {
             // too so it can never silently regress again.
             if (!$hasColumn('orders', 'delivery_date')) $pdo->exec("ALTER TABLE orders ADD COLUMN delivery_date DATE DEFAULT NULL AFTER address");
             if (!$hasColumn('orders', 'delivery_pincode')) $pdo->exec("ALTER TABLE orders ADD COLUMN delivery_pincode VARCHAR(6) DEFAULT NULL AFTER delivery_date");
+            if (!$hasColumn('orders', 'delivery_area')) $pdo->exec("ALTER TABLE orders ADD COLUMN delivery_area VARCHAR(100) DEFAULT NULL AFTER delivery_pincode");
             if (!$hasColumn('orders', 'delivery_slot')) $pdo->exec("ALTER TABLE orders ADD COLUMN delivery_slot VARCHAR(50) DEFAULT NULL AFTER delivery_date");
 
             // Exceptions tab (cancellations/returns/refunds) on the admin
