@@ -45,20 +45,15 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $veg = array_merge($veg, $_POST);
     } else {
         $removeImage = isset($_POST['remove_image']);
-        // Pass the current image path so the upload helper deletes it
-        // automatically if a replacement photo is being uploaded.
-        $upload = handle_vegetable_image_upload('image', $veg['image_path'] ?? null);
+        $oldImagePath = $veg['image_path'] ?? null;
+        $upload = handle_vegetable_image_upload('image');
         if ($upload['error']) {
             $error = $upload['error'];
             $veg = array_merge($veg, $_POST);
         } else {
         if ($upload['path']) {
-            $newImagePath = $upload['path']; // new photo uploaded (old one already deleted above)
+            $newImagePath = $upload['path'];
         } elseif ($removeImage) {
-            if (!empty($veg['image_path'])) {
-                $oldFull = __DIR__ . '/../' . ltrim($veg['image_path'], '/');
-                if (is_file($oldFull)) { @unlink($oldFull); }
-            }
             $newImagePath = null;
         } else {
             $newImagePath = $veg['image_path'] ?? null; // unchanged
@@ -90,6 +85,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         }
 
         $pdo->commit();
+        if ($oldImagePath && $oldImagePath !== $newImagePath) {
+            delete_vegetable_image_file($oldImagePath);
+        }
         if ($stock > 0) {
             try {
                 dispatch_back_in_stock_notifications($pdo, $id);
@@ -99,7 +97,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         }
         $_SESSION['flash'] = ['type' => 'success', 'message' => "$name updated successfully."];
         redirect('dashboard.php');
-        } catch (Throwable $e) { if ($pdo->inTransaction()) $pdo->rollBack(); $error = 'Could not update vegetable.'; }
+        } catch (Throwable $e) {
+            if ($pdo->inTransaction()) $pdo->rollBack();
+            if (!empty($upload['path'])) {
+                delete_vegetable_image_file($upload['path']);
+            }
+            $error = 'Could not update vegetable.';
+        }
         }
     }
 }
@@ -138,7 +142,12 @@ include __DIR__ . '/includes/admin_header.php';
       <p style="color:#5B6656; font-size:0.82rem; margin:2px 0 10px;">Browse a photo from your computer — JPG, PNG, or WEBP, up to 5 MB. JPG and PNG photos are automatically converted to WebP.</p>
       <?php if (!empty($veg['image_path'])): ?>
         <div style="margin-bottom:10px;">
-          <img src="<?= h(BASE_URL . '/' . ltrim($veg['image_path'], '/')) ?>" alt="Current photo" style="width:120px; height:120px; object-fit:contain; background:#fff; border:1px solid #D9E0CD; border-radius:10px; padding:6px;">
+          <?php $currentImageUrl = vegetable_image_url($veg['image_path']); ?>
+          <?php if ($currentImageUrl): ?>
+            <img src="<?= h($currentImageUrl) ?>" alt="Current photo" style="width:120px; height:120px; object-fit:contain; background:#fff; border:1px solid #D9E0CD; border-radius:10px; padding:6px;">
+          <?php else: ?>
+            <p style="color:#9A2E24; font-size:0.82rem;">Image file is missing from this server. Upload the photo again to restore it.</p>
+          <?php endif; ?>
           <label style="display:inline-flex; align-items:center; gap:6px; margin-left:10px; font-size:0.82rem;">
             <input type="checkbox" name="remove_image" style="width:auto;"> Remove current photo
           </label>

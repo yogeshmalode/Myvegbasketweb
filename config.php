@@ -2632,8 +2632,9 @@ function recalculate_all_variant_prices($pdo) {
 //   ['path' => '<relative path to store in vegetables.image_path>', 'error' => null]
 //   ['path' => null, 'error' => null]   -- no file was uploaded, leave as-is
 //   ['path' => null, 'error' => '<message>'] -- upload attempted but invalid
-// $oldPath, if given, is deleted once the new file is safely in place.
-function handle_vegetable_image_upload($fileField, $oldPath = null) {
+require_once __DIR__ . '/lib/product_image_storage.php';
+
+function handle_vegetable_image_upload($fileField) {
     if (empty($_FILES[$fileField]) || ($_FILES[$fileField]['error'] ?? UPLOAD_ERR_NO_FILE) === UPLOAD_ERR_NO_FILE) {
         return ['path' => null, 'error' => null];
     }
@@ -2663,12 +2664,10 @@ function handle_vegetable_image_upload($fileField, $oldPath = null) {
         return ['path' => null, 'error' => 'The uploaded file is not a valid JPG, PNG, or WEBP image.'];
     }
 
-    $uploadDir = __DIR__ . '/uploads/vegetables';
-    if (!is_dir($uploadDir)) {
-        if (!mkdir($uploadDir, 0755, true) && !is_dir($uploadDir)) {
-            return ['path' => null, 'error' => 'Could not create the vegetable image upload directory.'];
-        }
+    if (!ensure_vegetable_image_storage_dir()) {
+        return ['path' => null, 'error' => 'Could not create the persistent vegetable image directory.'];
     }
+    $uploadDir = vegetable_image_storage_dir();
 
     $convertToWebp = in_array($mime, ['image/jpeg', 'image/png'], true);
     $ext = $convertToWebp ? 'webp' : $allowedMimes[$mime];
@@ -2684,14 +2683,46 @@ function handle_vegetable_image_upload($fileField, $oldPath = null) {
         return ['path' => null, 'error' => 'Could not save the uploaded image. Please try again.'];
     }
 
-    // Clean up the old photo once the new one is safely on disk, so
-    // replacing an image doesn't leave orphaned files behind.
-    if ($oldPath) {
-        $oldFull = __DIR__ . '/' . ltrim($oldPath, '/');
-        if (is_file($oldFull)) { @unlink($oldFull); }
+    return ['path' => 'uploads/vegetables/' . $filename, 'error' => null];
+}
+
+function delete_vegetable_image_file($relativePath) {
+    $relativePath = str_replace('\\', '/', ltrim((string)$relativePath, '/'));
+    $uploadPrefix = 'uploads/vegetables/';
+    if (strpos($relativePath, $uploadPrefix) !== 0) {
+        return;
     }
 
-    return ['path' => 'uploads/vegetables/' . $filename, 'error' => null];
+    $filename = substr($relativePath, strlen($uploadPrefix));
+    if ($filename === '' || basename($filename) !== $filename
+        || !preg_match('/\A[a-f0-9]{16}\.(?:webp|jpg|png)\z/i', $filename)) {
+        return;
+    }
+
+    $paths = [
+        vegetable_image_storage_dir() . DIRECTORY_SEPARATOR . $filename,
+        __DIR__ . '/' . $uploadPrefix . $filename,
+    ];
+    foreach ($paths as $fullPath) {
+        if (is_file($fullPath) && !@unlink($fullPath)) {
+            error_log('Could not remove replaced vegetable image: ' . $relativePath);
+        }
+    }
+}
+
+function vegetable_image_url($relativePath) {
+    $imageFile = resolve_vegetable_image_file($relativePath);
+    if ($imageFile) {
+        return BASE_URL . '/product_image.php?file=' . rawurlencode(basename($imageFile))
+            . '&v=' . (int)filemtime($imageFile);
+    }
+
+    $relativePath = ltrim(str_replace('\\', '/', (string)$relativePath), '/');
+    $localPath = __DIR__ . '/' . $relativePath;
+    if ($relativePath !== '' && is_file($localPath)) {
+        return BASE_URL . '/' . $relativePath . '?v=' . (int)filemtime($localPath);
+    }
+    return '';
 }
 
 function get_effective_price($veg) {
@@ -2848,16 +2879,19 @@ function veg_thumb_html($veg, $showLoader = false, $loading = 'lazy', $fetchPrio
             . $extraAttributes . $onload . $onerror
             . ' style="width:100%; height:100%; object-fit:contain; display:block; border-radius:10px; background:#fff; padding:6px; box-sizing:border-box;">';
     };
-    if (!empty($veg['image_path']) && file_exists(__DIR__ . '/' . ltrim($veg['image_path'], '/'))) {
+    if (!empty($veg['image_path'])) {
         $imagePath = ltrim($veg['image_path'], '/');
         $extension = strtolower(pathinfo($imagePath, PATHINFO_EXTENSION));
         if (in_array($extension, ['jpg', 'jpeg', 'png'], true)) {
             $webpPath = substr($imagePath, 0, -strlen($extension)) . 'webp';
-            if (is_file(__DIR__ . '/' . $webpPath)) {
+            if (resolve_vegetable_image_file($webpPath)) {
                 $imagePath = $webpPath;
             }
         }
-        return $renderImage(BASE_URL . '/' . $imagePath, $veg['name']);
+        $imageUrl = vegetable_image_url($imagePath);
+        if ($imageUrl !== '') {
+            return $renderImage($imageUrl, $veg['name']);
+        }
     }
 
     $slug = strtolower(preg_replace('/[^a-z0-9]/i', '', $veg['name']));
