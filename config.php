@@ -1474,6 +1474,7 @@ function ensure_management_schema($pdo) {
         }
         if ($hasTable('orders')) {
             if (!$hasColumn('orders', 'discount_amount')) $pdo->exec("ALTER TABLE orders ADD COLUMN discount_amount DECIMAL(10,2) NOT NULL DEFAULT 0");
+            if (!$hasColumn('orders', 'customer_note')) $pdo->exec("ALTER TABLE orders ADD COLUMN customer_note VARCHAR(500) DEFAULT NULL");
             if (!$hasColumn('orders', 'updated_at')) $pdo->exec("ALTER TABLE orders ADD COLUMN updated_at TIMESTAMP NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP");
             if (!$hasColumn('orders', 'assigned_picker_id')) $pdo->exec("ALTER TABLE orders ADD COLUMN assigned_picker_id INT DEFAULT NULL");
             if (!$hasColumn('orders', 'rider_id')) $pdo->exec("ALTER TABLE orders ADD COLUMN rider_id INT DEFAULT NULL");

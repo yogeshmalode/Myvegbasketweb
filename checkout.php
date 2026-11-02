@@ -75,6 +75,11 @@ include __DIR__ . '/includes/header.php';
         <input type="text" id="pincode" name="pincode" inputmode="numeric" pattern="[0-9]{6}" maxlength="6" autocomplete="postal-code" placeholder="6-digit PIN code" aria-describedby="pincodeHelp" required>
         <small id="pincodeHelp" style="color:#5B6656;">We currently deliver only to selected areas around Pune. Enter your 6-digit PIN code to continue.</small>
       </div>
+      <div class="form-group">
+        <label for="customer_note">Order note or instructions (optional)</label>
+        <textarea id="customer_note" name="customer_note" rows="3" maxlength="500" placeholder="For example: delivery instructions, preferred vegetables, or business order details"></textarea>
+        <small style="color:#5B6656;">Your note will be shared with our order team and delivery partner (up to 500 characters).</small>
+      </div>
 
       <div class="form-group">
         <label for="delivery_date">Preferred delivery date</label>

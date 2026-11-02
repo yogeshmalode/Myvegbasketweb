@@ -557,6 +557,9 @@ function render_order_card($o, $itemsByOrder, $colorMap, $actionsHtml, $orderSta
       <?php if (!empty($o['delivery_date'])): ?>
         <div class="order-card-sub">🗓 <?= h(date('d M', strtotime($o['delivery_date']))) ?>, <?= h($o['delivery_slot']) ?></div>
       <?php endif; ?>
+      <?php if (!empty($o['customer_note'])): ?>
+        <div class="order-card-sub" style="margin-top:7px;padding:8px 10px;background:#fff8e6;border-radius:8px;color:#684e14;white-space:pre-wrap;">📝 Customer note: <?= h($o['customer_note']) ?></div>
+      <?php endif; ?>
       <?php if (!empty($o['rider_name'])): ?>
         <div class="order-card-sub">🛵 <?= h($o['rider_name']) ?><?= $o['rider_phone'] ? ' · <a href="tel:' . h($o['rider_phone']) . '">📞 Call</a>' : '' ?></div>
       <?php endif; ?>
