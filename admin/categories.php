@@ -2,6 +2,49 @@
 require_once __DIR__ . '/includes/auth.php';
 $page_title = 'Categories';
 
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['save_category_order'])) {
+    require_csrf();
+    $submittedOrder = $_POST['category_order'] ?? null;
+    if (!is_array($submittedOrder)) {
+        $_SESSION['flash'] = ['type' => 'error', 'message' => 'The category order submitted was invalid.'];
+    } else {
+        $categoryIds = array_map('intval', $pdo->query('SELECT id FROM categories')->fetchAll(PDO::FETCH_COLUMN));
+        $submittedIds = array_map('intval', array_keys($submittedOrder));
+        sort($categoryIds);
+        sort($submittedIds);
+        $positions = [];
+        $validOrder = $categoryIds === $submittedIds && count($submittedOrder) === count($categoryIds);
+        foreach ($submittedOrder as $position) {
+            $position = filter_var($position, FILTER_VALIDATE_INT);
+            if ($position === false || $position < 1 || $position > count($categoryIds) || isset($positions[$position])) {
+                $validOrder = false;
+                break;
+            }
+            $positions[$position] = true;
+        }
+        if (!$validOrder) {
+            $_SESSION['flash'] = ['type' => 'error', 'message' => 'Enter each position once, from 1 to the number of categories.'];
+        } else {
+            try {
+                $pdo->beginTransaction();
+                $updateOrder = $pdo->prepare('UPDATE categories SET sort_order = ? WHERE id = ?');
+                foreach ($submittedOrder as $id => $position) {
+                    $updateOrder->execute([(int)$position - 1, (int)$id]);
+                }
+                $pdo->commit();
+                $_SESSION['flash'] = ['type' => 'success', 'message' => 'Category order saved. The storefront now uses your new order.'];
+            } catch (Throwable $e) {
+                if ($pdo->inTransaction()) {
+                    $pdo->rollBack();
+                }
+                error_log('Could not save category order: ' . $e->getMessage());
+                $_SESSION['flash'] = ['type' => 'error', 'message' => 'Could not save the category order. Please try again.'];
+            }
+        }
+    }
+    redirect('categories.php');
+}
+
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['add_category'])) {
     require_csrf();
     $name = trim($_POST['name'] ?? '');
@@ -150,7 +193,7 @@ include __DIR__ . '/includes/admin_header.php';
 ?>
 <div class="section-head" style="text-align:left; margin-top:0;">
   <h2 style="display:block;">Categories</h2>
-  <p style="color:#5B6656; max-width:720px;">Activate a category to show it and its active products in the store. Deactivating a category hides all its products without changing their individual visibility or stock. Use the Vegetable Catalog to show or hide individual products.</p>
+  <p style="color:#5B6656; max-width:720px;">Set each category’s position below and save to control its order in the storefront. Activate a category to show it and its active products; use the Vegetable Catalog to show or hide individual products.</p>
 </div>
 
 <?php if (!empty($_SESSION['flash'])): ?>
@@ -163,12 +206,23 @@ include __DIR__ . '/includes/admin_header.php';
     <div class="table-wrap">
       <table>
         <thead>
-          <tr><th>#</th><th>Name</th><th>Image / logo</th><th>Products</th><th>Store visibility</th><th>Actions</th></tr>
+          <tr>
+            <th colspan="6">
+              <form id="categoryOrderForm" method="post" style="display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;">
+                <input type="hidden" name="csrf_token" value="<?= h(csrf_token()) ?>">
+                <span style="font-weight:500;color:#5B6656;">Lower position numbers appear first in the store. Use every number once.</span>
+                <button class="btn btn-primary" type="submit" name="save_category_order" value="1">Save category order</button>
+              </form>
+            </th>
+          </tr>
+          <tr><th>Position</th><th>Name</th><th>Image / logo</th><th>Products</th><th>Store visibility</th><th>Actions</th></tr>
         </thead>
         <tbody>
-          <?php foreach ($categories as $c): ?>
+          <?php foreach ($categories as $categoryIndex => $c): ?>
             <tr>
-              <td><?= $c['id'] ?></td>
+              <td>
+                <input type="number" form="categoryOrderForm" name="category_order[<?= (int)$c['id'] ?>]" value="<?= $categoryIndex + 1 ?>" min="1" max="<?= count($categories) ?>" required aria-label="Position for <?= h($c['name']) ?>" style="width:76px;padding:7px;border:1px solid #D9E0CD;border-radius:8px;">
+              </td>
               <td>
                 <form method="post" style="display:flex; gap:8px; align-items:center;">
                   <input type="hidden" name="csrf_token" value="<?= h(csrf_token()) ?>">
@@ -219,7 +273,7 @@ include __DIR__ . '/includes/admin_header.php';
             </tr>
           <?php endforeach; ?>
           <?php if (empty($categories)): ?>
-            <tr>            <td colspan="6" style="text-align:center; color:#5B6656;">No categories yet. Add your first one!</td></tr>
+            <tr><td colspan="6" style="text-align:center; color:#5B6656;">No categories yet. Add your first one!</td></tr>
           <?php endif; ?>
         </tbody>
       </table>
