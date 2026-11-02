@@ -275,8 +275,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
         if ($basketMode === 'recommended' && is_customer_logged_in()) {
             $historyStmt = $pdo->prepare(
-                "SELECT oi.vegetable_id, COUNT(DISTINCT recent.id) AS order_count,
-                        SUM(oi.quantity) AS total_quantity, MAX(recent.created_at) AS last_ordered
+                "SELECT oi.vegetable_id, MAX(recent.created_at) AS last_ordered
                  FROM (
                      SELECT id, created_at
                      FROM orders
@@ -289,7 +288,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                  JOIN order_items oi ON oi.order_id = recent.id
                  WHERE oi.vegetable_id IS NOT NULL
                  GROUP BY oi.vegetable_id
-                 ORDER BY order_count DESC, last_ordered DESC"
+                 ORDER BY last_ordered DESC"
             );
             $historyStmt->execute([(int)current_customer()['id']]);
             foreach ($historyStmt->fetchAll() as $historyItem) {
@@ -299,22 +298,15 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 }
 
                 $product = $productsById[$id];
-                $quantity = min(
-                    max(1, (int)round((float)$historyItem['total_quantity'] / max(1, (int)$historyItem['order_count']))),
-                    min(5, (int)$product['_builder_stock'])
-                );
-                while ($quantity > 0 && ($product['_builder_price'] * $quantity) > $remaining) {
-                    $quantity--;
-                }
-                if ($quantity < 1) {
+                if ($product['_builder_price'] > $remaining) {
                     continue;
                 }
 
                 $chosenIds[$id] = [
                     'product' => $product,
-                    'quantity' => $quantity,
+                    'quantity' => 1,
                 ];
-                $remaining -= $product['_builder_price'] * $quantity;
+                $remaining -= $product['_builder_price'];
                 $historyBasedBasket = true;
             }
         }
@@ -362,20 +354,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 break;
             }
         }
-
-        // Use any remaining budget to increase quantities, while respecting stock.
-        do {
-            $addedQuantity = false;
-            foreach ($chosenIds as &$chosen) {
-                $price = $chosen['product']['_builder_price'];
-                if ($chosen['quantity'] < min(5, $chosen['product']['_builder_stock']) && $price <= $remaining) {
-                    $chosen['quantity']++;
-                    $remaining -= $price;
-                    $addedQuantity = true;
-                }
-            }
-            unset($chosen);
-        } while ($addedQuantity);
 
         if ($basketMode === 'custom') {
             foreach ($productsById as $product) {
@@ -454,8 +432,8 @@ include __DIR__ . '/includes/header.php';
   .budget-preset:hover{background:#EAF3E6;border-color:#76A96D}
   .budget-preset.is-active,.budget-preset[aria-pressed="true"],.budget-preset.is-active:hover{background:#276943;border-color:#276943;color:#fff;box-shadow:0 3px 9px rgba(39,105,67,.2)}
   .budget-preset:hover{transform:translateY(-1px)}
-  .budget-build-actions{display:grid;grid-template-columns:1fr 1fr;gap:12px;grid-column:1/-1;margin-top:8px}
-  .budget-build-button,.budget-custom-button{display:flex;align-items:center;justify-content:center;min-height:62px;padding:14px 20px;white-space:normal;text-align:center;font-size:1rem;font-weight:800}
+  .budget-build-actions{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px;grid-column:1/-1;margin-top:8px}
+  .budget-build-button,.budget-custom-button{box-sizing:border-box;display:flex;align-items:center;justify-content:center;gap:8px;width:100%;min-width:0;min-height:62px;padding:12px clamp(8px,2vw,18px);white-space:normal;text-align:center;line-height:1.3;overflow-wrap:anywhere;font-size:1rem;font-weight:800}
   .budget-build-button{box-shadow:0 8px 18px rgba(187,56,46,.2)}
   .budget-custom-button{border:1px solid #DCE8D5;background:#fff;color:#245A39;font-weight:750}
   .budget-custom-button:hover{background:#F1F7EE;border-color:#AFCDA5}
@@ -490,10 +468,10 @@ include __DIR__ . '/includes/header.php';
   .budget-variant-select{box-sizing:border-box;width:100%;min-height:41px;margin-top:5px;padding:7px 32px 7px 10px;border:1px solid #D9E4D5;border-radius:10px;background-color:#fff;color:#26382b;font:inherit;font-size:.82rem;cursor:pointer}
   .budget-variant-select:focus,.budget-product-search:focus,.budget-scale input:focus{outline:3px solid rgba(51,131,75,.22);outline-offset:1px}
   .budget-product-line-total{display:block;margin-top:5px;color:#285F3D;font-size:.81rem;font-weight:800}
-  .budget-qty-wrap{grid-column:2/4;display:flex;align-items:center;justify-self:start;gap:5px;padding:4px;border:1px solid #E0E7DA;border-radius:11px;background:#fff}
-  .budget-qty-adjust{display:grid;place-items:center;width:30px;height:30px;border:0;border-radius:8px;background:#F1F6ED;color:#285F3D;font-size:1rem;font-weight:800;cursor:pointer}
+  .budget-qty-wrap{box-sizing:border-box;grid-column:2/4;display:flex;align-items:center;justify-self:start;gap:5px;padding:4px;border:1px solid #E0E7DA;border-radius:11px;background:#fff}
+  .budget-qty-adjust{box-sizing:border-box;display:grid;place-items:center;flex:0 0 32px;width:32px;height:32px;padding:0;border:0;border-radius:8px;background:#F1F6ED;color:#285F3D;font-size:1rem;font-weight:800;cursor:pointer}
   .budget-qty-adjust:hover{background:#E2EEDB}
-  .budget-qty{width:38px;padding:5px 2px;border:0;background:transparent;color:#26301F;text-align:center;font:inherit;font-size:.9rem;font-weight:700;appearance:textfield}
+  .budget-qty{box-sizing:border-box;flex:0 1 42px;width:42px;min-width:0;padding:5px 2px;border:0;background:transparent;color:#26301F;text-align:center;font:inherit;font-size:.9rem;font-weight:700;appearance:textfield}
   .budget-qty::-webkit-inner-spin-button,.budget-qty::-webkit-outer-spin-button{appearance:none;margin:0}
   .budget-summary{position:sticky;top:18px;margin:0;padding:19px;border:1px solid #DCE8D5;border-radius:17px;background:linear-gradient(160deg,#fff,#F8FCF6);box-shadow:0 12px 30px rgba(31,77,54,.1)}
   .budget-summary-line{display:grid;gap:8px}
@@ -503,12 +481,13 @@ include __DIR__ . '/includes/header.php';
   .budget-progress-fill{height:100%;width:0;border-radius:inherit;background:linear-gradient(90deg,#57A765,#E2A550);transition:width .32s ease,background .2s ease}
   .budget-progress-fill.is-over{background:#C94A3F}
   .budget-summary-actions{display:grid;gap:10px;margin-top:14px}
+  .budget-summary-actions>.budget-custom-button,.budget-summary-actions>.budget-add-button{box-sizing:border-box;width:100%;min-width:0;white-space:normal;text-align:center;justify-content:center;line-height:1.25;overflow-wrap:anywhere}
   .budget-selection-count{color:#64705F;font-size:.82rem}
   .budget-add-button{min-height:45px}
   .budget-error{animation:budgetNudge .3s ease}
   @keyframes budgetReveal{from{opacity:0;transform:translateY(12px)}to{opacity:1;transform:translateY(0)}}
   @keyframes budgetNudge{25%{transform:translateX(-4px)}75%{transform:translateX(4px)}}
-  @media(max-width:800px){.budget-workspace{grid-template-columns:1fr}.budget-summary{position:sticky;top:auto;bottom:8px;z-index:4;padding:14px;background:rgba(255,255,255,.97);backdrop-filter:blur(10px)}.budget-summary-line{grid-template-columns:1fr auto;align-items:center}.budget-summary-actions{grid-template-columns:1fr auto}.budget-add-button{min-width:180px}}
+  @media(max-width:800px){.budget-workspace{grid-template-columns:1fr}.budget-summary{position:sticky;top:auto;bottom:8px;z-index:4;padding:14px;background:rgba(255,255,255,.97);backdrop-filter:blur(10px)}.budget-summary-line{grid-template-columns:1fr auto;align-items:center}.budget-summary-actions{grid-template-columns:repeat(2,minmax(0,1fr))}.budget-selection-count{grid-column:1/-1}.budget-add-button{min-width:0}}
   @media(max-width:520px){.budget-builder{padding-top:18px;padding-bottom:38px}.budget-hero{border-radius:18px;margin-bottom:14px}.budget-hero:after{right:-2%;bottom:-16px}.budget-controls{grid-template-columns:1fr}.budget-build-actions{grid-template-columns:1fr}.budget-build-button,.budget-custom-button{min-height:56px}.budget-product-list{grid-template-columns:1fr 1fr;gap:8px}.budget-product{grid-template-columns:18px 42px minmax(0,1fr);gap:8px;padding:9px}.budget-product-image{width:42px;height:42px}.budget-product-name{font-size:.85rem}.budget-product-meta{font-size:.72rem}.budget-variant-select{min-height:39px;padding-left:7px;font-size:.76rem}.budget-qty-wrap{grid-column:1/-1;justify-self:stretch;justify-content:space-between}.budget-summary{bottom:5px;padding:11px}.budget-summary-total{font-size:1.04rem}.budget-summary-meta{font-size:.72rem}.budget-summary-actions{grid-template-columns:1fr}.budget-add-button{width:100%;min-width:0;padding:10px 12px;font-size:.85rem}}
   @media(prefers-reduced-motion:reduce){.budget-results{animation:none}.budget-product,.budget-preset,.budget-progress-fill{transition:none}.budget-error{animation:none}}
 </style>
