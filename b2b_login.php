@@ -42,9 +42,9 @@ $page_title = 'Hotel & Shop Partner Login';
 include __DIR__ . '/includes/header.php';
 ?>
 
-<div class="container" style="padding:50px 24px; max-width:420px;">
+<div class="container" style="padding:50px 24px; max-width:1180px;">
   <style>
-    .partner-login{max-width:980px;margin:0 auto;display:grid;grid-template-columns:1fr 1fr;overflow:hidden;border:1px solid #e4e9dd;border-radius:24px;background:#fff;box-shadow:0 20px 55px rgba(31,77,54,.12)}
+    .partner-login{width:100%;max-width:980px;margin:0 auto;display:grid;grid-template-columns:1fr 1fr;overflow:hidden;border:1px solid #e4e9dd;border-radius:24px;background:#fff;box-shadow:0 20px 55px rgba(31,77,54,.12)}
     .partner-intro{padding:42px;background:linear-gradient(145deg,#104b35,#1f704b);color:#fff;display:flex;flex-direction:column;justify-content:space-between;min-height:500px}
     .partner-brand{display:flex;align-items:center;gap:12px;font-size:1.05rem;font-weight:800}
     .partner-brand img{width:42px;height:42px;object-fit:contain;background:#fff;border-radius:12px;padding:4px}
