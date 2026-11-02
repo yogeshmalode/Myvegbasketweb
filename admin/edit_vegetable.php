@@ -102,9 +102,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             if (!empty($upload['path'])) {
                 delete_vegetable_image_file($upload['path']);
             }
-            error_log('Vegetable update failed for product #' . $id . ': ' . $e->getMessage());
+            $errorReference = bin2hex(random_bytes(4));
+            error_log('Vegetable update failed (reference ' . $errorReference . ') for product #' . $id . ': ' . $e->getMessage());
             $veg = array_merge($veg, $_POST);
-            $error = 'Could not save this product. Your existing photo was kept. Please try again; if it fails again, contact the administrator.';
+            $error = 'Product was not saved. Your existing photo was kept. Please retry. If it fails again, share error reference ' . $errorReference . ' with the administrator.';
         }
         }
     }
@@ -130,10 +131,10 @@ include __DIR__ . '/includes/admin_header.php';
   <h2 style="display:block;">Edit Vegetable</h2>
 </div>
 
-<?php if ($error): ?><div class="alert alert-error"><?= h($error) ?></div><?php endif; ?>
+<?php if ($error): ?><div class="alert alert-error" id="editVegetableError" role="alert"><?= h($error) ?></div><?php endif; ?>
 
 <div class="form-card" style="max-width:560px;">
-  <form method="post" enctype="multipart/form-data">
+  <form id="editVegetableForm" method="post" action="edit_vegetable.php?id=<?= (int)$id ?>" enctype="multipart/form-data">
     <input type="hidden" name="csrf_token" value="<?= h(csrf_token()) ?>">
     <div class="form-group">
       <label for="name">Vegetable name</label>
@@ -265,6 +266,7 @@ include __DIR__ . '/includes/admin_header.php';
       <p style="color:#5B6656; font-size:0.78rem; margin-top:8px;">Prices auto-recalculate whenever you change the base price or unit above — no need to click Recalculate every time.</p>
     </div>
 
+    <p id="editVegetableSubmitStatus" role="status" aria-live="polite" style="min-height:1.3em;color:#52635a;font-size:0.85rem;"></p>
     <button type="submit" id="updateVegetableButton" class="btn btn-primary">Update Vegetable</button>
     <a href="dashboard.php" class="btn btn-outline">Cancel</a>
   </form>
@@ -277,11 +279,19 @@ include __DIR__ . '/includes/admin_header.php';
     document.getElementById('perStoreStockWrap').style.display = perStore ? 'block' : 'none';
   }
 
-  document.querySelector('.form-card form').addEventListener('submit', function () {
+  const editForm = document.getElementById('editVegetableForm');
+  const submitStatus = document.getElementById('editVegetableSubmitStatus');
+  editForm.addEventListener('invalid', function (event) {
+    submitStatus.textContent = 'Please check the highlighted field: ' + (event.target.labels && event.target.labels[0] ? event.target.labels[0].textContent.trim() : event.target.name || 'required value') + '.';
+  }, true);
+  editForm.addEventListener('submit', function () {
     const button = document.getElementById('updateVegetableButton');
+    submitStatus.textContent = 'Saving product and uploading the image. Please wait…';
     button.disabled = true;
     button.textContent = 'Updating product…';
   });
+  const saveError = document.getElementById('editVegetableError');
+  if (saveError) saveError.scrollIntoView({ behavior: 'smooth', block: 'center' });
 
   function previewVegImage(input) {
     const wrap = document.getElementById('imagePreviewWrap');
@@ -294,9 +304,11 @@ include __DIR__ . '/includes/admin_header.php';
       if (missingNotice) missingNotice.style.display = 'none';
       const removeImage = document.querySelector('input[name="remove_image"]');
       if (removeImage) removeImage.checked = false;
+      submitStatus.textContent = 'Selected: ' + input.files[0].name + '. Click Update Vegetable to save.';
       wrap.style.display = 'block';
     } else {
       wrap.style.display = 'none';
+      submitStatus.textContent = '';
       if (missingNotice) missingNotice.style.display = '';
       if (img.dataset.previewUrl) {
         URL.revokeObjectURL(img.dataset.previewUrl);
