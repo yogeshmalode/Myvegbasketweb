@@ -102,7 +102,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             if (!empty($upload['path'])) {
                 delete_vegetable_image_file($upload['path']);
             }
-            $error = 'Could not update vegetable.';
+            error_log('Vegetable update failed for product #' . $id . ': ' . $e->getMessage());
+            $veg = array_merge($veg, $_POST);
+            $error = 'Could not save this product. Your existing photo was kept. Please try again; if it fails again, contact the administrator.';
         }
         }
     }
@@ -139,7 +141,7 @@ include __DIR__ . '/includes/admin_header.php';
     </div>
     <div class="form-group">
       <label for="image">Product photo (optional)</label>
-      <p style="color:#5B6656; font-size:0.82rem; margin:2px 0 10px;">Browse a photo from your computer — JPG, PNG, or WEBP, up to 5 MB. JPG and PNG photos are automatically converted to WebP.</p>
+      <p style="color:#5B6656; font-size:0.82rem; margin:2px 0 10px;">Browse a photo from your computer — JPG, PNG, or WEBP, up to 5 MB. JPG and PNG photos are automatically converted to WebP. A newly selected photo replaces the current photo, even if “Remove current photo” is checked.</p>
       <?php if (!empty($veg['image_path'])): ?>
         <div style="margin-bottom:10px;">
           <?php $currentImageUrl = vegetable_image_url($veg['image_path']); ?>
@@ -262,7 +264,7 @@ include __DIR__ . '/includes/admin_header.php';
       <p style="color:#5B6656; font-size:0.78rem; margin-top:8px;">Prices auto-recalculate whenever you change the base price or unit above — no need to click Recalculate every time.</p>
     </div>
 
-    <button type="submit" class="btn btn-primary">Update Vegetable</button>
+    <button type="submit" id="updateVegetableButton" class="btn btn-primary">Update Vegetable</button>
     <a href="dashboard.php" class="btn btn-outline">Cancel</a>
   </form>
 </div>
@@ -273,6 +275,12 @@ include __DIR__ . '/includes/admin_header.php';
     document.getElementById('sharedStockWrap').style.display = perStore ? 'none' : 'block';
     document.getElementById('perStoreStockWrap').style.display = perStore ? 'block' : 'none';
   }
+
+  document.querySelector('.form-card form').addEventListener('submit', function () {
+    const button = document.getElementById('updateVegetableButton');
+    button.disabled = true;
+    button.textContent = 'Updating product…';
+  });
 
   function previewVegImage(input) {
     const wrap = document.getElementById('imagePreviewWrap');

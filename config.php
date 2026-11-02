@@ -2640,8 +2640,16 @@ function handle_vegetable_image_upload($fileField) {
     }
 
     $file = $_FILES[$fileField];
+    $uploadErrors = [
+        UPLOAD_ERR_INI_SIZE => 'The image exceeds this server’s upload limit. Reduce the image size or ask your host to raise upload_max_filesize.',
+        UPLOAD_ERR_FORM_SIZE => 'The image exceeds the form upload limit.',
+        UPLOAD_ERR_PARTIAL => 'The image upload was interrupted. Please choose the image again.',
+        UPLOAD_ERR_NO_TMP_DIR => 'The server upload temporary folder is unavailable. Contact your hosting provider.',
+        UPLOAD_ERR_CANT_WRITE => 'The server could not write the uploaded image. Check product-image storage folder permissions.',
+        UPLOAD_ERR_EXTENSION => 'A server extension stopped the image upload. Contact your hosting provider.',
+    ];
     if ($file['error'] !== UPLOAD_ERR_OK) {
-        return ['path' => null, 'error' => 'Image upload failed (error code ' . $file['error'] . ').'];
+        return ['path' => null, 'error' => $uploadErrors[$file['error']] ?? 'The image upload failed. Please choose the image again.'];
     }
 
     $maxBytes = 5 * 1024 * 1024; // 5 MB
