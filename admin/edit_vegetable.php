@@ -148,7 +148,7 @@ include __DIR__ . '/includes/admin_header.php';
           <?php if ($currentImageUrl): ?>
             <img src="<?= h($currentImageUrl) ?>" alt="Current photo" style="width:120px; height:120px; object-fit:contain; background:#fff; border:1px solid #D9E0CD; border-radius:10px; padding:6px;">
           <?php else: ?>
-            <p style="color:#9A2E24; font-size:0.82rem;">Image file is missing from this server. Upload the photo again to restore it.</p>
+            <p id="missingImageNotice" style="color:#9A2E24; font-size:0.82rem;">Image file is missing from this server. Choose a replacement photo below.</p>
           <?php endif; ?>
           <label style="display:inline-flex; align-items:center; gap:6px; margin-left:10px; font-size:0.82rem;">
             <input type="checkbox" name="remove_image" style="width:auto;"> Remove current photo
@@ -158,6 +158,7 @@ include __DIR__ . '/includes/admin_header.php';
       <input type="file" id="image" name="image" accept="image/jpeg,image/png,image/webp" onchange="previewVegImage(this)">
       <div id="imagePreviewWrap" style="margin-top:10px; display:none;">
         <img id="imagePreview" src="" alt="New photo preview" style="width:120px; height:120px; object-fit:contain; background:#fff; border:1px solid #D9E0CD; border-radius:10px; padding:6px;">
+        <p id="imageSelectionStatus" style="color:#17643f; font-size:0.82rem; margin:5px 0 0;">New photo selected. Click Update Vegetable to save it.</p>
       </div>
     </div>
     <div class="form-group">
@@ -285,11 +286,22 @@ include __DIR__ . '/includes/admin_header.php';
   function previewVegImage(input) {
     const wrap = document.getElementById('imagePreviewWrap');
     const img = document.getElementById('imagePreview');
+    const missingNotice = document.getElementById('missingImageNotice');
     if (input.files && input.files[0]) {
-      img.src = URL.createObjectURL(input.files[0]);
+      if (img.dataset.previewUrl) URL.revokeObjectURL(img.dataset.previewUrl);
+      img.dataset.previewUrl = URL.createObjectURL(input.files[0]);
+      img.src = img.dataset.previewUrl;
+      if (missingNotice) missingNotice.style.display = 'none';
+      const removeImage = document.querySelector('input[name="remove_image"]');
+      if (removeImage) removeImage.checked = false;
       wrap.style.display = 'block';
     } else {
       wrap.style.display = 'none';
+      if (missingNotice) missingNotice.style.display = '';
+      if (img.dataset.previewUrl) {
+        URL.revokeObjectURL(img.dataset.previewUrl);
+        delete img.dataset.previewUrl;
+      }
     }
   }
 
