@@ -417,10 +417,14 @@ include __DIR__ . '/includes/header.php';
   .budget-panel-icon{display:grid;place-items:center;flex:0 0 42px;height:42px;border-radius:13px;background:#EDF5E9;font-size:1.25rem}
   .budget-panel-heading h2{margin:0 0 3px;font-size:1.15rem;color:#1F4D36}
   .budget-panel-heading p{margin:0;color:#697466;font-size:.87rem}
-  .budget-controls{display:grid;grid-template-columns:minmax(180px,.8fr) minmax(210px,1fr);gap:14px;align-items:end}
+  .budget-controls{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:18px 20px;align-items:start}
   .budget-controls .form-group{min-width:0;margin:0}
   .budget-controls input,.budget-controls select{box-sizing:border-box;width:100%;min-width:0;min-height:50px}
   .budget-controls select{padding-right:38px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .budget-category-field{min-width:0;padding:16px;border:1px solid #E5ECE1;border-radius:14px;background:#F9FCF7}
+  .budget-category-field>label{margin-bottom:8px;color:#334B38;font-weight:750}
+  .budget-controls .budget-category-select{display:block;max-width:100%;padding:0 36px 0 12px;border:1px solid #D9E4D5;border-radius:10px;background-color:#fff;color:#26382b;font:inherit;cursor:pointer}
+  .budget-category-field .budget-scale-help{margin-top:9px}
   .budget-scale{margin-top:16px;padding:14px 15px;border:1px solid #E5ECE1;border-radius:13px;background:#F9FCF7}
   .budget-scale-heading{display:flex;justify-content:space-between;align-items:center;gap:12px;color:#425846;font-size:.84rem;font-weight:750}
   .budget-scale-value{color:#1F4D36;font-size:1.05rem;font-weight:850;font-variant-numeric:tabular-nums}
@@ -432,8 +436,10 @@ include __DIR__ . '/includes/header.php';
   .budget-preset:hover{background:#EAF3E6;border-color:#76A96D}
   .budget-preset.is-active,.budget-preset[aria-pressed="true"],.budget-preset.is-active:hover{background:#276943;border-color:#276943;color:#fff;box-shadow:0 3px 9px rgba(39,105,67,.2)}
   .budget-preset:hover{transform:translateY(-1px)}
-  .budget-build-actions{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px;grid-column:1/-1;margin-top:8px}
-  .budget-build-button,.budget-custom-button{box-sizing:border-box;display:flex;align-items:center;justify-content:center;gap:8px;width:100%;min-width:0;min-height:62px;padding:12px clamp(8px,2vw,18px);white-space:normal;text-align:center;line-height:1.3;overflow-wrap:anywhere;font-size:1rem;font-weight:800}
+  .budget-build-actions{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:14px;grid-column:1/-1;margin-top:18px}
+  .budget-build-button,.budget-custom-button{box-sizing:border-box;display:flex;align-items:center;justify-content:center;gap:9px;width:100%;min-width:0;min-height:62px;padding:12px clamp(10px,2vw,20px);white-space:normal;text-align:center;line-height:1.3;font-size:1rem;font-weight:800}
+  .budget-build-button>span[aria-hidden],.budget-custom-button>span[aria-hidden]{flex:0 0 auto}
+  .budget-build-label,.budget-custom-label{min-width:0}
   .budget-build-button{box-shadow:0 8px 18px rgba(187,56,46,.2)}
   .budget-custom-button{border:1px solid #DCE8D5;background:#fff;color:#245A39;font-weight:750}
   .budget-custom-button:hover{background:#F1F7EE;border-color:#AFCDA5}
@@ -488,7 +494,8 @@ include __DIR__ . '/includes/header.php';
   @keyframes budgetReveal{from{opacity:0;transform:translateY(12px)}to{opacity:1;transform:translateY(0)}}
   @keyframes budgetNudge{25%{transform:translateX(-4px)}75%{transform:translateX(4px)}}
   @media(max-width:800px){.budget-workspace{grid-template-columns:1fr}.budget-summary{position:sticky;top:auto;bottom:8px;z-index:4;padding:14px;background:rgba(255,255,255,.97);backdrop-filter:blur(10px)}.budget-summary-line{grid-template-columns:1fr auto;align-items:center}.budget-summary-actions{grid-template-columns:repeat(2,minmax(0,1fr))}.budget-selection-count{grid-column:1/-1}.budget-add-button{min-width:0}}
-  @media(max-width:520px){.budget-builder{padding-top:18px;padding-bottom:38px}.budget-hero{border-radius:18px;margin-bottom:14px}.budget-hero:after{right:-2%;bottom:-16px}.budget-controls{grid-template-columns:1fr}.budget-build-actions{grid-template-columns:1fr}.budget-build-button,.budget-custom-button{min-height:56px}.budget-product-list{grid-template-columns:1fr 1fr;gap:8px}.budget-product{grid-template-columns:18px 42px minmax(0,1fr);gap:8px;padding:9px}.budget-product-image{width:42px;height:42px}.budget-product-name{font-size:.85rem}.budget-product-meta{font-size:.72rem}.budget-variant-select{min-height:39px;padding-left:7px;font-size:.76rem}.budget-qty-wrap{grid-column:1/-1;justify-self:stretch;justify-content:space-between}.budget-summary{bottom:5px;padding:11px}.budget-summary-total{font-size:1.04rem}.budget-summary-meta{font-size:.72rem}.budget-summary-actions{grid-template-columns:1fr}.budget-add-button{width:100%;min-width:0;padding:10px 12px;font-size:.85rem}}
+  @media(max-width:680px){.budget-controls{grid-template-columns:minmax(0,1fr);gap:14px}.budget-build-actions{grid-template-columns:minmax(0,1fr);gap:10px;margin-top:14px}.budget-build-button,.budget-custom-button{min-height:54px}.budget-category-field{padding:14px}}
+  @media(max-width:520px){.budget-builder{padding-top:18px;padding-bottom:38px}.budget-hero{border-radius:18px;margin-bottom:14px}.budget-hero:after{right:-2%;bottom:-16px}.budget-product-list{grid-template-columns:1fr 1fr;gap:8px}.budget-product{grid-template-columns:18px 42px minmax(0,1fr);gap:8px;padding:9px}.budget-product-image{width:42px;height:42px}.budget-product-name{font-size:.85rem}.budget-product-meta{font-size:.72rem}.budget-variant-select{min-height:39px;padding-left:7px;font-size:.76rem}.budget-qty-wrap{grid-column:1/-1;justify-self:stretch;justify-content:space-between}.budget-summary{bottom:5px;padding:11px}.budget-summary-total{font-size:1.04rem}.budget-summary-meta{font-size:.72rem}.budget-summary-actions{grid-template-columns:1fr}.budget-add-button{width:100%;min-width:0;padding:10px 12px;font-size:.85rem}}
   @media(prefers-reduced-motion:reduce){.budget-results{animation:none}.budget-product,.budget-preset,.budget-progress-fill{transition:none}.budget-error{animation:none}}
 </style>
 
@@ -538,9 +545,9 @@ include __DIR__ . '/includes/header.php';
             <p class="budget-scale-help">Move the slider or choose an amount above, then build your basket.</p>
           </div>
         </div>
-        <div class="form-group" style="margin:0;">
+        <div class="form-group budget-category-field">
           <label for="category">Choose a product category</label>
-          <select id="category" name="category" aria-describedby="categoryHelp">
+          <select id="category" class="budget-category-select" name="category" aria-describedby="categoryHelp">
             <option value="all" <?= $category === 'all' ? 'selected' : '' ?>>All categories — a mixed basket</option>
             <?php foreach ($budgetCategories as $budgetCategory): ?>
               <option value="<?= h($budgetCategory) ?>" <?= $category === $budgetCategory ? 'selected' : '' ?>><?= h($budgetCategory) ?></option>
@@ -550,8 +557,8 @@ include __DIR__ . '/includes/header.php';
         </div>
       </div>
       <div class="budget-build-actions">
-        <button type="submit" name="action" value="build" data-build-mode="recommended" class="btn btn-primary budget-build-button"><span aria-hidden="true">✨</span> Suggest a basket</button>
-        <button type="submit" name="action" value="build" data-build-mode="custom" class="btn budget-custom-button">🧺 I’ll choose my products</button>
+        <button type="submit" name="action" value="build" data-build-mode="recommended" class="btn btn-primary budget-build-button"><span aria-hidden="true">✨</span><span class="budget-build-label">Suggest a basket</span></button>
+        <button type="submit" name="action" value="build" data-build-mode="custom" class="btn budget-custom-button"><span aria-hidden="true">🧺</span><span class="budget-custom-label">I’ll choose my products</span></button>
       </div>
       <div class="budget-how" id="budgetHelp"><span aria-hidden="true">i</span> Product total only. Delivery is calculated separately in your cart.</div>
     </form>
