@@ -223,7 +223,13 @@ include __DIR__ . '/includes/admin_header.php';
           <?php foreach ($categories as $c): ?>
             <tr data-category-row data-category-id="<?= (int)$c['id'] ?>">
               <td>
-                <button type="button" class="category-drag-handle" aria-label="Drag to arrange <?= h($c['name']) ?>" title="Drag to arrange" style="border:1px solid #D9E0CD;border-radius:8px;background:#F7F9F5;color:#53645a;padding:8px 10px;cursor:grab;touch-action:none;font-size:1.1rem;line-height:1;">☰</button>
+                <div style="display:flex;align-items:center;gap:5px;">
+                  <button type="button" class="category-drag-handle" draggable="true" aria-label="Drag to arrange <?= h($c['name']) ?>" title="Drag to arrange" style="border:1px solid #D9E0CD;border-radius:8px;background:#F7F9F5;color:#53645a;padding:8px 10px;cursor:grab;font-size:1.1rem;line-height:1;">☰</button>
+                  <span style="display:flex;flex-direction:column;gap:2px;">
+                    <button type="button" class="category-order-step" data-direction="-1" aria-label="Move <?= h($c['name']) ?> up" title="Move up" style="border:0;background:transparent;cursor:pointer;padding:0 4px;">▲</button>
+                    <button type="button" class="category-order-step" data-direction="1" aria-label="Move <?= h($c['name']) ?> down" title="Move down" style="border:0;background:transparent;cursor:pointer;padding:0 4px;">▼</button>
+                  </span>
+                </div>
                 <input type="hidden" form="categoryOrderForm" name="category_ids[]" value="<?= (int)$c['id'] ?>">
               </td>
               <td>
@@ -315,86 +321,108 @@ include __DIR__ . '/includes/admin_header.php';
     const status = document.getElementById('categoryOrderStatus');
     if (!list || !orderForm || !status) return;
 
-    let activeRow = null;
-    let activePointerId = null;
-    let pointerY = 0;
+    let draggedRow = null;
     let autoScrollFrame = 0;
+    let lastDragY = 0;
 
     const syncOrderInputs = function () {
-      const inputs = Array.from(document.querySelectorAll('input[form="categoryOrderForm"][name="category_ids[]"]'));
+      const inputsById = new Map(
+        Array.from(document.querySelectorAll('input[form="categoryOrderForm"][name="category_ids[]"]'))
+          .map(function (input) { return [input.value, input]; })
+      );
       const rows = Array.from(list.querySelectorAll('[data-category-row]'));
       rows.forEach(function (row, index) {
-        inputs[index].value = row.dataset.categoryId;
+        const input = inputsById.get(row.dataset.categoryId);
+        if (input) input.value = row.dataset.categoryId;
+        row.querySelectorAll('.category-order-step').forEach(function (button) {
+          const direction = Number(button.dataset.direction);
+          button.disabled = direction < 0 ? index === 0 : index === rows.length - 1;
+          button.style.opacity = button.disabled ? '.35' : '1';
+          button.style.cursor = button.disabled ? 'default' : 'pointer';
+        });
       });
     };
 
-    const moveActiveRow = function () {
-      if (!activeRow) return;
-      const otherRows = Array.from(list.querySelectorAll('[data-category-row]')).filter(function (row) {
-        return row !== activeRow;
-      });
-      const targetRow = otherRows.find(function (row) {
-        const bounds = row.getBoundingClientRect();
-        return pointerY < bounds.top + bounds.height / 2;
-      });
-      if (targetRow) {
-        if (activeRow.nextElementSibling !== targetRow) list.insertBefore(activeRow, targetRow);
-      } else if (activeRow !== list.lastElementChild) {
-        list.appendChild(activeRow);
-      }
+    const stopAutoScroll = function () {
+      if (autoScrollFrame) window.cancelAnimationFrame(autoScrollFrame);
+      autoScrollFrame = 0;
     };
 
     const autoScroll = function () {
-      if (!activeRow) {
-        autoScrollFrame = 0;
+      if (!draggedRow) {
+        stopAutoScroll();
         return;
       }
-      const edgeSize = 90;
-      const maxStep = 18;
-      if (pointerY < edgeSize) {
-        window.scrollBy(0, -Math.ceil((edgeSize - pointerY) / edgeSize * maxStep));
-      } else if (pointerY > window.innerHeight - edgeSize) {
-        window.scrollBy(0, Math.ceil((pointerY - (window.innerHeight - edgeSize)) / edgeSize * maxStep));
+      const edge = 80;
+      if (lastDragY < edge) {
+        window.scrollBy(0, -Math.max(4, Math.ceil((edge - lastDragY) / 5)));
+      } else if (lastDragY > window.innerHeight - edge) {
+        window.scrollBy(0, Math.max(4, Math.ceil((lastDragY - window.innerHeight + edge) / 5)));
       }
-      moveActiveRow();
       autoScrollFrame = window.requestAnimationFrame(autoScroll);
     };
 
-    list.querySelectorAll('.category-drag-handle').forEach(function (handle) {
-      handle.addEventListener('pointerdown', function (event) {
-        if (event.button !== undefined && event.button !== 0) return;
-        activeRow = handle.closest('[data-category-row]');
-        activePointerId = event.pointerId;
-        pointerY = event.clientY;
-        activeRow.classList.add('category-row-dragging');
-        status.textContent = 'Move the category, then release to place it.';
-        if (!autoScrollFrame) autoScrollFrame = window.requestAnimationFrame(autoScroll);
+    list.addEventListener('dragstart', function (event) {
+      const handle = event.target.closest('.category-drag-handle');
+      if (!handle) {
         event.preventDefault();
-      });
+        return;
+      }
+      draggedRow = handle.closest('[data-category-row]');
+      lastDragY = event.clientY;
+      draggedRow.classList.add('category-row-dragging');
+      event.dataTransfer.effectAllowed = 'move';
+      event.dataTransfer.setData('text/plain', draggedRow.dataset.categoryId);
+      status.textContent = 'Drag over another category, then release to place it.';
     });
 
-    const finishDrag = function (event) {
-      if (!activeRow || (event && event.pointerId !== activePointerId)) return;
-      activeRow.classList.remove('category-row-dragging');
-      activeRow = null;
-      activePointerId = null;
-      if (autoScrollFrame) {
-        window.cancelAnimationFrame(autoScrollFrame);
-        autoScrollFrame = 0;
+    list.addEventListener('dragover', function (event) {
+      if (!draggedRow) return;
+      event.preventDefault();
+      event.dataTransfer.dropEffect = 'move';
+      lastDragY = event.clientY;
+      const targetRow = event.target.closest('[data-category-row]');
+      if (targetRow && targetRow !== draggedRow) {
+        const bounds = targetRow.getBoundingClientRect();
+        const insertBefore = event.clientY < bounds.top + bounds.height / 2;
+        if (insertBefore && draggedRow.nextElementSibling !== targetRow) {
+          list.insertBefore(draggedRow, targetRow);
+        } else if (!insertBefore && targetRow.nextElementSibling !== draggedRow) {
+          list.insertBefore(draggedRow, targetRow.nextElementSibling);
+        }
+        syncOrderInputs();
       }
+      if (!autoScrollFrame) autoScrollFrame = window.requestAnimationFrame(autoScroll);
+    });
+
+    list.addEventListener('drop', function (event) {
+      if (!draggedRow) return;
+      event.preventDefault();
+      finishDrag();
+    });
+
+    const finishDrag = function () {
+      if (!draggedRow) return;
+      draggedRow.classList.remove('category-row-dragging');
+      draggedRow = null;
+      stopAutoScroll();
       syncOrderInputs();
       status.textContent = 'Order changed. Click Save category order to apply it to the store.';
     };
 
-    window.addEventListener('pointermove', function (event) {
-      if (!activeRow || event.pointerId !== activePointerId) return;
-      pointerY = event.clientY;
-      moveActiveRow();
-      event.preventDefault();
-    }, { passive: false });
-    window.addEventListener('pointerup', finishDrag);
-    window.addEventListener('pointercancel', finishDrag);
+    list.addEventListener('dragend', finishDrag);
+    list.addEventListener('click', function (event) {
+      const button = event.target.closest('.category-order-step');
+      if (!button || button.disabled) return;
+      const row = button.closest('[data-category-row]');
+      const direction = Number(button.dataset.direction);
+      if (direction < 0) list.insertBefore(row, row.previousElementSibling);
+      else list.insertBefore(row.nextElementSibling, row);
+      syncOrderInputs();
+      status.textContent = 'Order changed. Click Save category order to apply it to the store.';
+    });
     orderForm.addEventListener('submit', syncOrderInputs);
+    syncOrderInputs();
   })();
 </script>
 <style>
