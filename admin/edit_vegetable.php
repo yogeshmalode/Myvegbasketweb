@@ -211,7 +211,7 @@ include __DIR__ . '/includes/admin_header.php';
       </div>
       <div id="sharedStockWrap" class="form-group" style="margin-bottom:0; display:<?= ($veg['stock_mode'] ?? 'shared') === 'per_store' ? 'none' : 'block' ?>;">
         <label for="stock">Stock quantity</label>
-        <input type="number" id="stock" name="stock" min="0" value="<?= h($veg['stock']) ?>">
+        <input type="number" id="stock" name="stock" min="0" step="0.001" value="<?= h($veg['stock']) ?>">
       </div>
       <div id="perStoreStockWrap" style="display:<?= ($veg['stock_mode'] ?? 'shared') === 'per_store' ? 'block' : 'none' ?>;">
         <p style="color:#5B6656; font-size:0.82rem; margin:2px 0 10px;">A sale, wastage entry, or restock at one store won't affect another store's number.</p>
@@ -277,7 +277,12 @@ include __DIR__ . '/includes/admin_header.php';
     const perStore = document.querySelector('input[name="stock_mode"]:checked').value === 'per_store';
     document.getElementById('sharedStockWrap').style.display = perStore ? 'none' : 'block';
     document.getElementById('perStoreStockWrap').style.display = perStore ? 'block' : 'none';
+    document.getElementById('stock').disabled = perStore;
+    document.querySelectorAll('#perStoreStockWrap input[name^="store_stock["]').forEach(function (input) {
+      input.disabled = !perStore;
+    });
   }
+  toggleStockMode();
 
   const editForm = document.getElementById('editVegetableForm');
   const submitStatus = document.getElementById('editVegetableSubmitStatus');
