@@ -888,34 +888,39 @@ a:has(.offers-ticker-track):hover .offers-ticker-track{
   .deal-ticker-group[aria-hidden="true"]{display:none}
   .deal-ticker-item,.deal-ticker-image,.deal-ticker-cta,.deal-ticker-cta b{transition:none!important}
 }
-@media(max-width:760px){
+@media(max-width:900px){
   .site-header{padding-top:env(safe-area-inset-top)}
-  .delivery-location-row{width:100%;align-items:center}
+  .delivery-location-row{width:100%;min-height:54px;align-items:center;padding:8px 18px 4px}
   .delivery-location-picker{flex:1}
-  .location-value{max-width:min(65vw,250px)}
-  .header-inner{width:100%;grid-template-columns:minmax(0,1fr) auto}
-  .header-inner .logo{min-width:0}
-  .header-inner .logo img{flex:0 0 34px;width:34px!important;height:34px!important}
-  .header-inner .nav-actions{gap:7px}
+  .location-value{max-width:min(70vw,320px)}
+  .header-inner{width:100%;grid-template-columns:minmax(0,1fr) auto;gap:12px;padding:10px 18px 16px}
+  .header-inner .logo{min-width:0;gap:10px;font-size:1.15rem}
+  .header-inner .logo img{flex:0 0 42px;width:42px!important;height:42px!important}
+  .header-inner .nav-actions{gap:9px}
   .site-header .nav-actions #installAppBtn,.site-header .nav-actions .nav-link,.site-header #accountMenu{display:none!important}
-  .site-header #mobileMenuToggle{display:flex!important;width:38px!important;height:38px!important;flex:0 0 38px;align-items:center;justify-content:center;border-radius:9px!important;font-size:1.05rem!important}
-  #mobileMenuPanel{max-height:min(60vh,480px);overflow-y:auto;overscroll-behavior:contain;padding-bottom:max(16px,env(safe-area-inset-bottom))}
-  .site-footer{margin-top:32px;padding:28px 0 calc(88px + env(safe-area-inset-bottom))}
-  .site-footer .footer-inner{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:18px 16px}
-  .site-footer .footer-inner>div:first-child{grid-column:1/-1}
-  .site-footer .footer-inner img{width:auto;max-width:min(100%,220px);height:34px!important;object-fit:contain;object-position:left center}
-  .site-footer .footer-inner p{max-width:none!important;margin:8px 0;font-size:.8rem;line-height:1.5;overflow-wrap:anywhere}
-  .site-footer .footer-inner h4{font-size:.9rem!important}
-  .site-footer small{margin-top:16px;padding:0 16px;line-height:1.5}
-  .whatsapp-float{right:14px!important;bottom:calc(14px + env(safe-area-inset-bottom))!important;width:48px!important;height:48px!important;font-size:24px!important}
+  .site-header #mobileMenuToggle{display:flex!important;width:46px!important;height:46px!important;flex:0 0 46px;align-items:center;justify-content:center;border-radius:11px!important;font-size:1.2rem!important}
+  .site-header .header-inner .cart-btn{min-height:46px;padding:9px 14px;font-size:.88rem}
+  .site-header .header-inner .search-form{height:50px}
+  .site-header .header-inner .search-form button{min-width:46px;height:42px}
+  #mobileMenuPanel{max-height:min(60vh,520px);overflow-y:auto;overscroll-behavior:contain;padding:12px 20px max(20px,env(safe-area-inset-bottom))}
+  #mobileMenuPanel a{min-height:48px;display:flex!important;align-items:center;padding:12px 4px!important}
+  .site-footer{margin-top:40px;padding:40px 0 calc(100px + env(safe-area-inset-bottom))}
+  .site-footer .footer-inner{display:grid;grid-template-columns:minmax(0,1fr);gap:26px;padding-right:20px;padding-left:20px}
+  .site-footer .footer-inner>div{min-width:0}
+  .site-footer .footer-inner img{width:auto;max-width:min(100%,260px);height:42px!important;object-fit:contain;object-position:left center}
+  .site-footer .footer-inner p{max-width:none!important;margin:10px 0;font-size:.9rem;line-height:1.6;overflow-wrap:anywhere}
+  .site-footer .footer-inner h4{margin-bottom:8px;font-size:1rem!important}
+  .site-footer .footer-inner a{min-height:42px;display:inline-flex;align-items:center}
+  .site-footer small{margin-top:22px;padding:0 20px;line-height:1.6;font-size:.8rem}
+  .whatsapp-float{right:16px!important;bottom:calc(16px + env(safe-area-inset-bottom))!important;width:52px!important;height:52px!important;font-size:25px!important}
 }
 @media(max-width:360px){
-  .delivery-location-row{padding-right:11px;padding-left:11px}
-  .header-inner{gap:8px;padding-right:11px;padding-left:11px}
-  .header-inner .logo{font-size:.86rem}
-  .header-inner .nav-actions{gap:5px}
-  .header-inner .cart-btn{padding:7px 8px}
-  .site-footer .footer-inner{gap:16px 10px}
-  .site-footer .footer-inner h4{font-size:.84rem!important}
-  .site-footer .footer-inner p{font-size:.75rem}
+  .delivery-location-row{padding-right:12px;padding-left:12px}
+  .header-inner{gap:9px;padding-right:12px;padding-left:12px}
+  .header-inner .logo{gap:7px;font-size:.94rem}
+  .header-inner .logo img{flex-basis:38px;width:38px!important;height:38px!important}
+  .header-inner .nav-actions{gap:6px}
+  .site-header .header-inner .cart-btn{min-height:44px;padding:8px 10px}
+  .site-header #mobileMenuToggle{width:44px!important;height:44px!important;flex-basis:44px}
+  .site-footer .footer-inner{gap:22px}
 }
