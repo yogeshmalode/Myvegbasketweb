@@ -164,7 +164,7 @@ $__canonical = SITE_URL . strtok($_SERVER['REQUEST_URI'] ?? '/', '?');
         🧺 Cart
         <span class="cart-count" id="cartCount"><?= cart_count() ?></span>
       </button>
-      <button type="button" id="mobileMenuToggle" aria-label="Menu">☰</button>
+      <button type="button" id="mobileMenuToggle" aria-label="Menu" aria-controls="mobileMenuPanel" aria-expanded="false">☰</button>
     </div>
   </div>
 
@@ -207,11 +207,21 @@ $__canonical = SITE_URL . strtok($_SERVER['REQUEST_URI'] ?? '/', '?');
     const panel = document.getElementById('mobileMenuPanel');
     toggle?.addEventListener('click', (e) => {
       e.stopPropagation();
-      panel.style.display = panel.style.display === 'block' ? 'none' : 'block';
+      const isOpen = panel.style.display !== 'block';
+      panel.style.display = isOpen ? 'block' : 'none';
+      toggle.setAttribute('aria-expanded', String(isOpen));
     });
     document.addEventListener('click', (e) => {
       if (panel && panel.style.display === 'block' && !panel.contains(e.target) && e.target !== toggle) {
         panel.style.display = 'none';
+        toggle?.setAttribute('aria-expanded', 'false');
+      }
+    });
+    document.addEventListener('keydown', (e) => {
+      if (e.key === 'Escape' && panel?.style.display === 'block') {
+        panel.style.display = 'none';
+        toggle?.setAttribute('aria-expanded', 'false');
+        toggle?.focus();
       }
     });
   })();
