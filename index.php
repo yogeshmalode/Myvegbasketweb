@@ -196,6 +196,33 @@ $dealProducts = array_values(array_filter(
     $vegetables,
     static fn(array $veg): bool => get_effective_price($veg) < (float)$veg['price']
 ));
+$dealTickerItems = [];
+foreach (array_slice($activeOffers, 0, 6) as $offer) {
+    $offerBadge = $offer['discount_type'] === 'percent'
+        ? number_format((float)$offer['discount_value'], 0) . '% OFF'
+        : ($offer['discount_type'] === 'flat'
+            ? SITE_CURRENCY . number_format((float)$offer['discount_value'], 0) . ' OFF'
+            : 'FREE DELIVERY');
+    $dealTickerItems[] = [
+        'label' => $offerBadge,
+        'title' => (string)$offer['title'],
+        'detail' => !empty($offer['coupon_code']) ? 'Use code ' . (string)$offer['coupon_code'] : 'Shop this offer',
+        'href' => BASE_URL . '/offers.php',
+    ];
+}
+if (!in_array(current_customer_type(), ['hotel', 'shop'], true)) {
+    foreach (array_slice($dealProducts, 0, 6) as $dealProduct) {
+        $regularPrice = (float)$dealProduct['price'];
+        $salePrice = get_effective_price($dealProduct);
+        $discountPercent = max(1, (int)round((1 - $salePrice / $regularPrice) * 100));
+        $dealTickerItems[] = [
+            'label' => $discountPercent . '% PRICE DROP',
+            'title' => (string)$dealProduct['name'],
+            'detail' => 'Now ' . SITE_CURRENCY . number_format($salePrice, 2) . ' / ' . (string)$dealProduct['unit'],
+            'href' => BASE_URL . '/index.php#shop',
+        ];
+    }
+}
 $showStorefrontPromotions = $category === '' || $category === 'All';
 ?>
 
@@ -296,6 +323,32 @@ $showStorefrontPromotions = $category === '' || $category === 'All';
       </div>
     </div>
   </section>
+
+  <?php if ($showStorefrontPromotions && $dealTickerItems): ?>
+  <section class="deal-ticker-section" aria-label="Current deals and price drops">
+    <div class="container deal-ticker-shell">
+      <div class="deal-ticker-heading">
+        <span><span class="deal-ticker-live-dot" aria-hidden="true"></span> TODAY'S DEALS</span>
+        <button type="button" id="dealTickerToggle" aria-pressed="false">Pause</button>
+      </div>
+      <div class="deal-ticker-window">
+        <div class="deal-ticker-track" id="dealTickerTrack">
+          <?php for ($copy = 0; $copy < 2; $copy++): ?>
+            <div class="deal-ticker-group"<?= $copy === 1 ? ' aria-hidden="true"' : '' ?>>
+              <?php foreach ($dealTickerItems as $tickerItem): ?>
+                <a class="deal-ticker-item" href="<?= h($tickerItem['href']) ?>"<?= $copy === 1 ? ' tabindex="-1"' : '' ?>>
+                  <span class="deal-ticker-badge"><?= h($tickerItem['label']) ?></span>
+                  <span class="deal-ticker-copy"><strong><?= h($tickerItem['title']) ?></strong><small><?= h($tickerItem['detail']) ?></small></span>
+                  <span class="deal-ticker-arrow" aria-hidden="true">→</span>
+                </a>
+              <?php endforeach; ?>
+            </div>
+          <?php endfor; ?>
+        </div>
+      </div>
+    </div>
+  </section>
+  <?php endif; ?>
 
   <section class="container partner-spotlight-section" aria-labelledby="whyShopHeading">
     <header class="partner-spotlight-heading">

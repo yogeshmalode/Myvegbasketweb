@@ -260,6 +260,15 @@ document.addEventListener('DOMContentLoaded', () => {
     }
   }
 
+  const dealTicker = document.querySelector('.deal-ticker-section');
+  const dealTickerToggle = document.getElementById('dealTickerToggle');
+  dealTickerToggle?.addEventListener('click', () => {
+    const isPaused = dealTicker?.classList.toggle('is-paused') ?? false;
+    dealTicker?.classList.toggle('is-playing', !isPaused);
+    dealTickerToggle.setAttribute('aria-pressed', String(isPaused));
+    dealTickerToggle.textContent = isPaused ? 'Play' : 'Pause';
+  });
+
   let pendingNotify = null;
   const notifyOverlay = document.getElementById('notifyMeOverlay');
   const notifyForm = document.getElementById('notifyMeForm');
