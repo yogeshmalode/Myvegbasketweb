@@ -83,7 +83,6 @@ function restoreCategoryNavigationPosition() {
     document.documentElement.style.scrollBehavior = 'auto';
     window.scrollTo(0, Math.max(0, productsDocumentTop - headerBottom - 12));
     sidebar.scrollTop = navigation.sidebarTop;
-    sidebar.scrollLeft = Number.isFinite(navigation.sidebarLeft) ? navigation.sidebarLeft : 0;
     requestAnimationFrame(() => {
       document.documentElement.style.scrollBehavior = previousScrollBehavior;
     });
@@ -166,7 +165,6 @@ document.addEventListener('DOMContentLoaded', () => {
       sessionStorage.setItem(categoryNavigationStorageKey, JSON.stringify({
         target: targetUrl.href,
         sidebarTop: sidebar.scrollTop,
-        sidebarLeft: sidebar.scrollLeft,
         savedAt: Date.now()
       }));
     } catch (error) {
