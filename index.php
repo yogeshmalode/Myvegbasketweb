@@ -208,7 +208,11 @@ foreach (array_slice($activeOffers, 0, 6) as $offer) {
         'title' => (string)$offer['title'],
         'detail' => !empty($offer['coupon_code']) ? 'Use code ' . (string)$offer['coupon_code'] : 'Shop this offer',
         'href' => BASE_URL . '/offers.php',
-        'icon' => $offer['discount_type'] === 'free_delivery' ? '🚚' : '🏷️',
+        'image' => BASE_URL . '/assets/images/' . (
+            $offer['discount_type'] === 'free_delivery'
+                ? 'free-delivery-weekend-banner.png'
+                : 'welcome-offer-banner.png'
+        ),
         'action' => 'GET DEAL',
     ];
 }
@@ -222,7 +226,7 @@ if (!in_array(current_customer_type(), ['hotel', 'shop'], true)) {
             'title' => (string)$dealProduct['name'],
             'detail' => 'Now ' . SITE_CURRENCY . number_format($salePrice, 2) . ' / ' . (string)$dealProduct['unit'],
             'href' => BASE_URL . '/index.php#shop',
-            'icon' => veg_emoji($dealProduct['name']),
+            'image_html' => veg_thumb_html($dealProduct, false, 'lazy'),
             'action' => 'SHOP NOW',
         ];
     }
@@ -341,7 +345,7 @@ $showStorefrontPromotions = $category === '' || $category === 'All';
             <div class="deal-ticker-group"<?= $copy === 1 ? ' aria-hidden="true"' : '' ?>>
               <?php foreach ($dealTickerItems as $tickerItem): ?>
                 <a class="deal-ticker-item" href="<?= h($tickerItem['href']) ?>"<?= $copy === 1 ? ' tabindex="-1"' : '' ?>>
-                  <span class="deal-ticker-icon" aria-hidden="true"><?= h($tickerItem['icon']) ?></span>
+                  <span class="deal-ticker-image" aria-hidden="true"><?php if (isset($tickerItem['image_html'])): ?><?= $tickerItem['image_html'] ?><?php else: ?><img src="<?= h($tickerItem['image']) ?>" alt="" loading="lazy" decoding="async"><?php endif; ?></span>
                   <span class="deal-ticker-copy">
                     <span class="deal-ticker-badge"><?= h($tickerItem['label']) ?></span>
                     <strong><?= h($tickerItem['title']) ?></strong>
