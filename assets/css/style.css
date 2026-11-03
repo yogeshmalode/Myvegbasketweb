@@ -746,15 +746,21 @@ a:has(.offers-ticker-track):hover .offers-ticker-track{
 }
 @media(max-width:760px){
   .quick-storefront .container{width:calc(100% - 28px);padding:0}
-  .store-catalog-layout{gap:10px}
-  .catalog-sidebar{top:156px;flex:0 0 90px;width:90px;border-radius:11px}
-  .catalog-sidebar-heading{padding:10px 4px 8px;text-align:center}
-  .catalog-sidebar-heading h2{font-size:.62rem;line-height:1.25;letter-spacing:.035em}
+  .store-catalog-layout{flex-direction:column;gap:22px}
+  .catalog-sidebar{position:static;flex:0 0 auto;width:100%;border-radius:11px}
+  .catalog-sidebar-heading{padding:10px 12px 8px}
+  .catalog-sidebar-heading h2{font-size:.72rem;line-height:1.25;letter-spacing:.035em}
   .catalog-sidebar-heading p{display:none}
-  .catalog-category-list{gap:2px;padding:4px}
-  .catalog-category-item{min-height:42px;gap:4px;padding:4px 3px;border-left-width:3px;border-radius:7px}
-  .catalog-category-icon{width:25px;height:25px;flex-basis:25px;font-size:1rem}
+  .catalog-sidebar-scroll{height:auto;overflow-x:auto;overflow-y:hidden;overscroll-behavior-inline:contain;scroll-snap-type:x mandatory;scrollbar-width:thin}
+  .catalog-category-list{display:flex;gap:5px;padding:5px 8px 8px}
+  .catalog-category-list:before{display:none}
+  .catalog-category-item{flex:0 0 76px;min-height:66px;flex-direction:column;justify-content:center;gap:4px;padding:5px 3px;border-left:0;border-bottom:3px solid transparent;border-radius:7px;text-align:center;scroll-snap-align:start}
+  .catalog-category-item:hover{transform:none}
+  .catalog-category-item.is-active{border-bottom-color:#0c831f}
+  .catalog-category-icon{width:29px;height:29px;flex-basis:29px;font-size:1rem}
   .catalog-category-label{font-size:.59rem;line-height:1.08}
+  .store-catalog-main{width:100%}
+  .store-catalog-main .veg-grid{grid-template-columns:repeat(auto-fill,minmax(min(100%,190px),1fr))}
   .store-catalog-main{gap:22px}
   .store-catalog-main .deal-section,.store-catalog-main .product-section{gap:12px}
   .store-catalog-main .quick-section-heading h2{font-size:1rem}
@@ -809,7 +815,9 @@ a:has(.offers-ticker-track):hover .offers-ticker-track{
   .section-kicker,.ad-label{font-size:.59rem}
   .section-text-link{font-size:.72rem}
   .veg-grid{gap:10px}
+  .store-catalog-main .veg-grid{grid-template-columns:repeat(2,minmax(0,1fr))}
   .quick-product-card{gap:7px;padding:8px;border-radius:12px}
+  .store-catalog-main .quick-product-card{max-width:none}
   .quick-product-image{aspect-ratio:1/1}
   .quick-product-copy h3{font-size:.78rem}
   .quick-product-copy h3 span{font-size:.64rem}
@@ -827,8 +835,7 @@ a:has(.offers-ticker-track):hover .offers-ticker-track{
 }
 @media(max-width:360px){
   .quick-storefront .container{width:calc(100% - 22px)}
-  .store-catalog-layout{gap:8px}
-  .catalog-sidebar{flex-basis:84px;width:84px}
+  .catalog-category-item{flex-basis:70px}
   .catalog-category-icon{width:23px;height:23px;flex-basis:23px}
   .catalog-category-label{font-size:.56rem}
   .quick-product-card{padding:7px}
