@@ -171,6 +171,7 @@ include __DIR__ . '/includes/admin_header.php';
     display: flex; align-items: center; justify-content: space-between;
     gap: 16px; flex-wrap: wrap; margin: 0 0 16px;
   }
+  .orders-page-intro { display: grid; gap: 7px; }
   .orders-page-header h2 {
     margin: 0; color: #0c5a42; font-size: clamp(1.5rem, 2vw, 2.2rem);
     line-height: 1.2; letter-spacing: -0.03em; font-weight: 800;
@@ -187,38 +188,63 @@ include __DIR__ . '/includes/admin_header.php';
     box-shadow: 0 1px 0 rgba(18, 41, 34, 0.04);
   }
   .orders-page-actions .btn:hover { background: #f6faf7; border-color: #cfe0ce; }
+  .orders-page-subtitle { margin: 0; color: #68766f; font-size: .82rem; }
+  .orders-live-indicator { display: inline-flex; align-items: center; gap: 7px; color: #267343; font-size: .7rem; font-weight: 800; }
+  .orders-live-indicator:before { width: 8px; height: 8px; border-radius: 50%; background: #35a85c; box-shadow: 0 0 0 4px rgba(53,168,92,.12); content: ""; }
 
   /* ---- KPI strip ---- */
-  .kpi-strip { display: flex; gap: 10px; flex-wrap: wrap; margin-bottom: 18px; }
+  .kpi-strip { display: grid; grid-template-columns: repeat(auto-fit, minmax(155px, 1fr)); gap: 10px; margin-bottom: 18px; }
   .kpi-chip {
-    background: #fff; border: 1px solid #dfe8df; border-radius: 14px;
-    padding: 10px 16px; font-size: 0.78rem; font-weight: 700; color: #26372f;
+    background: #fff; border: 1px solid #e3ebe5; border-radius: 14px;
+    padding: 12px 14px; font-size: 0.72rem; font-weight: 700; color: #586860;
     box-shadow: 0 6px 16px rgba(18, 52, 40, 0.04);
-    display: flex; align-items: center; gap: 8px;
+    display: flex; align-items: center; justify-content: space-between; gap: 8px;
+    transition: transform .18s ease, box-shadow .18s ease;
   }
-  .kpi-chip .kpi-value { font-size: 0.95rem; font-weight: 900; color: #0c5a42; }
-  .kpi-chip.warn .kpi-value { color: #B25B00; }
-  .kpi-chip.danger .kpi-value { color: #9A2E24; }
+  .kpi-chip:hover { transform: translateY(-2px); box-shadow: 0 10px 22px rgba(18,52,40,.08); }
+  .kpi-chip .kpi-value { min-width: 30px; min-height: 30px; display: grid; place-items: center; padding: 0 7px; border-radius: 10px; background: #e8f6ed; font-size: 0.9rem; font-weight: 900; color: #0c5a42; }
+  .kpi-chip.warn .kpi-value { background: #fff1df; color: #B25B00; }
+  .kpi-chip.danger .kpi-value { background: #fdebea; color: #9A2E24; }
 
   /* ---- Tab bar ---- */
+  .orders-workspace-toolbar {
+    display: flex; align-items: center; justify-content: space-between; gap: 12px;
+    margin: 0 0 12px; padding: 12px 14px; border: 1px solid #e1e9e3;
+    border-radius: 15px; background: linear-gradient(110deg, #fff 0%, #f6fbf7 100%);
+  }
+  .orders-search-wrap { position: relative; flex: 1; max-width: 440px; }
+  .orders-search-wrap:before { position: absolute; left: 13px; top: 50%; transform: translateY(-50%); content: "⌕"; color: #60736a; font-size: 1.25rem; pointer-events: none; }
+  .orders-search { width: 100%; min-height: 42px; padding: 0 13px 0 40px; border: 1px solid #dce7df; border-radius: 12px; background: #fff; color: #1c3026; font: 600 .8rem Inter, sans-serif; outline: none; }
+  .orders-search:focus { border-color: #52a676; box-shadow: 0 0 0 3px rgba(54,145,85,.12); }
+  .orders-search-hint { margin: 0; color: #6b7971; font-size: .72rem; }
+  .orders-search-empty { margin: 0 0 12px; padding: 12px 14px; border: 1px dashed #d1dfd5; border-radius: 12px; background: #fbfdfb; color: #65756c; font-size: .8rem; }
+  .orders-search-empty[hidden] { display: none; }
   .order-tabs {
-    display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 18px;
+    display: flex; gap: 6px; flex-wrap: nowrap; overflow-x: auto; margin-bottom: 18px;
     background: #fff; border: 1px solid #dfe8df; border-radius: 16px; padding: 6px;
     box-shadow: 0 6px 16px rgba(18, 52, 40, 0.04);
+    scrollbar-width: thin; -webkit-overflow-scrolling: touch;
   }
   .order-tab-btn {
-    border: none; background: transparent; padding: 10px 16px; border-radius: 12px;
-    font-weight: 800; font-size: 0.8rem; color: #4a5a52; cursor: pointer;
+    flex: 0 0 auto; border: none; background: transparent; padding: 10px 14px; border-radius: 12px;
+    font-weight: 800; font-size: 0.76rem; color: #4a5a52; cursor: pointer; white-space: nowrap;
     display: flex; align-items: center; gap: 6px;
+    transition: background .18s ease, color .18s ease, transform .18s ease;
   }
-  .order-tab-btn:hover { background: #f3f8f4; }
-  .order-tab-btn.active { background: #0c5a42; color: #fff; }
+  .order-tab-btn:hover { background: #f3f8f4; transform: translateY(-1px); }
+  .order-tab-btn.active { background: linear-gradient(135deg, #0c5a42, #16815c); color: #fff; box-shadow: 0 5px 13px rgba(12,90,66,.18); }
   .order-tab-count { background: rgba(0,0,0,0.08); border-radius: 999px; padding: 1px 8px; font-size: 0.72rem; }
   .order-tab-btn.active .order-tab-count { background: rgba(255,255,255,0.25); }
   .order-tab-btn[data-tab="exceptions"] .order-tab-count { background: #FCE8E6; color: #9A2E24; }
+  .order-tab-btn[data-tab="new"]:not(.active) .order-tab-count { background: #e2f5e8; color: #167241; }
 
   .order-tab-panel { display: none; }
-  .order-tab-panel.active { display: block; }
+  .order-tab-panel.active { display: block; animation: orders-panel-enter .24s ease both; }
+  @keyframes orders-panel-enter { from { opacity: .35; transform: translateY(5px); } to { opacity: 1; transform: translateY(0); } }
+  .order-queue-heading { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin: 0 0 12px; }
+  .order-queue-heading h3 { margin: 0; color: #193d2d; font-size: 1rem; font-weight: 850; }
+  .order-queue-heading p { margin: 4px 0 0; color: #718078; font-size: .74rem; }
+  .order-queue-count { padding: 6px 10px; border-radius: 999px; background: #e8f6ed; color: #176a3c; font-size: .68rem; font-weight: 850; white-space: nowrap; }
 
   /* ---- Picking toolbar + packer assignment (merged from Fulfillment Center) ---- */
   .picking-toolbar {
@@ -241,11 +267,17 @@ include __DIR__ . '/includes/admin_header.php';
   .order-card {
     background: #fff; border: 1px solid #dfe8df; border-radius: 16px; padding: 14px 16px;
     box-shadow: 0 6px 16px rgba(18, 52, 40, 0.05); border-left: 4px solid #cfe0ce;
+    transition: transform .18s ease, box-shadow .18s ease, border-color .18s ease;
+    animation: order-card-enter .3s ease both;
   }
+  .order-card:hover { transform: translateY(-2px); box-shadow: 0 12px 26px rgba(18,52,40,.1); }
+  .order-card[hidden], .order-card-grid > [hidden] { display: none !important; }
+  .order-card-new { border-color: #d3ead9; border-left-color: #26a45b; background: linear-gradient(150deg,#fff 55%,#f4fcf6); }
   .order-card.urgent { border-left-color: #D64545; }
   .order-card.warn { border-left-color: #E0A030; }
-  .order-card-top { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 8px; }
+  .order-card-top { display: flex; justify-content: space-between; align-items: center; gap: 8px; margin-bottom: 9px; }
   .order-card-id { font-weight: 900; color: #15241e; font-size: 0.95rem; }
+  .order-new-pill { display: inline-flex; vertical-align: 1px; margin-left: 6px; padding: 3px 7px; border-radius: 999px; background: #e4f6e9; color: #167241; font-size: .58rem; font-weight: 900; letter-spacing: .04em; text-transform: uppercase; }
   .order-card-time { font-size: 0.7rem; color: #74847c; }
   .order-card-customer { font-weight: 700; color: #1c2d2b; font-size: 0.85rem; }
   .order-card-sub { font-size: 0.74rem; color: #5d6e65; margin-top: 2px; }
@@ -263,8 +295,10 @@ include __DIR__ . '/includes/admin_header.php';
   }
   .order-card-actions .btn.primary { background: #0c5a42; color: #fff; border-color: #0c5a42; }
   .order-card-actions .btn.danger { background: #FCE8E6; color: #9A2E24; border-color: #f4cfc9; }
+  .order-card-actions .btn:disabled { opacity: .55; cursor: wait; }
   .order-card-actions select { min-height: 34px; border-radius: 8px; border: 1px solid #d5dfd7; font-size: 0.76rem; padding: 0 8px; }
   .order-card-empty { grid-column: 1 / -1; text-align: center; color: #5B6656; padding: 30px; }
+  @keyframes order-card-enter { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: translateY(0); } }
 
   /* ---- Completed tab: compact table ---- */
   .table-wrap { overflow-x: auto; background: #fff; border-radius: 20px; border: 1px solid #dfe8df; box-shadow: 0 10px 28px rgba(18, 52, 40, 0.05); }
@@ -286,11 +320,40 @@ include __DIR__ . '/includes/admin_header.php';
     .orders-page-header h2 { font-size: 2.3rem; }
     .orders-page-header h2::after { width: 72%; }
   }
+  @media (max-width: 640px) {
+    .orders-page-header { gap: 12px; }
+    .orders-page-header h2 { font-size: 1.8rem; }
+    .orders-page-actions { width: 100%; }
+    .orders-page-actions .btn { flex: 1; padding: 0 9px; font-size: .68rem; }
+    .kpi-strip { grid-template-columns: repeat(2, minmax(0,1fr)); gap: 7px; }
+    .kpi-chip { min-width: 0; padding: 9px 10px; border-radius: 12px; font-size: .64rem; }
+    .kpi-chip .kpi-value { min-width: 26px; min-height: 26px; font-size: .78rem; }
+    .orders-workspace-toolbar { align-items: stretch; flex-direction: column; padding: 10px; }
+    .orders-search-wrap { max-width: none; }
+    .orders-search-hint { font-size: .67rem; }
+    .order-tabs { margin-right: -2px; margin-left: -2px; border-radius: 13px; }
+    .order-tab-btn { padding: 9px 11px; font-size: .7rem; }
+    .order-card-grid { grid-template-columns: minmax(0,1fr); gap: 10px; }
+    .order-card { padding: 13px; border-radius: 14px; }
+    .order-card-actions { gap: 7px; }
+    .order-card-actions .btn { min-height: 40px; flex: 1 1 calc(50% - 7px); justify-content: center; padding: 0 9px; font-size: .69rem; }
+    .order-card-actions select { min-height: 40px; flex: 1 1 calc(50% - 7px); }
+    .picking-toolbar { padding: 11px; }
+    .picking-toolbar span { flex: 1 1 100%; font-size: .72rem; }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .order-tab-panel.active, .order-card { animation: none; }
+    .kpi-chip, .order-tab-btn, .order-card { transition: none; }
+  }
 </style>
 
 <div class="orders-page-shell">
   <div class="orders-page-header">
-    <h2>Orders</h2>
+    <div class="orders-page-intro">
+      <h2>Orders</h2>
+      <p class="orders-page-subtitle">Track incoming orders and move each one to its next step.</p>
+      <span class="orders-live-indicator">Live order updates enabled</span>
+    </div>
     <div class="orders-page-actions">
       <a href="export_orders.php" class="btn">⬇ Export Excel (CSV)</a>
       <a href="export_orders_pdf.php" class="btn">⬇ Download PDF</a>
@@ -314,9 +377,18 @@ include __DIR__ . '/includes/admin_header.php';
   <div class="kpi-chip">💰 Today's Revenue <span class="kpi-value">₹<?= number_format($todayRevenue, 2) ?></span></div>
 </div>
 
-<div class="order-tabs" role="tablist">
+<div class="orders-workspace-toolbar">
+  <label class="orders-search-wrap">
+    <span class="visually-hidden">Search orders in the selected tab</span>
+    <input type="search" class="orders-search" id="ordersQuickSearch" placeholder="Search this tab by order, customer, phone or item..." autocomplete="off">
+  </label>
+  <p class="orders-search-hint">Choose a stage below to focus on the orders that need attention.</p>
+</div>
+<p class="orders-search-empty" id="ordersSearchEmpty" role="status" hidden>No orders match your search in this stage.</p>
+
+<div class="order-tabs" role="tablist" aria-label="Order stages">
   <?php $first = true; foreach ($tabs as $key => $tab): ?>
-    <button type="button" class="order-tab-btn <?= $first ? 'active' : '' ?>" data-tab="<?= $key ?>" onclick="showOrderTab('<?= $key ?>')">
+    <button type="button" id="order-tab-<?= $key ?>" class="order-tab-btn <?= $first ? 'active' : '' ?>" role="tab" aria-selected="<?= $first ? 'true' : 'false' ?>" aria-controls="orders-panel-<?= $key ?>" tabindex="<?= $first ? '0' : '-1' ?>" data-tab="<?= $key ?>" onclick="showOrderTab('<?= $key ?>')">
       <?= $tab['label'] ?> <span class="order-tab-count"><?= count($tab['orders']) ?></span>
     </button>
   <?php $first = false; endforeach; ?>
@@ -331,21 +403,63 @@ include __DIR__ . '/includes/admin_header.php';
 const CSRF_TOKEN = '<?= h(csrf_token()) ?>';
 
 function showOrderTab(key) {
-  document.querySelectorAll('.order-tab-btn').forEach(b => b.classList.toggle('active', b.dataset.tab === key));
+  document.querySelectorAll('.order-tab-btn').forEach(b => {
+    const active = b.dataset.tab === key;
+    b.classList.toggle('active', active);
+    b.setAttribute('aria-selected', String(active));
+    b.tabIndex = active ? 0 : -1;
+  });
   document.querySelectorAll('.order-tab-panel').forEach(p => p.classList.toggle('active', p.dataset.tab === key));
+  filterActiveOrders();
 }
 
-try {
-  const savedOrderTab = sessionStorage.getItem('myvegbasket_admin_order_tab');
-  const matchingOrderTab = Array.from(document.querySelectorAll('.order-tab-btn'))
-    .find(button => button.dataset.tab === savedOrderTab);
-  if (savedOrderTab && matchingOrderTab) {
-    showOrderTab(savedOrderTab);
-    sessionStorage.removeItem('myvegbasket_admin_order_tab');
-  }
-} catch (error) {
-  console.warn('Could not restore the selected orders tab.', error);
+function filterActiveOrders() {
+  const search = document.getElementById('ordersQuickSearch');
+  const panel = document.querySelector('.order-tab-panel.active');
+  const emptyMessage = document.getElementById('ordersSearchEmpty');
+  if (!search || !panel || !emptyMessage) return;
+
+  const query = search.value.trim().toLocaleLowerCase();
+  const localSearch = panel.querySelector('#completedSearch, #posSearch, #b2bSearch');
+  const localQuery = localSearch ? localSearch.value.trim().toLocaleLowerCase() : '';
+  const entries = panel.querySelectorAll('[data-order-search], tr[data-search]');
+  let visibleCount = 0;
+  entries.forEach((entry) => {
+    const text = (entry.dataset.orderSearch || entry.dataset.search || entry.textContent).toLocaleLowerCase();
+    const matches = text.includes(query) && text.includes(localQuery);
+    entry.hidden = !matches;
+    if (matches) visibleCount++;
+  });
+  emptyMessage.hidden = query.length === 0 || entries.length === 0 || visibleCount > 0;
 }
+
+document.getElementById('ordersQuickSearch').addEventListener('input', filterActiveOrders);
+document.querySelectorAll('.order-tab-btn').forEach((button, index, buttons) => {
+  button.addEventListener('keydown', (event) => {
+    let nextIndex = index;
+    if (event.key === 'ArrowRight') nextIndex = (index + 1) % buttons.length;
+    else if (event.key === 'ArrowLeft') nextIndex = (index - 1 + buttons.length) % buttons.length;
+    else if (event.key === 'Home') nextIndex = 0;
+    else if (event.key === 'End') nextIndex = buttons.length - 1;
+    else return;
+    event.preventDefault();
+    showOrderTab(buttons[nextIndex].dataset.tab);
+    buttons[nextIndex].focus();
+  });
+});
+document.addEventListener('DOMContentLoaded', () => {
+  try {
+    const savedOrderTab = sessionStorage.getItem('myvegbasket_admin_order_tab');
+    const matchingOrderTab = Array.from(document.querySelectorAll('.order-tab-btn'))
+      .find(button => button.dataset.tab === savedOrderTab);
+    if (savedOrderTab && matchingOrderTab) {
+      showOrderTab(savedOrderTab);
+      sessionStorage.removeItem('myvegbasket_admin_order_tab');
+    }
+  } catch (error) {
+    console.warn('Could not restore the selected orders tab.', error);
+  }
+});
 
 function postAction(url, payload, onSuccess, tabAfterSuccess = null) {
   payload.csrf_token = CSRF_TOKEN;
@@ -443,24 +557,15 @@ function saveException(orderId) {
 }
 
 function filterCompleted() {
-  const q = document.getElementById('completedSearch').value.toLowerCase();
-  document.querySelectorAll('#completed-table tbody tr[data-search]').forEach(row => {
-    row.style.display = row.dataset.search.includes(q) ? '' : 'none';
-  });
+  filterActiveOrders();
 }
 
 function filterPos() {
-  const q = document.getElementById('posSearch').value.toLowerCase();
-  document.querySelectorAll('#pos-table tbody tr[data-search]').forEach(row => {
-    row.style.display = row.dataset.search.includes(q) ? '' : 'none';
-  });
+  filterActiveOrders();
 }
 
 function filterB2B() {
-  const q = document.getElementById('b2bSearch').value.toLowerCase();
-  document.querySelectorAll('#b2b-table tbody tr[data-search]').forEach(row => {
-    row.style.display = row.dataset.search.includes(q) ? '' : 'none';
-  });
+  filterActiveOrders();
 }
 
 // ---- Packer assignment + batch picking sheet (merged from the old
@@ -534,6 +639,18 @@ function planRoute() {
 <?php
 function render_order_card($o, $itemsByOrder, $colorMap, $actionsHtml, $orderStatusOptions, $pickerHtml = '', $enablePickSelect = false, $enableRouteSelect = false) {
     $status = normalize_order_status($o['order_status']);
+    $itemNames = array_map(static fn(array $item): string => (string)$item['name'], $itemsByOrder[$o['id']] ?? []);
+    $searchText = strtolower(implode(' ', array_merge([
+        '#' . $o['id'],
+        $o['customer_name'] ?? '',
+        $o['phone'] ?? '',
+        $o['address'] ?? '',
+        $o['delivery_area'] ?? '',
+        $o['delivery_pincode'] ?? '',
+        $o['dark_store_name'] ?? '',
+        $o['rider_name'] ?? '',
+    ], $itemNames)));
+    $isNewOrder = in_array($status, ['pending', 'placed'], true);
     $urgentClass = '';
     if (in_array($status, ['out_for_delivery', 'arriving_soon'], true) && $o['eta_minutes'] !== null && $o['updated_at']) {
         $minutesSince = (time() - strtotime($o['updated_at'])) / 60;
@@ -541,7 +658,7 @@ function render_order_card($o, $itemsByOrder, $colorMap, $actionsHtml, $orderSta
         elseif ($minutesSince > (float)$o['eta_minutes'] * 0.7) $urgentClass = 'warn';
     }
     ?>
-    <div class="order-card <?= $urgentClass ?> <?= ($enablePickSelect || $enableRouteSelect) ? 'has-select' : '' ?>">
+    <article class="order-card <?= $urgentClass ?> <?= $isNewOrder ? 'order-card-new' : '' ?> <?= ($enablePickSelect || $enableRouteSelect) ? 'has-select' : '' ?>" data-order-search="<?= h($searchText) ?>">
       <?php if ($enablePickSelect): ?>
         <input type="checkbox" class="order-card-select" value="<?= $o['id'] ?>" onchange="updatePickingSelectionSummary()" title="Select for batch picking sheet">
       <?php endif; ?>
@@ -549,7 +666,7 @@ function render_order_card($o, $itemsByOrder, $colorMap, $actionsHtml, $orderSta
         <input type="checkbox" class="order-card-route-select" value="<?= $o['id'] ?>" onchange="updateRouteSelectionSummary()" title="Select for route planning">
       <?php endif; ?>
       <div class="order-card-top">
-        <span class="order-card-id">#<?= $o['id'] ?></span>
+        <span class="order-card-id">#<?= $o['id'] ?><?php if ($isNewOrder): ?> <span class="order-new-pill">New</span><?php endif; ?></span>
         <span class="order-card-time"><?= format_ist($o['created_at'], 'd M, h:i A') ?></span>
       </div>
       <div class="order-card-customer"><?= h($o['customer_name']) ?></div>
@@ -585,7 +702,7 @@ function render_order_card($o, $itemsByOrder, $colorMap, $actionsHtml, $orderSta
       <div class="order-card-actions">
         <?= $actionsHtml ?>
       </div>
-    </div>
+    </article>
     <?php
 }
 
@@ -603,7 +720,11 @@ function render_picker_block($o, $pickerAdmins) {
 ?>
 
 <!-- ===================== NEW ===================== -->
-<div class="order-tab-panel active" data-tab="new">
+<div class="order-tab-panel active" id="orders-panel-new" role="tabpanel" aria-labelledby="order-tab-new" tabindex="0" data-tab="new">
+  <div class="order-queue-heading">
+    <div><h3>New orders</h3><p>Review incoming orders and start processing when ready.</p></div>
+    <span class="order-queue-count"><?= count($tabs['new']['orders']) ?> waiting</span>
+  </div>
   <div class="order-card-grid">
     <?php if (empty($tabs['new']['orders'])): ?>
       <div class="order-card-empty">No new orders waiting.</div>
@@ -623,7 +744,7 @@ function render_picker_block($o, $pickerAdmins) {
 </div>
 
 <!-- ===================== PROCESSING ===================== -->
-<div class="order-tab-panel" data-tab="processing">
+<div class="order-tab-panel" id="orders-panel-processing" role="tabpanel" aria-labelledby="order-tab-processing" tabindex="0" data-tab="processing">
   <div class="order-card-grid">
     <?php if (empty($tabs['processing']['orders'])): ?>
       <div class="order-card-empty">Nothing being packed right now.</div>
@@ -638,7 +759,7 @@ function render_picker_block($o, $pickerAdmins) {
 </div>
 
 <!-- ===================== READY FOR DISPATCH ===================== -->
-<div class="order-tab-panel" data-tab="ready">
+<div class="order-tab-panel" id="orders-panel-ready" role="tabpanel" aria-labelledby="order-tab-ready" tabindex="0" data-tab="ready">
   <div class="picking-toolbar">
     <span id="routeSelectionSummary">Select orders below to plan a delivery route (merged from the old Delivery Planner page)</span>
     <select id="routeRiderSelect">
@@ -677,7 +798,7 @@ function render_picker_block($o, $pickerAdmins) {
 </div>
 
 <!-- ===================== OUT FOR DELIVERY ===================== -->
-<div class="order-tab-panel" data-tab="transit">
+<div class="order-tab-panel" id="orders-panel-transit" role="tabpanel" aria-labelledby="order-tab-transit" tabindex="0" data-tab="transit">
   <div class="order-card-grid">
     <?php if (empty($tabs['transit']['orders'])): ?>
       <div class="order-card-empty">No active deliveries right now.</div>
@@ -694,7 +815,7 @@ function render_picker_block($o, $pickerAdmins) {
 </div>
 
 <!-- ===================== COMPLETED ===================== -->
-<div class="order-tab-panel" data-tab="completed">
+<div class="order-tab-panel" id="orders-panel-completed" role="tabpanel" aria-labelledby="order-tab-completed" tabindex="0" data-tab="completed">
   <input type="text" id="completedSearch" class="completed-search" placeholder="Search by order # or customer name..." oninput="filterCompleted()">
   <div class="table-wrap">
     <table class="orders-table" id="completed-table">
@@ -703,7 +824,7 @@ function render_picker_block($o, $pickerAdmins) {
       </thead>
       <tbody>
         <?php foreach ($tabs['completed']['orders'] as $o): ?>
-          <tr data-search="<?= h(strtolower('#' . $o['id'] . ' ' . $o['customer_name'])) ?>">
+          <tr data-search="<?= h(strtolower('#' . $o['id'] . ' ' . $o['customer_name'] . ' ' . $o['phone'] . ' ' . implode(' ', array_column($itemsByOrder[$o['id']] ?? [], 'name')))) ?>">
             <td><?= $o['id'] ?></td>
             <td><?= h($o['customer_name']) ?><br><small style="color:#5B6656;"><?= h($o['email']) ?></small></td>
             <td><?= h($o['dark_store_name'] ?? '—') ?></td>
@@ -721,17 +842,17 @@ function render_picker_block($o, $pickerAdmins) {
 </div>
 
 <!-- ===================== EXCEPTIONS ===================== -->
-<div class="order-tab-panel" data-tab="exceptions">
+<div class="order-tab-panel" id="orders-panel-exceptions" role="tabpanel" aria-labelledby="order-tab-exceptions" tabindex="0" data-tab="exceptions">
   <div class="order-card-grid">
     <?php if (empty($tabs['exceptions']['orders'])): ?>
       <div class="order-card-empty">No cancellations, returns, or failed payments. 🎉</div>
     <?php endif; ?>
     <?php foreach ($tabs['exceptions']['orders'] as $o): ?>
-      <div class="order-card urgent">
+      <article class="order-card urgent" data-order-search="<?= h(strtolower('#' . $o['id'] . ' ' . $o['customer_name'] . ' ' . $o['phone'] . ' ' . ($o['dark_store_name'] ?? ''))) ?>">
         <div class="order-card-top">
           <span class="order-card-id">#<?= $o['id'] ?></span>
           <span class="order-card-time"><?= format_ist($o['created_at'], 'd M, h:i A') ?></span>
-        </div>
+          </div>
         <div class="order-card-customer"><?= h($o['customer_name']) ?></div>
         <div class="order-card-sub">📞 <?= h($o['phone']) ?></div>
         <?php if (!empty($o['dark_store_name'])): ?>
@@ -751,13 +872,13 @@ function render_picker_block($o, $pickerAdmins) {
           <input type="number" step="0.01" id="refund-amount-<?= $o['id'] ?>" placeholder="Refund amount (₹)" value="<?= h($o['refund_amount'] ?? '') ?>">
           <button class="btn primary" onclick="saveException(<?= $o['id'] ?>)">💾 Save</button>
         </div>
-      </div>
+      </article>
     <?php endforeach; ?>
   </div>
 </div>
 
 <!-- ===================== POS BILLS ===================== -->
-<div class="order-tab-panel" data-tab="pos">
+<div class="order-tab-panel" id="orders-panel-pos" role="tabpanel" aria-labelledby="order-tab-pos" tabindex="0" data-tab="pos">
   <input type="text" id="posSearch" class="completed-search" placeholder="Search by bill # or customer name..." oninput="filterPos()">
   <div class="table-wrap">
     <table class="orders-table" id="pos-table">
@@ -768,7 +889,7 @@ function render_picker_block($o, $pickerAdmins) {
         <?php foreach ($tabs['pos']['orders'] as $o):
           $posStatus = normalize_order_status($o['order_status']);
         ?>
-          <tr data-search="<?= h(strtolower('#' . $o['id'] . ' ' . $o['customer_name'])) ?>">
+          <tr data-search="<?= h(strtolower('#' . $o['id'] . ' ' . $o['customer_name'] . ' ' . $o['phone'] . ' ' . implode(' ', array_column($itemsByOrder[$o['id']] ?? [], 'name')))) ?>">
             <td><?= $o['id'] ?></td>
             <td><?= h($o['customer_name']) ?><br><small style="color:#5B6656;"><?= h($o['phone']) ?></small></td>
             <td><?= format_ist($o['created_at'], 'd M Y, h:i A') ?></td>
@@ -792,7 +913,7 @@ function render_picker_block($o, $pickerAdmins) {
 </div>
 
 <!-- ===================== B2B ORDERS (Hotel & Shop) ===================== -->
-<div class="order-tab-panel" data-tab="b2b">
+<div class="order-tab-panel" id="orders-panel-b2b" role="tabpanel" aria-labelledby="order-tab-b2b" tabindex="0" data-tab="b2b">
   <input type="text" id="b2bSearch" class="completed-search" placeholder="Search by order # or business/customer name..." oninput="filterB2B()">
   <div class="table-wrap">
     <table class="orders-table" id="b2b-table">
@@ -804,7 +925,7 @@ function render_picker_block($o, $pickerAdmins) {
           $b2bStatus = normalize_order_status($o['order_status']);
           $isManualBill = ($o['source'] ?? '') === 'b2b';
         ?>
-          <tr data-search="<?= h(strtolower('#' . $o['id'] . ' ' . $o['customer_name'])) ?>">
+          <tr data-search="<?= h(strtolower('#' . $o['id'] . ' ' . $o['customer_name'] . ' ' . $o['phone'] . ' ' . implode(' ', array_column($itemsByOrder[$o['id']] ?? [], 'name')))) ?>">
             <td><?= $o['id'] ?></td>
             <td><?= h($o['customer_name']) ?><br><small style="color:#5B6656;"><?= h($o['phone']) ?></small></td>
             <td><?= h(ucfirst($o['customer_type'] ?? 'retail')) ?></td>
