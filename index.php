@@ -208,6 +208,8 @@ foreach (array_slice($activeOffers, 0, 6) as $offer) {
         'title' => (string)$offer['title'],
         'detail' => !empty($offer['coupon_code']) ? 'Use code ' . (string)$offer['coupon_code'] : 'Shop this offer',
         'href' => BASE_URL . '/offers.php',
+        'icon' => $offer['discount_type'] === 'free_delivery' ? '🚚' : '🏷️',
+        'action' => 'GET DEAL',
     ];
 }
 if (!in_array(current_customer_type(), ['hotel', 'shop'], true)) {
@@ -220,6 +222,8 @@ if (!in_array(current_customer_type(), ['hotel', 'shop'], true)) {
             'title' => (string)$dealProduct['name'],
             'detail' => 'Now ' . SITE_CURRENCY . number_format($salePrice, 2) . ' / ' . (string)$dealProduct['unit'],
             'href' => BASE_URL . '/index.php#shop',
+            'icon' => veg_emoji($dealProduct['name']),
+            'action' => 'SHOP NOW',
         ];
     }
 }
@@ -337,9 +341,13 @@ $showStorefrontPromotions = $category === '' || $category === 'All';
             <div class="deal-ticker-group"<?= $copy === 1 ? ' aria-hidden="true"' : '' ?>>
               <?php foreach ($dealTickerItems as $tickerItem): ?>
                 <a class="deal-ticker-item" href="<?= h($tickerItem['href']) ?>"<?= $copy === 1 ? ' tabindex="-1"' : '' ?>>
-                  <span class="deal-ticker-badge"><?= h($tickerItem['label']) ?></span>
-                  <span class="deal-ticker-copy"><strong><?= h($tickerItem['title']) ?></strong><small><?= h($tickerItem['detail']) ?></small></span>
-                  <span class="deal-ticker-arrow" aria-hidden="true">→</span>
+                  <span class="deal-ticker-icon" aria-hidden="true"><?= h($tickerItem['icon']) ?></span>
+                  <span class="deal-ticker-copy">
+                    <span class="deal-ticker-badge"><?= h($tickerItem['label']) ?></span>
+                    <strong><?= h($tickerItem['title']) ?></strong>
+                    <small><?= h($tickerItem['detail']) ?></small>
+                  </span>
+                  <span class="deal-ticker-cta"><?= h($tickerItem['action']) ?><b aria-hidden="true">→</b></span>
                 </a>
               <?php endforeach; ?>
             </div>

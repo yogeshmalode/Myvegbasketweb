@@ -485,25 +485,34 @@ th{ background:var(--leaf-light); color:var(--leaf-dark); font-family:var(--font
 
 /* ---------------- Offers ticker (homepage) --------------- */
 .deal-ticker-section{padding:14px 0 2px}
-.deal-ticker-shell{overflow:hidden;border:1px solid #d9e0cd;border-radius:15px;background:#f8fbf6;box-shadow:0 6px 18px rgba(31,77,54,.1)}
-.deal-ticker-heading{min-height:40px;display:flex;align-items:center;justify-content:space-between;gap:12px;padding:8px 15px;background:linear-gradient(100deg,#1f4d36,#317349);color:#fff;font-size:.7rem;font-weight:850;letter-spacing:.09em}
+.deal-ticker-shell{overflow:hidden;border:1px solid #d9e0cd;border-radius:16px;background:linear-gradient(145deg,#fff 0%,#f4f8ef 100%);box-shadow:0 8px 24px rgba(31,77,54,.11)}
+.deal-ticker-heading{min-height:42px;display:flex;align-items:center;justify-content:space-between;gap:12px;padding:8px 15px;background:linear-gradient(100deg,#1f4d36,#317349);color:#fff;font-size:.72rem;font-weight:850;letter-spacing:.09em}
 .deal-ticker-heading>span{display:flex;align-items:center;gap:8px}
 .deal-ticker-heading-note{color:#f5e5c7;font-size:.63rem;font-weight:750;letter-spacing:.07em}
 .deal-ticker-live-dot{width:8px;height:8px;border-radius:50%;background:#f4a24e;box-shadow:0 0 0 4px rgba(244,162,78,.2);animation:deal-live-pulse 1.8s ease-in-out infinite}
 .deal-ticker-window{overflow:hidden}
 .deal-ticker-track{display:flex;width:max-content;animation:deal-ticker-scroll 42s linear infinite;will-change:transform}
-.deal-ticker-group{display:flex;flex:0 0 auto;align-items:stretch;gap:10px;padding:10px}
-.deal-ticker-item{min-width:235px;display:flex;align-items:center;gap:10px;padding:9px 11px;border:1px solid #dce8d7;border-radius:11px;background:#fff;color:#26301f;box-shadow:0 3px 10px rgba(31,77,54,.07);transition:border-color .2s ease,transform .2s ease,box-shadow .2s ease}
+.deal-ticker-group{display:flex;flex:0 0 auto;align-items:stretch;gap:12px;padding:12px}
+.deal-ticker-item{position:relative;min-width:285px;min-height:88px;display:flex;align-items:center;gap:11px;padding:10px 12px;border:1px solid #dce8d7;border-radius:14px;background:#fff;color:#26301f;box-shadow:0 4px 12px rgba(31,77,54,.08);transition:border-color .22s ease,transform .22s ease,box-shadow .22s ease}
+.deal-ticker-item:before{position:absolute;inset:0 auto 0 0;width:4px;border-radius:14px 0 0 14px;background:var(--leaf);content:""}
 .deal-ticker-item:nth-child(even){border-color:#f0d8bd;background:#fffdfa}
-.deal-ticker-item:hover,.deal-ticker-item:focus-visible{transform:translateY(-2px);border-color:#3f8b52;box-shadow:0 7px 16px rgba(31,77,54,.13)}
+.deal-ticker-item:nth-child(even):before{background:var(--carrot)}
+.deal-ticker-item:hover,.deal-ticker-item:focus-visible{z-index:1;transform:translateY(-4px) scale(1.015);border-color:#3f8b52;box-shadow:0 12px 22px rgba(31,77,54,.17)}
 .deal-ticker-item:nth-child(even):hover,.deal-ticker-item:nth-child(even):focus-visible{border-color:#e8934a}
-.deal-ticker-badge{flex:0 0 auto;padding:6px 8px;border-radius:7px;background:#e8f0e2;color:#1f4d36;font-size:.64rem;font-weight:850;white-space:nowrap}
-.deal-ticker-item:nth-child(even) .deal-ticker-badge{background:#e8934a;color:#1f2a17}
-.deal-ticker-copy{min-width:0;display:grid;gap:2px}
+.deal-ticker-icon{flex:0 0 48px;width:48px;height:48px;display:grid;place-items:center;border-radius:14px;background:linear-gradient(145deg,#e8f0e2,#d5e8d0);font-size:1.55rem;transition:transform .25s ease}
+.deal-ticker-item:nth-child(even) .deal-ticker-icon{background:linear-gradient(145deg,#fff0d9,#f8d7ac)}
+.deal-ticker-item:hover .deal-ticker-icon,.deal-ticker-item:focus-visible .deal-ticker-icon{transform:rotate(-8deg) scale(1.12)}
+.deal-ticker-copy{min-width:0;display:grid;justify-items:start;gap:3px}
+.deal-ticker-badge{padding:3px 7px;border-radius:999px;background:#e8f0e2;color:#1f4d36;font-size:.61rem;font-weight:900;letter-spacing:.025em;white-space:nowrap}
+.deal-ticker-item:nth-child(even) .deal-ticker-badge{background:#ffead0;color:#844514}
 .deal-ticker-copy strong,.deal-ticker-copy small{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .deal-ticker-copy strong{color:#1f4d36;font-size:.78rem}
 .deal-ticker-copy small{color:#5b6656;font-size:.67rem}
-.deal-ticker-arrow{margin-left:auto;color:#3f8b52;font-weight:900}
+.deal-ticker-cta{flex:0 0 auto;display:flex;align-items:center;gap:5px;margin-left:auto;padding:7px 8px;border-radius:8px;background:#1f4d36;color:#fff;font-size:.58rem;font-weight:850;white-space:nowrap;transition:background .2s ease,transform .2s ease}
+.deal-ticker-item:nth-child(even) .deal-ticker-cta{background:#e8934a;color:#1f2a17}
+.deal-ticker-cta b{font-size:.85rem;transition:transform .2s ease}
+.deal-ticker-item:hover .deal-ticker-cta,.deal-ticker-item:focus-visible .deal-ticker-cta{background:#3f8b52;transform:translateX(2px)}
+.deal-ticker-item:hover .deal-ticker-cta b,.deal-ticker-item:focus-visible .deal-ticker-cta b{transform:translateX(2px)}
 @keyframes deal-ticker-scroll{from{transform:translateX(0)}to{transform:translateX(-50%)}}
 @keyframes deal-live-pulse{50%{box-shadow:0 0 0 7px rgba(32,163,72,0)}}
 .offers-ticker-track{
@@ -855,12 +864,16 @@ a:has(.offers-ticker-track):hover .offers-ticker-track{
   .deal-ticker-shell{border-radius:12px}
   .deal-ticker-heading{min-height:38px;padding:8px 11px;font-size:.63rem}
   .deal-ticker-heading-note{font-size:.52rem}
-  .deal-ticker-item{min-width:205px;padding:8px 9px}
-  .deal-ticker-track{animation-duration:36s}
+  .deal-ticker-group{gap:9px;padding:10px}
+  .deal-ticker-item{min-width:250px;min-height:80px;padding:8px 9px}
+  .deal-ticker-icon{flex-basis:40px;width:40px;height:40px;border-radius:12px;font-size:1.3rem}
+  .deal-ticker-cta{gap:3px;padding:6px;font-size:.53rem}
+  .deal-ticker-track{animation-duration:38s}
 }
 @media(prefers-reduced-motion:reduce){
   .deal-ticker-live-dot{animation:none}
   .deal-ticker-window{overflow-x:auto}
   .deal-ticker-track{animation:none!important;will-change:auto}
   .deal-ticker-group[aria-hidden="true"]{display:none}
+  .deal-ticker-item,.deal-ticker-icon,.deal-ticker-cta,.deal-ticker-cta b{transition:none!important}
 }
