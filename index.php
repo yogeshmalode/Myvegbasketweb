@@ -329,7 +329,7 @@ $showStorefrontPromotions = $category === '' || $category === 'All';
     <div class="container deal-ticker-shell">
       <div class="deal-ticker-heading">
         <span><span class="deal-ticker-live-dot" aria-hidden="true"></span> TODAY'S DEALS</span>
-        <button type="button" id="dealTickerToggle" aria-pressed="false">Pause</button>
+        <span class="deal-ticker-heading-note">FRESH PICKS · BIG SAVINGS</span>
       </div>
       <div class="deal-ticker-window">
         <div class="deal-ticker-track" id="dealTickerTrack">
