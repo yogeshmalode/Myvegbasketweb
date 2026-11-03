@@ -62,6 +62,34 @@ include __DIR__ . '/../includes/header.php';
   .rider-header {
     margin-bottom: 18px;
   }
+  .rider-header-topline {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    flex-wrap: wrap;
+  }
+  .rider-header-topline h2 {
+    min-width: 0;
+  }
+  .rider-header-logout {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    flex: 0 0 auto;
+    min-height: 42px;
+    padding: 0 15px;
+    border: 0;
+    border-radius: 11px;
+    background: #d64545;
+    color: #fff;
+    font: 800 0.82rem var(--font-body);
+    box-shadow: 0 5px 14px rgba(214, 69, 69, .2);
+  }
+  .rider-header-logout:hover {
+    background: #b93636;
+    box-shadow: 0 7px 18px rgba(214, 69, 69, .27);
+  }
   .rider-header h2 {
     margin: 0 0 6px;
     color: #102820;
@@ -110,25 +138,6 @@ include __DIR__ . '/../includes/header.php';
     padding: 8px 12px;
     font-size: 0.75rem;
   }
-  .rider-account-actions {
-    display: flex;
-    align-items: center;
-    gap: 8px;
-    flex-wrap: wrap;
-  }
-  .rider-logout {
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    min-height: 38px;
-    padding: 0 12px;
-    border: 1px solid #f0d7d4;
-    border-radius: 999px;
-    background: #fff8f7;
-    color: #a33e36;
-    font: 700 0.75rem var(--font-body);
-  }
-  .rider-logout:hover { background: #fce8e6; }
   .order-card {
     background: #fff;
     border: 1px solid #dfe9e2;
@@ -240,7 +249,12 @@ include __DIR__ . '/../includes/header.php';
 
 <div class="rider-shell">
   <div class="rider-header">
-    <h2>MYVEGBASKET DELIVERY</h2>
+    <div class="rider-header-topline">
+      <h2>MYVEGBASKET DELIVERY</h2>
+      <?php if ($rider): ?>
+        <a class="rider-header-logout" href="<?= BASE_URL ?>/delivery/logout.php">🚪 Log out</a>
+      <?php endif; ?>
+    </div>
     <p>Mobile-first rider dashboard for assigned orders.</p>
   </div>
 
@@ -263,10 +277,7 @@ include __DIR__ . '/../includes/header.php';
           <div class="eyebrow">Delivery partner</div>
           <h3 class="rider-name"><?= h($rider['name']) ?></h3>
         </div>
-        <div class="rider-account-actions">
-          <div class="rider-vehicle"><?= h($rider['vehicle'] ?: 'Bike') ?></div>
-          <a class="rider-logout" href="<?= BASE_URL ?>/delivery/logout.php">Log out</a>
-        </div>
+        <div class="rider-vehicle"><?= h($rider['vehicle'] ?: 'Bike') ?></div>
       </div>
     </div>
 
