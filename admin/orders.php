@@ -161,6 +161,14 @@ foreach ($orders as $o) {
         $todayRevenue += (float)$o['total_amount'];
     }
 }
+$paymentVerificationCount = count(array_filter(
+    $tabs['new']['orders'],
+    static fn(array $order): bool => $order['payment_status'] === 'awaiting_verification'
+));
+$unassignedPickerCount = count(array_filter(
+    $tabs['new']['orders'],
+    static fn(array $order): bool => empty($order['assigned_picker_id'])
+));
 
 include __DIR__ . '/includes/admin_header.php';
 ?>
@@ -191,6 +199,15 @@ include __DIR__ . '/includes/admin_header.php';
   .orders-page-subtitle { margin: 0; color: #68766f; font-size: .82rem; }
   .orders-live-indicator { display: inline-flex; align-items: center; gap: 7px; color: #267343; font-size: .7rem; font-weight: 800; }
   .orders-live-indicator:before { width: 8px; height: 8px; border-radius: 50%; background: #35a85c; box-shadow: 0 0 0 4px rgba(53,168,92,.12); content: ""; }
+  .orders-sound-toggle { display: inline-flex; align-items: center; gap: 7px; width: fit-content; min-height: 34px; padding: 0 11px; border: 1px solid #dfe9df; border-radius: 999px; background: #fff; color: #52635a; font: 800 .68rem Inter,sans-serif; cursor: pointer; transition: background .18s ease, border-color .18s ease, color .18s ease; }
+  .orders-sound-toggle:hover { border-color: #9dc9aa; background: #f2faf4; }
+  .orders-sound-toggle[aria-pressed="true"] { border-color: #b6dfc0; background: #eaf8ed; color: #1b713b; }
+  .orders-toast { position: fixed; z-index: 1200; top: 84px; right: 24px; display: flex; align-items: center; gap: 12px; max-width: min(390px, calc(100vw - 32px)); padding: 14px 16px; border: 1px solid #bfe2c8; border-radius: 15px; background: #fff; color: #173d2b; box-shadow: 0 16px 40px rgba(12,55,34,.2); opacity: 0; pointer-events: none; transform: translateY(-10px) scale(.98); transition: opacity .2s ease, transform .2s ease; }
+  .orders-toast.is-visible { opacity: 1; transform: translateY(0) scale(1); }
+  .orders-toast-icon { width: 38px; height: 38px; flex: 0 0 38px; display: grid; place-items: center; border-radius: 12px; background: #e7f7eb; font-size: 1.15rem; }
+  .orders-toast-copy { display: grid; gap: 3px; }
+  .orders-toast-copy strong { font-size: .79rem; }
+  .orders-toast-copy span { color: #6b7971; font-size: .69rem; }
 
   /* ---- KPI strip ---- */
   .kpi-strip { display: grid; grid-template-columns: repeat(auto-fit, minmax(155px, 1fr)); gap: 10px; margin-bottom: 18px; }
@@ -199,9 +216,11 @@ include __DIR__ . '/includes/admin_header.php';
     padding: 12px 14px; font-size: 0.72rem; font-weight: 700; color: #586860;
     box-shadow: 0 6px 16px rgba(18, 52, 40, 0.04);
     display: flex; align-items: center; justify-content: space-between; gap: 8px;
+    width: 100%; font-family: inherit; text-align: left; cursor: pointer;
     transition: transform .18s ease, box-shadow .18s ease;
   }
   .kpi-chip:hover { transform: translateY(-2px); box-shadow: 0 10px 22px rgba(18,52,40,.08); }
+  .kpi-chip:focus-visible, .new-order-filter:focus-visible, .transit-order-filter:focus-visible, .orders-sound-toggle:focus-visible { outline: 3px solid rgba(54,145,85,.35); outline-offset: 2px; }
   .kpi-chip .kpi-value { min-width: 30px; min-height: 30px; display: grid; place-items: center; padding: 0 7px; border-radius: 10px; background: #e8f6ed; font-size: 0.9rem; font-weight: 900; color: #0c5a42; }
   .kpi-chip.warn .kpi-value { background: #fff1df; color: #B25B00; }
   .kpi-chip.danger .kpi-value { background: #fdebea; color: #9A2E24; }
@@ -245,6 +264,14 @@ include __DIR__ . '/includes/admin_header.php';
   .order-queue-heading h3 { margin: 0; color: #193d2d; font-size: 1rem; font-weight: 850; }
   .order-queue-heading p { margin: 4px 0 0; color: #718078; font-size: .74rem; }
   .order-queue-count { padding: 6px 10px; border-radius: 999px; background: #e8f6ed; color: #176a3c; font-size: .68rem; font-weight: 850; white-space: nowrap; }
+  .new-order-filters, .transit-order-filters { display: flex; flex-wrap: wrap; gap: 8px; margin: 0 0 13px; }
+  .new-order-filter, .transit-order-filter { display: inline-flex; align-items: center; gap: 7px; min-height: 36px; padding: 0 12px; border: 1px solid #dfe8e2; border-radius: 999px; background: #fff; color: #52635a; font: 800 .7rem Inter,sans-serif; cursor: pointer; transition: all .16s ease; }
+  .new-order-filter:hover, .transit-order-filter:hover { border-color: #a9ceb0; background: #f5fbf6; }
+  .new-order-filter.is-active, .transit-order-filter.is-active { border-color: #1f7a43; background: #1f7a43; color: #fff; box-shadow: 0 4px 12px rgba(31,122,67,.16); }
+  .new-order-filter-count, .transit-order-filter-count { min-width: 20px; padding: 2px 5px; border-radius: 999px; background: #eff3f0; color: #596961; font-size: .63rem; text-align: center; }
+  .new-order-filter.is-active .new-order-filter-count, .transit-order-filter.is-active .transit-order-filter-count { background: rgba(255,255,255,.2); color: #fff; }
+  .new-order-filter[data-new-filter="verification"]:not(.is-active) .new-order-filter-count,
+  .transit-order-filter[data-transit-filter="delayed"]:not(.is-active) .transit-order-filter-count { background: #fff1df; color: #9a5a08; }
 
   /* ---- Picking toolbar + packer assignment (merged from Fulfillment Center) ---- */
   .picking-toolbar {
@@ -272,6 +299,7 @@ include __DIR__ . '/includes/admin_header.php';
   }
   .order-card:hover { transform: translateY(-2px); box-shadow: 0 12px 26px rgba(18,52,40,.1); }
   .order-card[hidden], .order-card-grid > [hidden] { display: none !important; }
+  .order-card-actions .btn.is-saving { opacity: .7; pointer-events: none; }
   .order-card-new { border-color: #d3ead9; border-left-color: #26a45b; background: linear-gradient(150deg,#fff 55%,#f4fcf6); }
   .order-card.urgent { border-left-color: #D64545; }
   .order-card.warn { border-left-color: #E0A030; }
@@ -325,6 +353,7 @@ include __DIR__ . '/includes/admin_header.php';
     .orders-page-header h2 { font-size: 1.8rem; }
     .orders-page-actions { width: 100%; }
     .orders-page-actions .btn { flex: 1; padding: 0 9px; font-size: .68rem; }
+    .orders-toast { top: 76px; right: 12px; }
     .kpi-strip { grid-template-columns: repeat(2, minmax(0,1fr)); gap: 7px; }
     .kpi-chip { min-width: 0; padding: 9px 10px; border-radius: 12px; font-size: .64rem; }
     .kpi-chip .kpi-value { min-width: 26px; min-height: 26px; font-size: .78rem; }
@@ -343,7 +372,7 @@ include __DIR__ . '/includes/admin_header.php';
   }
   @media (prefers-reduced-motion: reduce) {
     .order-tab-panel.active, .order-card { animation: none; }
-    .kpi-chip, .order-tab-btn, .order-card { transition: none; }
+    .kpi-chip, .order-tab-btn, .order-card, .orders-toast { transition: none; }
   }
 </style>
 
@@ -353,6 +382,11 @@ include __DIR__ . '/includes/admin_header.php';
       <h2>Orders</h2>
       <p class="orders-page-subtitle">Track incoming orders and move each one to its next step.</p>
       <span class="orders-live-indicator">Live order updates enabled</span>
+      <button type="button" class="orders-sound-toggle" id="ordersSoundToggle" aria-pressed="false">🔕 Order sound: off</button>
+    </div>
+    <div class="orders-toast" id="ordersToast" role="status" aria-live="polite">
+      <span class="orders-toast-icon" aria-hidden="true">🔔</span>
+      <span class="orders-toast-copy"><strong>Order board updated</strong><span>A new order or status update was received.</span></span>
     </div>
     <div class="orders-page-actions">
       <a href="export_orders.php" class="btn">⬇ Export Excel (CSV)</a>
@@ -366,15 +400,15 @@ include __DIR__ . '/includes/admin_header.php';
 <?php endif; ?>
 
 <div class="kpi-strip">
-  <div class="kpi-chip">🆕 New <span class="kpi-value"><?= count($tabs['new']['orders']) ?></span></div>
-  <div class="kpi-chip">📦 Processing <span class="kpi-value"><?= count($tabs['processing']['orders']) ?></span></div>
-  <div class="kpi-chip <?= count($tabs['ready']['orders']) > 0 ? 'warn' : '' ?>">🚀 Awaiting Rider <span class="kpi-value"><?= count($tabs['ready']['orders']) ?></span></div>
-  <div class="kpi-chip">🛵 Active Deliveries <span class="kpi-value"><?= count($tabs['transit']['orders']) ?></span></div>
-  <div class="kpi-chip <?= $delayedCount > 0 ? 'danger' : '' ?>">⏱ Delayed <span class="kpi-value"><?= $delayedCount ?></span></div>
-  <div class="kpi-chip <?= $cancelledToday > 0 ? 'danger' : '' ?>">❌ Cancelled Today <span class="kpi-value"><?= $cancelledToday ?></span></div>
-  <div class="kpi-chip">🧾 POS Bills <span class="kpi-value"><?= count($tabs['pos']['orders']) ?></span></div>
-  <div class="kpi-chip">🏨 B2B Orders <span class="kpi-value"><?= count($tabs['b2b']['orders']) ?></span></div>
-  <div class="kpi-chip">💰 Today's Revenue <span class="kpi-value">₹<?= number_format($todayRevenue, 2) ?></span></div>
+  <button type="button" class="kpi-chip" data-order-jump="new" aria-label="Show new orders">🆕 New <span class="kpi-value"><?= count($tabs['new']['orders']) ?></span></button>
+  <button type="button" class="kpi-chip" data-order-jump="processing" aria-label="Show orders being processed">📦 Processing <span class="kpi-value"><?= count($tabs['processing']['orders']) ?></span></button>
+  <button type="button" class="kpi-chip <?= count($tabs['ready']['orders']) > 0 ? 'warn' : '' ?>" data-order-jump="ready" aria-label="Show orders awaiting a rider">🚀 Awaiting Rider <span class="kpi-value"><?= count($tabs['ready']['orders']) ?></span></button>
+  <button type="button" class="kpi-chip" data-order-jump="transit" data-order-filter-value="all" aria-label="Show all active deliveries">🛵 Active Deliveries <span class="kpi-value"><?= count($tabs['transit']['orders']) ?></span></button>
+  <button type="button" class="kpi-chip <?= $delayedCount > 0 ? 'danger' : '' ?>" data-order-jump="transit" data-order-filter-value="delayed" aria-label="Show <?= $delayedCount ?> delayed deliveries">⏱ Delayed <span class="kpi-value"><?= $delayedCount ?></span></button>
+  <button type="button" class="kpi-chip <?= $cancelledToday > 0 ? 'danger' : '' ?>" data-order-jump="exceptions" aria-label="Show cancelled orders">❌ Cancelled Today <span class="kpi-value"><?= $cancelledToday ?></span></button>
+  <button type="button" class="kpi-chip" data-order-jump="pos" aria-label="Show POS bills">🧾 POS Bills <span class="kpi-value"><?= count($tabs['pos']['orders']) ?></span></button>
+  <button type="button" class="kpi-chip" data-order-jump="b2b" aria-label="Show B2B orders">🏨 B2B Orders <span class="kpi-value"><?= count($tabs['b2b']['orders']) ?></span></button>
+  <div class="kpi-chip" aria-label="Today's revenue">💰 Today's Revenue <span class="kpi-value">₹<?= number_format($todayRevenue, 2) ?></span></div>
 </div>
 
 <div class="orders-workspace-toolbar">
@@ -413,6 +447,32 @@ function showOrderTab(key) {
   filterActiveOrders();
 }
 
+document.querySelectorAll('[data-order-jump]').forEach((shortcut) => {
+  shortcut.addEventListener('click', () => {
+    const tab = document.querySelector('.order-tab-btn[data-tab="' + shortcut.dataset.orderJump + '"]');
+    if (!tab) return;
+    const panel = document.getElementById('orders-panel-' + shortcut.dataset.orderJump);
+    if (shortcut.dataset.orderFilterValue) {
+      panel.dataset.queueFilter = shortcut.dataset.orderFilterValue;
+      document.querySelectorAll('[data-transit-filter]').forEach((button) => {
+        const active = button.dataset.transitFilter === shortcut.dataset.orderFilterValue;
+        button.classList.toggle('is-active', active);
+        button.setAttribute('aria-pressed', String(active));
+      });
+    } else if (shortcut.dataset.orderJump === 'new') {
+      panel.dataset.queueFilter = 'all';
+      document.querySelectorAll('[data-new-filter]').forEach((button) => {
+        const active = button.dataset.newFilter === 'all';
+        button.classList.toggle('is-active', active);
+        button.setAttribute('aria-pressed', String(active));
+      });
+    }
+    showOrderTab(shortcut.dataset.orderJump);
+    tab.scrollIntoView({behavior: 'smooth', block: 'nearest', inline: 'center'});
+    document.querySelector('.order-tabs').scrollIntoView({behavior: 'smooth', block: 'nearest'});
+  });
+});
+
 function filterActiveOrders() {
   const search = document.getElementById('ordersQuickSearch');
   const panel = document.querySelector('.order-tab-panel.active');
@@ -422,18 +482,50 @@ function filterActiveOrders() {
   const query = search.value.trim().toLocaleLowerCase();
   const localSearch = panel.querySelector('#completedSearch, #posSearch, #b2bSearch');
   const localQuery = localSearch ? localSearch.value.trim().toLocaleLowerCase() : '';
+  const queueFilter = panel.dataset.queueFilter || 'all';
   const entries = panel.querySelectorAll('[data-order-search], tr[data-search]');
   let visibleCount = 0;
   entries.forEach((entry) => {
     const text = (entry.dataset.orderSearch || entry.dataset.search || entry.textContent).toLocaleLowerCase();
-    const matches = text.includes(query) && text.includes(localQuery);
+    const queueMatches = queueFilter === 'all'
+      || (queueFilter === 'verification' && entry.dataset.paymentVerification === '1')
+      || (queueFilter === 'packer' && entry.dataset.pickerMissing === '1')
+      || (queueFilter === 'delayed' && entry.dataset.delayed === '1');
+    const matches = text.includes(query) && text.includes(localQuery) && queueMatches;
     entry.hidden = !matches;
     if (matches) visibleCount++;
   });
-  emptyMessage.hidden = query.length === 0 || entries.length === 0 || visibleCount > 0;
+  emptyMessage.textContent = query || localQuery
+    ? 'No orders match your search in this stage.'
+    : 'No orders match this quick filter.';
+  emptyMessage.hidden = (query.length === 0 && localQuery.length === 0 && queueFilter === 'all')
+    || entries.length === 0 || visibleCount > 0;
 }
 
 document.getElementById('ordersQuickSearch').addEventListener('input', filterActiveOrders);
+document.addEventListener('click', (event) => {
+  const filterButton = event.target.closest('[data-new-filter]');
+  if (filterButton) {
+    const panel = document.getElementById('orders-panel-new');
+    panel.dataset.queueFilter = filterButton.dataset.newFilter;
+    document.querySelectorAll('[data-new-filter]').forEach((button) => {
+      const active = button === filterButton;
+      button.classList.toggle('is-active', active);
+      button.setAttribute('aria-pressed', String(active));
+    });
+    filterActiveOrders();
+    return;
+  }
+  const transitFilter = event.target.closest('[data-transit-filter]');
+  if (!transitFilter) return;
+  document.getElementById('orders-panel-transit').dataset.queueFilter = transitFilter.dataset.transitFilter;
+  document.querySelectorAll('[data-transit-filter]').forEach((button) => {
+    const active = button === transitFilter;
+    button.classList.toggle('is-active', active);
+    button.setAttribute('aria-pressed', String(active));
+  });
+  filterActiveOrders();
+});
 document.querySelectorAll('.order-tab-btn').forEach((button, index, buttons) => {
   button.addEventListener('keydown', (event) => {
     let nextIndex = index;
@@ -459,6 +551,55 @@ document.addEventListener('DOMContentLoaded', () => {
   } catch (error) {
     console.warn('Could not restore the selected orders tab.', error);
   }
+});
+
+const soundToggle = document.getElementById('ordersSoundToggle');
+const ordersToast = document.getElementById('ordersToast');
+let soundEnabled = false;
+let toastTimeout = 0;
+try {
+  soundEnabled = localStorage.getItem('myvegbasket_order_sound') === 'on';
+} catch (error) {
+  console.warn('Order alert preference could not be loaded.', error);
+}
+soundToggle.setAttribute('aria-pressed', String(soundEnabled));
+soundToggle.textContent = soundEnabled ? '🔔 Order sound: on' : '🔕 Order sound: off';
+soundToggle.addEventListener('click', () => {
+  soundEnabled = !soundEnabled;
+  soundToggle.setAttribute('aria-pressed', String(soundEnabled));
+  soundToggle.textContent = soundEnabled ? '🔔 Order sound: on' : '🔕 Order sound: off';
+  try {
+    localStorage.setItem('myvegbasket_order_sound', soundEnabled ? 'on' : 'off');
+  } catch (error) {
+    console.warn('Order alert preference could not be saved.', error);
+  }
+  if (soundEnabled) playOrderAlert();
+});
+
+function playOrderAlert() {
+  const AudioContext = window.AudioContext || window.webkitAudioContext;
+  if (!AudioContext) return;
+  const context = new AudioContext();
+  const oscillator = context.createOscillator();
+  const gain = context.createGain();
+  oscillator.type = 'sine';
+  oscillator.frequency.setValueAtTime(740, context.currentTime);
+  oscillator.frequency.setValueAtTime(980, context.currentTime + 0.13);
+  gain.gain.setValueAtTime(0.0001, context.currentTime);
+  gain.gain.exponentialRampToValueAtTime(0.12, context.currentTime + 0.025);
+  gain.gain.exponentialRampToValueAtTime(0.0001, context.currentTime + 0.32);
+  oscillator.connect(gain);
+  gain.connect(context.destination);
+  oscillator.start();
+  oscillator.stop(context.currentTime + 0.34);
+  oscillator.addEventListener('ended', () => context.close());
+}
+
+document.addEventListener('myvegbasket:orders-updated', () => {
+  ordersToast.classList.add('is-visible');
+  window.clearTimeout(toastTimeout);
+  toastTimeout = window.setTimeout(() => ordersToast.classList.remove('is-visible'), 1700);
+  if (soundEnabled) playOrderAlert();
 });
 
 function postAction(url, payload, onSuccess, tabAfterSuccess = null) {
@@ -652,13 +793,17 @@ function render_order_card($o, $itemsByOrder, $colorMap, $actionsHtml, $orderSta
     ], $itemNames)));
     $isNewOrder = in_array($status, ['pending', 'placed'], true);
     $urgentClass = '';
+    $isDelayed = false;
     if (in_array($status, ['out_for_delivery', 'arriving_soon'], true) && $o['eta_minutes'] !== null && $o['updated_at']) {
         $minutesSince = (time() - strtotime($o['updated_at'])) / 60;
-        if ($minutesSince > (float)$o['eta_minutes']) $urgentClass = 'urgent';
+        if ($minutesSince > (float)$o['eta_minutes']) {
+            $urgentClass = 'urgent';
+            $isDelayed = true;
+        }
         elseif ($minutesSince > (float)$o['eta_minutes'] * 0.7) $urgentClass = 'warn';
     }
     ?>
-    <article class="order-card <?= $urgentClass ?> <?= $isNewOrder ? 'order-card-new' : '' ?> <?= ($enablePickSelect || $enableRouteSelect) ? 'has-select' : '' ?>" data-order-search="<?= h($searchText) ?>">
+    <article class="order-card <?= $urgentClass ?> <?= $isNewOrder ? 'order-card-new' : '' ?> <?= ($enablePickSelect || $enableRouteSelect) ? 'has-select' : '' ?>" data-order-search="<?= h($searchText) ?>" data-payment-verification="<?= ($o['payment_status'] ?? '') === 'awaiting_verification' ? '1' : '0' ?>" data-picker-missing="<?= empty($o['assigned_picker_id']) ? '1' : '0' ?>" data-delayed="<?= $isDelayed ? '1' : '0' ?>">
       <?php if ($enablePickSelect): ?>
         <input type="checkbox" class="order-card-select" value="<?= $o['id'] ?>" onchange="updatePickingSelectionSummary()" title="Select for batch picking sheet">
       <?php endif; ?>
@@ -724,6 +869,11 @@ function render_picker_block($o, $pickerAdmins) {
   <div class="order-queue-heading">
     <div><h3>New orders</h3><p>Review incoming orders and start processing when ready.</p></div>
     <span class="order-queue-count"><?= count($tabs['new']['orders']) ?> waiting</span>
+  </div>
+  <div class="new-order-filters" role="group" aria-label="Filter new orders">
+    <button type="button" class="new-order-filter is-active" data-new-filter="all" aria-pressed="true">All new <span class="new-order-filter-count"><?= count($tabs['new']['orders']) ?></span></button>
+    <button type="button" class="new-order-filter" data-new-filter="verification" aria-pressed="false">Payment check <span class="new-order-filter-count"><?= $paymentVerificationCount ?></span></button>
+    <button type="button" class="new-order-filter" data-new-filter="packer" aria-pressed="false">Packer needed <span class="new-order-filter-count"><?= $unassignedPickerCount ?></span></button>
   </div>
   <div class="order-card-grid">
     <?php if (empty($tabs['new']['orders'])): ?>
@@ -799,6 +949,10 @@ function render_picker_block($o, $pickerAdmins) {
 
 <!-- ===================== OUT FOR DELIVERY ===================== -->
 <div class="order-tab-panel" id="orders-panel-transit" role="tabpanel" aria-labelledby="order-tab-transit" tabindex="0" data-tab="transit">
+  <div class="transit-order-filters" role="group" aria-label="Filter active deliveries">
+    <button type="button" class="transit-order-filter is-active" data-transit-filter="all" aria-pressed="true">All active <span class="transit-order-filter-count"><?= count($tabs['transit']['orders']) ?></span></button>
+    <button type="button" class="transit-order-filter" data-transit-filter="delayed" aria-pressed="false">Delayed <span class="transit-order-filter-count"><?= $delayedCount ?></span></button>
+  </div>
   <div class="order-card-grid">
     <?php if (empty($tabs['transit']['orders'])): ?>
       <div class="order-card-empty">No active deliveries right now.</div>

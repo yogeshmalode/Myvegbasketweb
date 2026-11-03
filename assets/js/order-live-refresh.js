@@ -15,6 +15,7 @@
   const updatesUrl = `${base}/ajax/order_updates.php?${query}`;
   let requestInFlight = false;
   let refreshPending = false;
+  let refreshNotBefore = 0;
   let requestErrorLogged = false;
 
   function pageIsBeingEdited() {
@@ -42,7 +43,8 @@
   }
 
   function refreshWhenSafe() {
-    if (!refreshPending || document.visibilityState !== 'visible' || pageIsBeingEdited()) return;
+    if (!refreshPending || document.visibilityState !== 'visible' || pageIsBeingEdited()
+      || Date.now() < refreshNotBefore) return;
     const activeOrderTab = document.querySelector('.order-tab-btn.active');
     if (scope === 'admin' && activeOrderTab?.dataset.tab) {
       try {
@@ -71,7 +73,13 @@
 
       const data = await response.json();
       if (data.success && typeof data.version === 'string' && data.version !== currentVersion) {
-        refreshPending = true;
+        if (!refreshPending) {
+          refreshPending = true;
+          if (scope === 'admin' && page === 'orders.php') {
+            refreshNotBefore = Date.now() + 1800;
+            document.dispatchEvent(new CustomEvent('myvegbasket:orders-updated'));
+          }
+        }
         refreshWhenSafe();
       }
       requestErrorLogged = false;
