@@ -177,25 +177,30 @@ include __DIR__ . '/includes/admin_header.php';
   .orders-page-shell { background: transparent; }
   .orders-page-header {
     display: flex; align-items: center; justify-content: space-between;
-    gap: 16px; flex-wrap: wrap; margin: 0 0 16px;
+    position: relative; overflow: hidden; gap: 16px; flex-wrap: wrap; margin: 0 0 16px;
+    padding: 23px 25px; border: 1px solid #dce9df; border-radius: 22px;
+    background: radial-gradient(circle at 85% 15%, rgba(244,178,107,.2), transparent 28%),
+      linear-gradient(115deg,#fff 0%,#f0f9f2 64%,#fff7ec 100%);
+    box-shadow: 0 12px 30px rgba(31,77,54,.075);
   }
   .orders-page-intro { display: grid; gap: 7px; }
   .orders-page-header h2 {
-    margin: 0; color: #0c5a42; font-size: clamp(1.5rem, 2vw, 2.2rem);
-    line-height: 1.2; letter-spacing: -0.03em; font-weight: 800;
+    margin: 0; color: #123d2a; font-size: clamp(1.8rem, 3vw, 2.55rem);
+    line-height: 1.08; letter-spacing: -0.055em; font-weight: 900;
   }
   .orders-page-header h2::after {
     content: ""; display: block; width: 100%; max-width: 120px; height: 3px;
-    border-radius: 999px; background: linear-gradient(90deg, #f0a26f 0%, #f0a26f 100%);
-    margin-top: 8px; opacity: 0.9;
+    border-radius: 999px; background: linear-gradient(90deg, #20834b 0%, #ef9b4e 100%);
+    margin-top: 9px; opacity: 0.95;
   }
   .orders-page-actions { display: flex; gap: 10px; flex-wrap: wrap; align-items: center; }
   .orders-page-actions .btn {
     min-height: 40px; padding: 0 16px; border-radius: 999px; border: 1px solid #dfe9df;
     background: rgba(255,255,255,0.85); color: #1f2e2a; font-weight: 700; font-size: 0.76rem;
     box-shadow: 0 1px 0 rgba(18, 41, 34, 0.04);
+    transition: transform .18s ease, box-shadow .18s ease, background .18s ease;
   }
-  .orders-page-actions .btn:hover { background: #f6faf7; border-color: #cfe0ce; }
+  .orders-page-actions .btn:hover { transform: translateY(-2px); background: #f6faf7; border-color: #cfe0ce; box-shadow: 0 7px 15px rgba(18,52,40,.08); }
   .orders-page-subtitle { margin: 0; color: #68766f; font-size: .82rem; }
   .orders-live-indicator { display: inline-flex; align-items: center; gap: 7px; color: #267343; font-size: .7rem; font-weight: 800; }
   .orders-live-indicator:before { width: 8px; height: 8px; border-radius: 50%; background: #35a85c; box-shadow: 0 0 0 4px rgba(53,168,92,.12); content: ""; }
@@ -204,6 +209,9 @@ include __DIR__ . '/includes/admin_header.php';
   .orders-sound-toggle[aria-pressed="true"] { border-color: #b6dfc0; background: #eaf8ed; color: #1b713b; }
   .orders-toast { position: fixed; z-index: 1200; top: 84px; right: 24px; display: flex; align-items: center; gap: 12px; max-width: min(390px, calc(100vw - 32px)); padding: 14px 16px; border: 1px solid #bfe2c8; border-radius: 15px; background: #fff; color: #173d2b; box-shadow: 0 16px 40px rgba(12,55,34,.2); opacity: 0; pointer-events: none; transform: translateY(-10px) scale(.98); transition: opacity .2s ease, transform .2s ease; }
   .orders-toast.is-visible { opacity: 1; transform: translateY(0) scale(1); }
+  .orders-toast.is-error { border-color: #efc5bf; }
+  .orders-toast.is-error .orders-toast-icon { background: #fff0ed; }
+  .orders-toast.is-success .orders-toast-icon { background: #e7f7eb; }
   .orders-toast-icon { width: 38px; height: 38px; flex: 0 0 38px; display: grid; place-items: center; border-radius: 12px; background: #e7f7eb; font-size: 1.15rem; }
   .orders-toast-copy { display: grid; gap: 3px; }
   .orders-toast-copy strong { font-size: .79rem; }
@@ -303,6 +311,24 @@ include __DIR__ . '/includes/admin_header.php';
   .order-card-new { border-color: #d3ead9; border-left-color: #26a45b; background: linear-gradient(150deg,#fff 55%,#f4fcf6); }
   .order-card.urgent { border-left-color: #D64545; }
   .order-card.warn { border-left-color: #E0A030; }
+  .order-card-timeline { display: grid; grid-template-columns: repeat(5,minmax(0,1fr)); gap: 5px; margin: 13px 0 11px; }
+  .order-timeline-step { display: grid; justify-items: center; gap: 5px; min-width: 0; color: #97a39b; font-size: .56rem; font-weight: 750; text-align: center; }
+  .order-timeline-dot { width: 100%; height: 5px; border-radius: 999px; background: #e8eee9; }
+  .order-timeline-step.is-complete .order-timeline-dot { background: #62af78; }
+  .order-timeline-step.is-current .order-timeline-dot { background: linear-gradient(90deg,#2c8a4c,#f0a23a); box-shadow: 0 0 0 2px #e5f3e8; }
+  .order-timeline-step.is-current { color: #1d6a3b; }
+  .order-card-summary-row { display: flex; align-items: center; justify-content: space-between; gap: 8px; flex-wrap: wrap; margin-top: 9px; }
+  .order-card-summary-row .order-card-badge { margin: 0; }
+  .order-payment-pill { display: inline-flex; align-items: center; min-height: 23px; padding: 3px 8px; border-radius: 999px; font-size: .61rem; font-weight: 850; }
+  .order-card-items { padding: 9px 10px; border: 1px solid #e8efe9; border-radius: 11px; background: #f9fcfa; }
+  .order-card-items[open] { background: #f4faf5; }
+  .order-card-items summary { display: flex; align-items: center; justify-content: space-between; gap: 8px; list-style: none; }
+  .order-card-items summary::-webkit-details-marker { display: none; }
+  .order-card-items summary:after { content: "＋"; color: #33754a; font-size: .9rem; }
+  .order-card-items[open] summary:after { content: "−"; }
+  .order-card-item-list { display: grid; gap: 4px; margin-top: 9px; color: #4b5e52; font-size: .7rem; }
+  .order-card-total { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; padding-top: 10px; border-top: 1px solid #e9efea; }
+  .order-card-total small { color: #718078; font-size: .64rem; font-weight: 650; }
   .order-card-top { display: flex; justify-content: space-between; align-items: center; gap: 8px; margin-bottom: 9px; }
   .order-card-id { font-weight: 900; color: #15241e; font-size: 0.95rem; }
   .order-new-pill { display: inline-flex; vertical-align: 1px; margin-left: 6px; padding: 3px 7px; border-radius: 999px; background: #e4f6e9; color: #167241; font-size: .58rem; font-weight: 900; letter-spacing: .04em; text-transform: uppercase; }
@@ -349,7 +375,7 @@ include __DIR__ . '/includes/admin_header.php';
     .orders-page-header h2::after { width: 72%; }
   }
   @media (max-width: 640px) {
-    .orders-page-header { gap: 12px; }
+    .orders-page-header { gap: 12px; padding: 18px 15px; border-radius: 17px; }
     .orders-page-header h2 { font-size: 1.8rem; }
     .orders-page-actions { width: 100%; }
     .orders-page-actions .btn { flex: 1; padding: 0 9px; font-size: .68rem; }
@@ -384,14 +410,14 @@ include __DIR__ . '/includes/admin_header.php';
       <span class="orders-live-indicator">Live order updates enabled</span>
       <button type="button" class="orders-sound-toggle" id="ordersSoundToggle" aria-pressed="false">🔕 Order sound: off</button>
     </div>
-    <div class="orders-toast" id="ordersToast" role="status" aria-live="polite">
-      <span class="orders-toast-icon" aria-hidden="true">🔔</span>
-      <span class="orders-toast-copy"><strong>Order board updated</strong><span>A new order or status update was received.</span></span>
-    </div>
     <div class="orders-page-actions">
       <a href="export_orders.php" class="btn">⬇ Export Excel (CSV)</a>
       <a href="export_orders_pdf.php" class="btn">⬇ Download PDF</a>
     </div>
+  </div>
+  <div class="orders-toast" id="ordersToast" role="status" aria-live="polite">
+    <span class="orders-toast-icon" aria-hidden="true">🔔</span>
+    <span class="orders-toast-copy"><strong>Order board updated</strong><span>A new order or status update was received.</span></span>
   </div>
 </div>
 
@@ -596,55 +622,94 @@ function playOrderAlert() {
 }
 
 document.addEventListener('myvegbasket:orders-updated', () => {
+  const toastTitle = ordersToast.querySelector('.orders-toast-copy strong');
+  const toastMessage = ordersToast.querySelector('.orders-toast-copy span');
+  toastTitle.textContent = 'New activity on the order board';
+  toastMessage.textContent = 'Order information refreshed. This page will update shortly.';
+  ordersToast.classList.remove('is-error', 'is-success');
+  ordersToast.classList.add('is-success');
+  ordersToast.querySelector('.orders-toast-icon').textContent = '🔔';
   ordersToast.classList.add('is-visible');
   window.clearTimeout(toastTimeout);
   toastTimeout = window.setTimeout(() => ordersToast.classList.remove('is-visible'), 1700);
   if (soundEnabled) playOrderAlert();
 });
 
-function postAction(url, payload, onSuccess, tabAfterSuccess = null) {
+function showOrdersToast(title, message, type = 'success') {
+  ordersToast.querySelector('.orders-toast-copy strong').textContent = title;
+  ordersToast.querySelector('.orders-toast-copy span').textContent = message;
+  ordersToast.querySelector('.orders-toast-icon').textContent = type === 'error' ? '⚠️' : '✨';
+  ordersToast.classList.toggle('is-error', type === 'error');
+  ordersToast.classList.toggle('is-success', type !== 'error');
+  ordersToast.classList.add('is-visible');
+  window.clearTimeout(toastTimeout);
+  toastTimeout = window.setTimeout(() => ordersToast.classList.remove('is-visible'), 3200);
+}
+
+async function postAction(url, payload, onSuccess, tabAfterSuccess = null) {
+  const actionButton = document.activeElement instanceof HTMLElement
+    ? document.activeElement.closest('button')
+    : null;
+  const previousLabel = actionButton ? actionButton.textContent : '';
+  if (actionButton) {
+    actionButton.disabled = true;
+    actionButton.classList.add('is-saving');
+    actionButton.textContent = 'Saving…';
+  }
   payload.csrf_token = CSRF_TOKEN;
-  fetch(url, { method: 'POST', headers: {'Content-Type':'application/json', 'Accept':'application/json'}, body: JSON.stringify(payload) })
-    .then(async (r) => {
-      const text = await r.text();
-      if (!(r.headers.get('content-type') || '').includes('application/json')) {
-        const message = r.redirected
-          ? 'Your session expired or your account cannot manage orders. Sign in again and retry.'
-          : 'The server returned an HTML error instead of order data. Refresh the page and retry.';
-        throw new Error(message + ' (HTTP ' + r.status + ')');
+  try {
+    const response = await fetch(url, {
+      method: 'POST',
+      headers: {'Content-Type':'application/json', 'Accept':'application/json'},
+      body: JSON.stringify(payload)
+    });
+    const text = await response.text();
+    if (!(response.headers.get('content-type') || '').includes('application/json')) {
+      const message = response.redirected
+        ? 'Your session expired or your account cannot manage orders. Sign in again and retry.'
+        : 'The server returned an HTML error instead of order data. Refresh the page and retry.';
+      throw new Error(message + ' (HTTP ' + response.status + ')');
+    }
+
+    let data;
+    try {
+      data = JSON.parse(text);
+    } catch (error) {
+      throw new Error('The server response was not valid JSON. Refresh the page and retry.');
+    }
+    if (!response.ok || !data.success) {
+      let message = data.error || 'The order action could not be completed.';
+      if (data.current_status && Array.isArray(data.allowed_next_statuses)) {
+        const currentStatus = data.current_status.replaceAll('_', ' ');
+        const nextStatuses = data.allowed_next_statuses.map(status => status.replaceAll('_', ' ')).join(', ');
+        message += ` Current status: ${currentStatus}. Allowed next steps: ${nextStatuses || 'none'}.`;
       }
-      let data;
+      throw new Error(message);
+    }
+
+    const notices = [data.notice, data.notification_warning].filter(Boolean).join(' ');
+    if (onSuccess) {
+      onSuccess();
+      return;
+    }
+    const activeTab = tabAfterSuccess || document.querySelector('.order-tab-btn.active')?.dataset.tab;
+    if (activeTab) {
       try {
-        data = JSON.parse(text);
+        sessionStorage.setItem('myvegbasket_admin_order_tab', activeTab);
       } catch (error) {
-        throw new Error('The server response was not valid JSON. Refresh the page and retry.');
+        console.warn('Could not preserve the selected orders tab.', error);
       }
-      if (data.success) {
-        if (data.notice) alert(data.notice);
-        if (data.notification_warning) alert(data.notification_warning);
-        if (onSuccess) {
-          onSuccess();
-        } else {
-          const activeTab = tabAfterSuccess || document.querySelector('.order-tab-btn.active')?.dataset.tab;
-          if (activeTab) {
-            try {
-              sessionStorage.setItem('myvegbasket_admin_order_tab', activeTab);
-            } catch (error) {
-              console.warn('Could not preserve the selected orders tab.', error);
-            }
-          }
-          location.reload();
-        }
-      } else {
-        let message = data.error || 'Unknown error';
-        if (data.current_status && Array.isArray(data.allowed_next_statuses)) {
-          const currentStatus = data.current_status.replaceAll('_', ' ');
-          const nextStatuses = data.allowed_next_statuses.map(status => status.replaceAll('_', ' ')).join(', ');
-          message += `\nCurrent status: ${currentStatus}. Allowed next steps: ${nextStatuses || 'none'}.`;
-        }
-        alert('Action failed: ' + message);
-      }
-    }).catch((error) => alert('Action failed: ' + (error.message || 'Network error')));
+    }
+    showOrdersToast('Order updated', notices || 'Saved successfully. Refreshing the order board…');
+    window.setTimeout(() => window.location.reload(), 650);
+  } catch (error) {
+    showOrdersToast('Could not update order', error.message || 'Network error. Please try again.', 'error');
+    if (actionButton) {
+      actionButton.disabled = false;
+      actionButton.classList.remove('is-saving');
+      actionButton.textContent = previousLabel;
+    }
+  }
 }
 
 function setOrderStatus(orderId, status) {
@@ -694,7 +759,10 @@ function saveException(orderId) {
   const refundAmount = document.getElementById('refund-amount-' + orderId).value;
   postAction('../ajax/manage_exception.php', {
     order_id: orderId, exception_reason: reason, refund_status: refundStatus, refund_amount: refundAmount
-  }, () => { alert('✅ Saved — reason & refund status updated for order #' + orderId); location.reload(); });
+  }, () => {
+    showOrdersToast('Exception details saved', 'Refund information for order #' + orderId + ' was updated.');
+    window.setTimeout(() => location.reload(), 650);
+  });
 }
 
 function filterCompleted() {
@@ -814,6 +882,21 @@ function render_order_card($o, $itemsByOrder, $colorMap, $actionsHtml, $orderSta
         <span class="order-card-id">#<?= $o['id'] ?><?php if ($isNewOrder): ?> <span class="order-new-pill">New</span><?php endif; ?></span>
         <span class="order-card-time"><?= format_ist($o['created_at'], 'd M, h:i A') ?></span>
       </div>
+      <?php
+      $orderStage = $isNewOrder ? 0
+          : ($status === 'processing' ? 1
+              : (in_array($status, ['ready_for_pickup', 'assigning_rider', 'delivery_partner_assigned'], true) ? 2
+                  : (in_array($status, ['out_for_delivery', 'arriving_soon'], true) ? 3 : ($status === 'delivered' ? 4 : -1))));
+      if ($orderStage >= 0):
+      ?>
+        <div class="order-card-timeline" role="group" aria-label="Order progress: step <?= $orderStage + 1 ?> of 5, <?= ['New', 'Packing', 'Dispatch', 'Delivery', 'Done'][$orderStage] ?>">
+          <?php foreach (['New', 'Packing', 'Dispatch', 'Delivery', 'Done'] as $step => $label): ?>
+            <span class="order-timeline-step<?= $step < $orderStage ? ' is-complete' : ($step === $orderStage ? ' is-current' : '') ?>">
+              <span class="order-timeline-dot"></span><span><?= $label ?></span>
+            </span>
+          <?php endforeach; ?>
+        </div>
+      <?php endif; ?>
       <div class="order-card-customer"><?= h($o['customer_name']) ?></div>
       <div class="order-card-sub">📞 <?= h($o['phone']) ?></div>
       <?php if (!empty($o['delivery_area'])): ?>
@@ -833,17 +916,24 @@ function render_order_card($o, $itemsByOrder, $colorMap, $actionsHtml, $orderSta
       <?php else: ?>
         <div class="order-card-sub" style="color:#b35c00;">🏬 Store not auto-assigned yet</div>
       <?php endif; ?>
-      <span class="order-card-badge" style="<?= status_color_style($status, $colorMap) ?>"><?= h($orderStatusOptions[$status] ?? ucfirst($status)) ?></span>
+      <div class="order-card-summary-row">
+        <span class="order-card-badge" style="<?= status_color_style($status, $colorMap) ?>"><?= h($orderStatusOptions[$status] ?? ucfirst($status)) ?></span>
+        <?php if (!empty($o['payment_status'])): ?>
+          <span class="order-payment-pill" style="<?= status_color_style($o['payment_status'], $colorMap) ?>"><?= h(ucfirst(str_replace('_', ' ', $o['payment_status']))) ?></span>
+        <?php endif; ?>
+      </div>
       <?php if (!empty($itemsByOrder[$o['id']])): ?>
         <details class="order-card-items">
-          <summary><?= count($itemsByOrder[$o['id']]) ?> item(s)</summary>
+          <summary><span><?= count($itemsByOrder[$o['id']]) ?> item(s) · tap to view list</span></summary>
+          <div class="order-card-item-list">
           <?php foreach ($itemsByOrder[$o['id']] as $it): ?>
             <div>• <?= h($it['name']) ?><?= $it['variant_label'] ? ' (' . h($it['variant_label']) . ')' : '' ?> × <?= rtrim(rtrim(number_format($it['quantity'], 3), '0'), '.') ?></div>
           <?php endforeach; ?>
+          </div>
         </details>
       <?php endif; ?>
       <?= $pickerHtml ?>
-      <div class="order-card-total">₹<?= number_format($o['total_amount'], 2) ?></div>
+      <div class="order-card-total"><small>Order total</small><strong>₹<?= number_format($o['total_amount'], 2) ?></strong></div>
       <div class="order-card-actions">
         <?= $actionsHtml ?>
       </div>
