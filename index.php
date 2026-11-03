@@ -119,7 +119,7 @@ $renderProductCard = static function (array $veg, bool $compact = false, bool $e
         && get_effective_price($veg) < (float)$veg['price'];
     ob_start();
     ?>
-    <article id="product-<?= (int)$veg['id'] ?>" class="veg-card quick-product-card<?= $compact ? ' sponsored-product-card' : '' ?>" data-id="<?= (int)$veg['id'] ?>">
+    <article <?= !$compact ? 'id="product-' . (int)$veg['id'] . '"' : '' ?> class="veg-card quick-product-card<?= $compact ? ' sponsored-product-card' : '' ?>" data-id="<?= (int)$veg['id'] ?>">
       <div class="quick-product-image relative w-full aspect-square bg-gray-100 rounded-xl overflow-hidden">
         <?= veg_thumb_html($veg, true, $eagerImage ? 'eager' : 'lazy', $prioritizeImage ? 'high' : 'auto') ?>
         <?php if ($compact): ?><span class="product-promo-badge">Offer</span><?php endif; ?>
