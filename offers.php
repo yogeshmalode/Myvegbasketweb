@@ -27,7 +27,7 @@ include __DIR__ . '/includes/header.php';
                  : ($offer['discount_type'] === 'flat' ? SITE_CURRENCY . number_format($offer['discount_value'], 0) . ' OFF'
                  : 'FREE DELIVERY');
         ?>
-        <div class="form-card" style="border:1.5px dashed var(--carrot); position:relative;">
+        <div id="offer-<?= (int)$offer['id'] ?>" class="form-card" style="border:1.5px dashed var(--carrot); position:relative; scroll-margin-top:120px;">
           <div style="display:inline-block; background:var(--leaf-light); color:var(--leaf-dark); font-weight:700; font-size:0.85rem; padding:5px 12px; border-radius:999px; margin-bottom:12px;">
             <?= h($badge) ?>
           </div>
