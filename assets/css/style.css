@@ -813,3 +813,18 @@ a:has(.offers-ticker-track):hover .offers-ticker-track{
   .site-header .nav-actions #installAppBtn,.site-header .nav-actions .nav-link,.site-header #accountMenu{display:none!important}
   .site-header #mobileMenuToggle{display:flex!important;width:38px!important;height:38px!important;align-items:center;justify-content:center;border-radius:9px!important;font-size:1.05rem!important}
 }
+@media(max-width:900px){
+  .site-header .header-inner .logo{min-width:0;overflow:hidden}
+  .site-header .header-inner .logo span{min-width:0;overflow:hidden;text-overflow:ellipsis}
+  .site-header .header-inner .nav-actions{min-width:max-content;flex-shrink:0}
+  .site-header .header-inner .search-form,
+  .site-header .header-inner .search-form input{min-width:0}
+  .site-header #mobileMenuToggle{flex:0 0 38px}
+}
+@media(max-width:360px){
+  .site-header .header-inner .logo{gap:6px;font-size:.9rem}
+  .site-header .header-inner .logo img{width:32px!important;height:32px!important}
+  .site-header .header-inner .nav-actions{gap:5px}
+  .site-header .header-inner .cart-btn{padding:7px 8px}
+  .site-header #mobileMenuToggle{width:34px!important;height:34px!important;flex-basis:34px}
+}
