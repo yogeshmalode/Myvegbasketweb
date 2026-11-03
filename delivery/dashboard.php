@@ -110,6 +110,25 @@ include __DIR__ . '/../includes/header.php';
     padding: 8px 12px;
     font-size: 0.75rem;
   }
+  .rider-account-actions {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex-wrap: wrap;
+  }
+  .rider-logout {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-height: 38px;
+    padding: 0 12px;
+    border: 1px solid #f0d7d4;
+    border-radius: 999px;
+    background: #fff8f7;
+    color: #a33e36;
+    font: 700 0.75rem var(--font-body);
+  }
+  .rider-logout:hover { background: #fce8e6; }
   .order-card {
     background: #fff;
     border: 1px solid #dfe9e2;
@@ -244,7 +263,10 @@ include __DIR__ . '/../includes/header.php';
           <div class="eyebrow">Delivery partner</div>
           <h3 class="rider-name"><?= h($rider['name']) ?></h3>
         </div>
-        <div class="rider-vehicle"><?= h($rider['vehicle'] ?: 'Bike') ?></div>
+        <div class="rider-account-actions">
+          <div class="rider-vehicle"><?= h($rider['vehicle'] ?: 'Bike') ?></div>
+          <a class="rider-logout" href="<?= BASE_URL ?>/delivery/logout.php">Log out</a>
+        </div>
       </div>
     </div>
 
