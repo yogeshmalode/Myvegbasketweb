@@ -233,7 +233,7 @@
     <header class="basket-ai-header">
       <div>
         <h2 class="basket-ai-title">Chat with Basket 🧺</h2>
-        <p class="basket-ai-subtitle">Your MyVegBasket assistant</p>
+        <p class="basket-ai-subtitle">Your chats may be saved to help with support</p>
       </div>
       <button class="basket-ai-close" type="button" aria-label="Close chat">
         <svg viewBox="0 0 24 24" width="18" height="18" fill="none" aria-hidden="true">
@@ -317,6 +317,9 @@
           throw new Error(typeof data.error === 'string' ? data.error : 'Please try again in a moment.');
         }
         addBubble(data.text, 'assistant');
+        if (data.logged === false) {
+          addBubble(data.warning || 'This reply was not saved to the chat log.', 'assistant');
+        }
       } catch (error) {
         typingBubble.remove();
         addBubble(error instanceof Error ? error.message : 'Basket could not reply just now. Please try again.', 'assistant');

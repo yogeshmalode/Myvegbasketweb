@@ -51,6 +51,13 @@ if (!function_exists('curl_init')) {
     basket_ai_json_response(503, ['error' => 'Basket is temporarily unavailable. Please try again later.']);
 }
 
+require_once __DIR__ . '/config.php';
+$customerId = !empty($_SESSION['customer_id']) ? (int) $_SESSION['customer_id'] : null;
+$conversationId = hash('sha256', session_id());
+if (session_status() === PHP_SESSION_ACTIVE) {
+    session_write_close();
+}
+
 $systemInstruction = <<<'PROMPT'
 You are Basket, the official AI Digital Assistant for MyVegBasket.com.
 MyVegBasket sells farm-fresh regular and exotic vegetables, pre-chopped and peeled vegetables, recipe combos such as Pav Bhaji mix and Biryani mix, dairy products including buffalo ghee, butter, paneer, curd and buttermilk, and fresh flowers.
@@ -125,4 +132,27 @@ if (!is_string($reply) || trim($reply) === '') {
     basket_ai_json_response(502, ['error' => 'Basket could not reply just now. Please try again shortly.']);
 }
 
-basket_ai_json_response(200, ['text' => trim($reply)]);
+$reply = trim($reply);
+$logged = true;
+try {
+    $pdo->beginTransaction();
+    $logStatement = $pdo->prepare(
+        'INSERT INTO ai_chat_messages (customer_id, conversation_id, role, message)
+         VALUES (?, ?, ?, ?)'
+    );
+    $logStatement->execute([$customerId, $conversationId, 'user', $message]);
+    $logStatement->execute([$customerId, $conversationId, 'assistant', $reply]);
+    $pdo->commit();
+} catch (Throwable $e) {
+    if ($pdo->inTransaction()) {
+        $pdo->rollBack();
+    }
+    error_log('Basket AI: Could not store chat messages: ' . $e->getMessage());
+    $logged = false;
+}
+
+basket_ai_json_response(200, [
+    'text' => $reply,
+    'logged' => $logged,
+    'warning' => $logged ? null : 'This reply was not saved to the chat log.',
+]);

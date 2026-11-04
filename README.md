@@ -21,7 +21,7 @@ A responsive, interactive vegetable ordering website built in plain PHP + MySQL,
 
 The floating Basket assistant uses PHP cURL and a Google Gemini API key. Configure `GEMINI_API_KEY` as a server environment variable (never place the key in frontend code or commit it). The handler defaults to the currently documented stable `gemini-3.6-flash` model; Gemini 1.5 Flash is no longer listed in Google's current model catalog. Set `GEMINI_MODEL` to a model available to your API project if needed. Free-tier model access and quotas depend on Google's current availability for your account. Ensure outbound HTTPS access to `generativelanguage.googleapis.com` and the PHP cURL extension are available.
 
-The chat widget is included automatically by `includes/footer.php`. The API key must be configured in the PHP/web-server process environment before using the chat.
+The chat widget is included automatically by `includes/footer.php`. The API key must be configured in the PHP/web-server process environment before using the chat. To enable chat logging, run `migration_ai_chat_messages.sql` on the same application database (after the customers table exists). Successful exchanges are saved as user and assistant messages; signed-in chats are linked to the customer's account, while guest chats use a one-way hash of the PHP session ID. Removing a customer also removes their linked chat records. The widget tells visitors chats may be saved. If the migration has not been run or logging fails, Basket still replies and reports that the exchange was not saved.
 
 1. **Import the database**
    ```bash
