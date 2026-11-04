@@ -17,6 +17,12 @@ A responsive, interactive vegetable ordering website built in plain PHP + MySQL,
 
 ## Setup
 
+### AI chat assistant
+
+The floating Basket assistant uses PHP cURL and a Google Gemini API key. Configure `GEMINI_API_KEY` as a server environment variable (never place the key in frontend code or commit it). The handler defaults to the currently documented stable `gemini-3.6-flash` model; Gemini 1.5 Flash is no longer listed in Google's current model catalog. Set `GEMINI_MODEL` to a model available to your API project if needed. Free-tier model access and quotas depend on Google's current availability for your account. Ensure outbound HTTPS access to `generativelanguage.googleapis.com` and the PHP cURL extension are available.
+
+The chat widget is included automatically by `includes/footer.php`. The API key must be configured in the PHP/web-server process environment before using the chat.
+
 1. **Import the database**
    ```bash
    mysql -u root -p < database.sql
